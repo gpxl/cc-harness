@@ -17,6 +17,8 @@ When a project has an `## Agent Config` table in its CLAUDE.md, the agent pipeli
 ```
 code change → code-quality (evaluate) → FAIL? → test-writer → code-quality (re-verify)
                                        → PASS  → commit agent (stage, commit, push, open PR)
+                                                   → pr-monitor (watch CI, merge on green)
+                                                       → release (evaluate, tag if warranted)
 ```
 
 | Step | Agent | Required? |
@@ -24,6 +26,8 @@ code change → code-quality (evaluate) → FAIL? → test-writer → code-quali
 | 1 | code-quality | **Yes** for source files matching `quality_gate_pattern` |
 | 2 | test-writer | Only if code-quality reports FAIL |
 | 3 | commit | **Always** — handles staging, committing, pushing, and PR creation |
+| 4 | pr-monitor | When PR is opened — watches CI, merges on green |
+| 5 | release | After merge to main — evaluates if release is needed |
 
 ### Exemptions
 
