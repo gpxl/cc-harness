@@ -141,6 +141,11 @@ Add a fresh empty `## [Unreleased]` section at the top.
 Generate changelog content for the GitHub Release (Step 10) instead of
 modifying a CHANGELOG.md file.
 
+**If `version_strategy` is `git-tags-only`:**
+
+Skip CHANGELOG.md entirely — there are no version files or changelog to
+maintain. Generate changelog content for the GitHub Release (Step 10) instead.
+
 ## Step 7 — Sync version files
 
 If `version_files` is not `(none)`, parse each entry. Format:

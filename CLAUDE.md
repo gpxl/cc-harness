@@ -30,11 +30,11 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | exclusions | (none) |
 | exclusion_reason | (none) |
 | version_files | (none) |
-| version_strategy | (none) |
+| version_strategy | git-tags-only |
 | branch_pattern | <type>/<description> |
-| deploy_model | (none) |
+| deploy_model | discrete |
 | pr_merge_strategy | squash |
-| release_merge_strategy | (none) |
+| release_merge_strategy | squash |
 | browser_validation | (none) |
 | quality_gate_pattern | (none) |
 | co_author | Claude <noreply@anthropic.com> |
