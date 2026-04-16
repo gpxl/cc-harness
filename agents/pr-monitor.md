@@ -19,15 +19,17 @@ checks, merge on green, and report failures. You never modify code.
 
 ## Step 0 — Read Agent Config
 
-Read the project's CLAUDE.md. Find the `## Agent Config` table and extract
-the `branch_pattern` key. This determines which branch prefixes are safe
-to auto-merge.
+Read the project's CLAUDE.md. Find the `## Agent Config` table and extract:
 
-If `branch_pattern` is `claude/<description>`, only merge `claude/*` or
-`agent/*` branches. If `<type>/<description>`, accept any conventional type
-prefix (`feat/`, `fix/`, `refactor/`, etc.) plus `agent/*` and `release/*`.
-
-Also extract `pr_merge_strategy` — defaults to `squash` if not found.
+- `branch_pattern` — determines which branch prefixes are safe to auto-merge.
+  - If `claude/<description>`, only merge `claude/*` or `agent/*` branches.
+  - If `<type>/<description>`, accept any conventional type prefix (`feat/`,
+    `fix/`, `refactor/`, etc.) plus `agent/*` and `release/*`.
+- `pr_merge_strategy` — defaults to `squash` if not found.
+- `auto_merge_labels` (optional) — comma-separated list of labels that permit
+  auto-merge. If set, the PR **must** carry at least one of these labels to be
+  auto-merged. If not set or empty, label checking is skipped (backward
+  compatible with the branch-only policy).
 
 ## Step 1 — Identify the PR
 
@@ -39,7 +41,7 @@ Determine the PR number from:
 ## Step 2 — Validate the PR
 
 ```bash
-gh pr view $PR_NUMBER --json headRefName,baseRefName,state
+gh pr view $PR_NUMBER --json headRefName,baseRefName,state,labels
 ```
 
 **Safety checks (all must pass):**
@@ -49,14 +51,25 @@ gh pr view $PR_NUMBER --json headRefName,baseRefName,state
 | Branch prefix | `headRefName` matches allowed pattern from Step 0 | Output REFUSED |
 | Target branch | `baseRefName` is `main` | Output REFUSED |
 | PR state | `state` is `OPEN` | Output REFUSED |
+| Label (if `auto_merge_labels` set) | PR carries at least one label from the config list | Output AWAITING_HUMAN |
 
-If any check fails:
+If any safety check other than the label fails:
 
 ```
 PR MONITOR RESULT: REFUSED
 PR: #<number>
 Reason: <which check failed and why>
 ```
+
+If only the label check fails, the PR still gets CI watched but **is not merged**:
+
+```
+PR MONITOR RESULT: AWAITING_HUMAN
+PR: #<number>
+Reason: No auto-merge label present (config requires one of: <labels>). CI status will still be reported but human review + manual merge is required.
+```
+
+Then proceed to Step 3 to watch CI and report results, but **skip Step 5 (merge)** — output `AWAITING_HUMAN` with CI status appended instead.
 
 ## Step 3 — Wait for CI checks
 
@@ -84,7 +97,8 @@ done
 gh pr checks $PR_NUMBER
 ```
 
-- All checks pass → Step 5 (merge)
+- All checks pass AND label check passed in Step 2 → Step 5 (merge)
+- All checks pass BUT label check failed in Step 2 → emit `AWAITING_HUMAN` with CI-green note, exit without merging
 - Any check fails → Step 6 (report failure)
 
 ## Step 5 — Merge (all green)
@@ -169,4 +183,13 @@ Log summary:
 PR MONITOR RESULT: REFUSED
 PR: #<number>
 Reason: <explanation>
+```
+
+**Awaiting human (CI green but no auto-merge label):**
+```
+PR MONITOR RESULT: AWAITING_HUMAN
+PR: #<number>
+Branch: <branch>
+CI: all checks passed
+Reason: PR label does not permit auto-merge (config: auto_merge_labels=<labels>). Human review + manual merge required.
 ```

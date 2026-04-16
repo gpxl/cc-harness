@@ -112,7 +112,77 @@ Categorize commits:
 | `security:` | Security |
 | `docs:`, `test:` | Internal |
 
-## Step 5 — Determine version bump
+## Step 5 — Documentation audit
+
+Before cutting a release, verify that user-facing and developer documentation
+accurately reflects the features and architecture being released.
+
+### 5a — Discover documentation files
+
+```bash
+# Find user-facing docs
+ls README.md CHANGELOG.md docs/*.md docs/**/*.md 2>/dev/null
+```
+
+### 5b — CHANGELOG completeness
+
+Read CHANGELOG.md's `[Unreleased]` section. For each `feat:` and `fix:`
+commit identified in Step 4, check whether a corresponding entry exists.
+
+- If `[Unreleased]` is empty and there are qualifying commits →
+  **documentation gap** (the release agent will generate entries in the
+  CHANGELOG step, but user-facing docs below still need checking).
+
+### 5c — Feature documentation
+
+For each `feat:` commit, extract the feature's key concept (e.g.
+"health alerts", "budget tracking", "plugin system"). Search README.md
+and any files under `docs/` for mention of that concept.
+
+A feature is **documented** if at least one of these is true:
+- README.md describes the feature (even briefly)
+- A dedicated doc page covers it
+- The CHANGELOG `[Unreleased]` section has a clear entry
+
+A feature is **undocumented** if none of the above apply.
+
+### 5d — Architecture documentation
+
+If unreleased commits added new modules, renamed files, changed data flow,
+or modified the state schema:
+
+- Check `docs/ARCHITECTURE.md` (if it exists) for accuracy
+- Check that module maps, diagrams, or state schemas reflect the current code
+- New modules should appear in any module map table
+
+### 5e — API documentation
+
+If unreleased commits changed HTTP endpoints, state snapshot fields, or
+public function signatures:
+
+- Check `docs/API.md` (if it exists) for accuracy
+- New endpoints or response fields should be documented
+- Removed or renamed fields should not appear in the docs
+
+### 5f — Decision
+
+| Outcome | Action |
+|---------|--------|
+| All features documented, docs accurate | Proceed to Step 6 |
+| Minor gaps (CHANGELOG only) | Proceed — the release agent writes CHANGELOG entries in Step 7 |
+| No doc files found (README.md, docs/) | Proceed — project has no docs to audit |
+| User-facing feature undocumented in README/docs | **RELEASE RESULT: FAIL** — report gaps |
+| Architecture/API docs stale | **RELEASE RESULT: FAIL** — report gaps |
+
+When reporting FAIL, list each gap with:
+- The commit that introduced the change
+- Which doc file needs updating
+- A brief description of what's missing
+
+The release agent does **not** write README, architecture, or API docs —
+that is the caller's responsibility. The agent only gates on their accuracy.
+
+## Step 6 — Determine version bump
 
 **If `version_strategy` is `semver-beta` (pre-1.0):**
 - Bug fixes only → bump beta: `0.1.0b1` → `0.1.0b2`
@@ -128,7 +198,7 @@ Categorize commits:
 **If `version_strategy` is `git-tags-only`:**
 - Same as `semver` but no version files to sync.
 
-## Step 6 — Update CHANGELOG.md
+## Step 7 — Update CHANGELOG.md
 
 **If `deploy_model` is `discrete`:**
 
@@ -146,7 +216,7 @@ modifying a CHANGELOG.md file.
 Skip CHANGELOG.md entirely — there are no version files or changelog to
 maintain. Generate changelog content for the GitHub Release (Step 10) instead.
 
-## Step 7 — Sync version files
+## Step 8 — Sync version files
 
 If `version_files` is not `(none)`, parse each entry. Format:
 `file (field_name)`.
@@ -161,7 +231,7 @@ Update each file's field to the new version string. Common patterns:
 | `package.json` | `"version": "X.Y.Z"` |
 | TypeScript `version.ts` | `export const VERSION = "X.Y.Z"` |
 
-## Step 8 — Run quality gates
+## Step 9 — Run quality gates
 
 Execute `test_cmd`. If any test fails, output `RELEASE RESULT: FAIL` and stop.
 
@@ -170,7 +240,7 @@ Execute `lint_cmd`. If lint fails, output `RELEASE RESULT: FAIL` and stop.
 If `build_cmd` is not `(none)`, execute it. If build fails, output
 `RELEASE RESULT: FAIL` and stop.
 
-## Step 9 — Commit, tag, push
+## Step 10 — Commit, tag, push
 
 **If `deploy_model` is `discrete` and version files were updated:**
 
@@ -213,7 +283,7 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin --tags
 ```
 
-## Step 10 — Create GitHub Release
+## Step 11 — Create GitHub Release
 
 ```bash
 gh release create vX.Y.Z --title "vX.Y.Z" --notes "$(cat <<'EOF'
@@ -232,6 +302,7 @@ EOF
 ## Hard Constraints
 
 - Do **not** modify files outside version + changelog scope.
+- Do **not** write or update README, architecture, or API docs — only gate on them.
 - Do **not** push if quality gates fail — report FAIL and stop.
 - Do **not** merge a PR with failing checks.
 - Do **not** release if no qualifying commits exist — report SKIP.
