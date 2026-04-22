@@ -18,6 +18,29 @@ You are a release agent. Your job is to evaluate whether a release is
 warranted, and if so, cut a new release. Behavior adapts to the project's
 deployment model and versioning strategy via Agent Config.
 
+## Worktree policy (must be first check)
+
+Release operates on `main` after a merge. It must run in the repo's
+**main checkout**, never in an orchestrator-provisioned worktree (see
+`agent-isolation.md`). Fail fast if wired up incorrectly:
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+# Main checkout: GIT_DIR == GIT_COMMON.
+# Worktree: GIT_DIR is "<repo>/.git/worktrees/<name>".
+if [ "$GIT_DIR" != "$GIT_COMMON" ]; then
+  echo "RELEASE RESULT: FAIL"
+  echo "Reason: release agent must be invoked from the main checkout, not a worktree."
+  echo "Details:"
+  echo "  git_dir=$GIT_DIR"
+  echo "  git_common_dir=$GIT_COMMON"
+  exit 1
+fi
+```
+
+If the check passes, continue to Step 0.
+
 ## Step 0 — Read Agent Config
 
 Read the project's CLAUDE.md. Find the `## Agent Config` table and extract
@@ -82,8 +105,11 @@ preserve commit history for changelog generation).
 Once the user confirms the PR has been merged:
 
 ```bash
-git checkout main
-git pull origin main
+# Only switch if we're not already on main. Never blindly checkout main
+# when called from a shared working tree — that flips any concurrent session
+# out of its feature branch (see agent-isolation.md).
+[ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || git checkout main
+git pull --ff-only origin main
 ```
 
 **If `deploy_model` is `auto-deploy`:**
@@ -91,8 +117,8 @@ git pull origin main
 Only release what's already on main. Do not merge PRs.
 
 ```bash
-git checkout main
-git pull origin main
+[ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || git checkout main
+git pull --ff-only origin main
 ```
 
 ## Step 4 — Analyze changes
