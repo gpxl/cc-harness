@@ -20,6 +20,29 @@ changes, verify quality gates, create well-structured commits using
 Conventional Commits format, run quality checks, push the branch, and open
 a pull request on GitHub.
 
+## Worktree policy
+
+You may be invoked from either the repo's **main checkout** or an
+**orchestrator-provisioned worktree** (see `agent-isolation.md`). Detect
+which by comparing the per-worktree `git-dir` with the shared `git-common-dir`:
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+# In the main checkout these are equal (both "<repo>/.git").
+# In a worktree, GIT_DIR points to "<repo>/.git/worktrees/<name>" while
+# GIT_COMMON still points to "<repo>/.git".
+if [ "$GIT_DIR" = "$GIT_COMMON" ]; then
+  IN_WORKTREE=0
+else
+  IN_WORKTREE=1
+fi
+```
+
+Behavioral differences are documented in Step 3 below. You must never
+`git checkout main` or destroy the orchestrator's branch inside a
+worktree.
+
 ## Step 0 — Read Agent Config
 
 Read the project's CLAUDE.md. Find the `## Agent Config` table and extract
@@ -106,16 +129,21 @@ Read the actual diffs to understand what changed and why.
 
 ## Step 3 — Ensure feature branch
 
-If on `main`, create a descriptive branch using `branch_pattern`:
+**If `IN_WORKTREE=1`** (orchestrator set up the worktree for you):
+- Do **not** create or switch branches — the worktree is already on the
+  intended branch (e.g. `agent/<desc>`).
+- Do **not** `git checkout main` under any circumstance.
+- Capture `BRANCH=$(git rev-parse --abbrev-ref HEAD)` and skip to Step 4.
 
-```bash
-git checkout -b <branch-name>
-```
-
-If `branch_pattern` is `<type>/<description>`, use the dominant change type
-(e.g., `fix/outage-detection`). If `claude/<description>`, use `claude/<short-desc>`.
-
-If already on a feature branch, stay on it.
+**If `IN_WORKTREE=0`** (running in the main checkout):
+- If on `main`, create a descriptive branch using `branch_pattern`:
+  ```bash
+  git checkout -b <branch-name>
+  ```
+  If `branch_pattern` is `<type>/<description>`, use the dominant change
+  type (e.g., `fix/outage-detection`). If `claude/<description>`, use
+  `claude/<short-desc>`.
+- If already on a feature branch, stay on it.
 
 ## Step 4 — Plan commits
 
@@ -182,8 +210,12 @@ Verify with `git log --oneline -1`.
 
 ## Step 9 — Push branch
 
+Push the current HEAD to a remote branch of the same name. Using `HEAD`
+(rather than substituting the branch name at plan time) makes this step
+correct regardless of whether we are in the main checkout or a worktree:
+
 ```bash
-git push -u origin <branch-name>
+git push -u origin HEAD
 ```
 
 Do **not** force-push if rejected. Output `COMMIT RESULT: FAIL` with

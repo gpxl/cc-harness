@@ -2,6 +2,26 @@
 
 When setting up or optimizing a project's CLAUDE.md, include these sections with project-specific entries.
 
+## Agent Config — Isolation Keys
+
+For any project where multiple Claude sessions / scheduled routines may run against the repo concurrently, add these two keys to the `## Agent Config` table. They let orchestrator skills (multi-PR routines, `/loop` git-writing tasks) wrap their pipeline in a `git worktree` so parallel runs don't corrupt each other. See `agent-isolation.md` for the full lifecycle.
+
+```markdown
+## Agent Config
+
+| Key | Value |
+|-----|-------|
+| worktree_root | ../<repo-name>-worktrees |
+| isolation_required_for | <comma-separated skill names>, or (none) |
+```
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `worktree_root` | `../<repo>-worktrees` | Parent directory for all isolated worktrees. Keep outside the repo. |
+| `isolation_required_for` | `(none)` | Comma-separated skill names that MUST run in a worktree. Skills enforce this in their preamble. |
+
+Projects without these keys keep the old behavior — the commit and release agents detect "main checkout" via `git rev-parse --git-common-dir` and no-op their worktree branches.
+
 ## Project-Specific NEVER Rules
 
 Add this section to a project's CLAUDE.md. The value is in entries only the project owner knows — do NOT duplicate built-in system prompt rules (e.g., "never force-push" is already built-in).
