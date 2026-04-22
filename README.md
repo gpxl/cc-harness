@@ -8,9 +8,9 @@ A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/c
 |-------|---------|
 | **code-quality** | Evaluates test coverage, quality (Q1-Q8 checklist), and lint. Reports PASS/FAIL. |
 | **test-writer** | Writes behavioral tests for gaps reported by code-quality. Never writes line-coverage tests. |
-| **commit** | Gates on code-quality PASS, creates Conventional Commits, pushes branch, opens PR. |
-| **release** | Evaluates whether to release, bumps version, updates changelog, tags, creates GitHub Release. |
-| **pr-monitor** | Watches CI checks, auto-merges on green (squash + delete branch). |
+| **commit** | Gates on code-quality PASS, creates Conventional Commits, pushes branch, opens PR. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
+| **release** | Evaluates whether to release, runs a documentation audit (FAILs if user-facing `feat:`/`fix:` commits aren't reflected in README/`docs/`), bumps version, updates changelog, tags, creates GitHub Release. Refuses to run inside a worktree — must be invoked from the main checkout. |
+| **pr-monitor** | Watches CI checks. Auto-merges on green only when (a) the branch matches the `branch_pattern` and (b) the PR carries one of the labels listed in `auto_merge_labels` (Agent Config). PRs without a permitted label get CI watched but emit `AWAITING_HUMAN` for manual merge. If `auto_merge_labels` is unset, label-gating is skipped (backward compatible). |
 | **verification** | Adversarial verification before reporting done. Anti-rationalization catalog. Tries to break it. |
 
 Plus rules for test quality, memory discipline, CLAUDE.md project templates, and agent purpose statements.
@@ -44,6 +44,9 @@ Then edit the values for your project. Key fields:
 | `coverage_per_module` | `80` or `(none)` |
 | `version_strategy` | `semver`, `semver-beta`, `git-tags-only`, or `(none)` |
 | `deploy_model` | `discrete` or `auto-deploy` |
+| `auto_merge_labels` | comma-separated PR labels that permit pr-monitor to auto-merge (e.g. `agent/auto`); unset disables label-gating |
+| `worktree_root` | parent directory for orchestrator-provisioned worktrees (e.g. `../<repo>-worktrees`); enables parallel-safe pipelines |
+| `isolation_required_for` | comma-separated skill names that must run inside a worktree |
 
 Use `(none)` to skip any capability your project doesn't need.
 
@@ -68,7 +71,8 @@ The harness agents are **config-driven**: instead of hardcoding commands and thr
     ├── testing-guidelines.md
     ├── claude-md-project-templates.md
     ├── memory-discipline.md
-    └── agent-purpose-statements.md
+    ├── agent-purpose-statements.md
+    └── agent-isolation.md
 ```
 
 ## Agent workflow
@@ -105,6 +109,7 @@ This is useful for projects with unique workflows (e.g., student-facing agents t
 | **claude-md-project-templates** | NEVER rules template + autonomy tier template for project CLAUDE.md |
 | **memory-discipline** | Memory exclusion reinforcements + recall-time verification protocol |
 | **agent-purpose-statements** | Purpose statement pattern for manual agent orchestration |
+| **agent-isolation** | Worktree-based isolation for parallel-safe pipelines — when/how to use `git worktree` so concurrent Claude sessions don't corrupt each other's branch state |
 
 ## Uninstall
 
