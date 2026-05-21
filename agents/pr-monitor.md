@@ -95,13 +95,40 @@ done
 
 ```bash
 gh pr checks $PR_NUMBER
+gh pr view $PR_NUMBER --json mergeStateStatus,autoMergeRequest -q '{state: .mergeStateStatus, auto: (.autoMergeRequest != null)}'
 ```
 
-- All checks pass AND label check passed in Step 2 → Step 5 (merge)
+- All checks pass AND label check passed in Step 2 → Step 4.5 (handle behind, then merge)
 - All checks pass BUT label check failed in Step 2 → emit `AWAITING_HUMAN` with CI-green note, exit without merging
-- Any check fails → Step 6 (report failure)
+- Any check fails → Step 7 (report failure)
 
-## Step 5 — Merge (all green)
+## Step 4.5 — Handle "branch behind base" (auto-merge unstick)
+
+GitHub branch protection often requires up-to-date branches. When `mergeStateStatus` is `BEHIND` (or `BLOCKED` due to out-of-date branch), the PR sits indefinitely even with auto-merge enabled — UNLESS you update the branch.
+
+| `mergeStateStatus` | Action |
+|--------------------|--------|
+| `CLEAN`, `HAS_HOOKS`, `UNSTABLE` | Proceed to Step 5 |
+| `BEHIND` | Update the branch, then re-watch CI (loop back to Step 3) |
+| `BLOCKED` with auto-merge enabled | Often a transient post-update state; sleep 15s and re-check once. If still BLOCKED with green CI, update branch and loop. |
+| `DIRTY` (merge conflict) | Output AWAITING_HUMAN — conflicts need a human |
+| Anything else with green CI | Update branch defensively, re-check |
+
+**Update the branch:**
+
+```bash
+gh pr update-branch $PR_NUMBER --rebase
+```
+
+Use `--rebase` when the project's `pr_merge_strategy` is `squash` (clean linear history). Use the default (merge commit) if the project squashes from a merge-commit base.
+
+After `update-branch`, CI re-runs on the new HEAD. **Loop back to Step 3** (wait for CI). Cap the loop at **3 iterations** to avoid livelock if main is moving faster than CI completes — after 3 unsticks without converging, output AWAITING_HUMAN with the diagnosis.
+
+## Step 5 — Merge (all green, branch up-to-date)
+
+If `autoMergeRequest` is non-null, GitHub will merge automatically once `mergeStateStatus` is `CLEAN`. Wait briefly (up to 60s, polling every 10s) for GitHub to finish — do NOT manually merge in this case (manual merge bypasses the auto-merge mechanism the commit agent intentionally set up).
+
+If `autoMergeRequest` is null (commit agent's `enable_pr_auto_merge` call didn't take effect), fall back to manual merge:
 
 ```bash
 gh pr merge $PR_NUMBER --squash --delete-branch
@@ -109,19 +136,59 @@ gh pr merge $PR_NUMBER --squash --delete-branch
 
 Use the merge strategy from Agent Config if different from squash.
 
-Output:
+After the merge succeeds (or you confirm GitHub auto-merge completed),
+proceed to Step 7 to reap local state. Only emit the `MERGED` result
+**after** Step 7 finishes — so the orchestrating agent can trust that
+the local checkout is clean.
+
+## Step 6 — Post-merge cleanup (local branch + worktree)
+
+`gh pr merge --delete-branch` removes the remote ref only. The local
+feature branch and (if running inside an orchestrator-provisioned
+worktree) the on-disk worktree are this step's responsibility.
+
+```bash
+# Capture identifiers before we move
+MERGED_BRANCH="$HEAD_REF_NAME"
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+
+if [ "$GIT_DIR" != "$GIT_COMMON" ]; then
+  # Inside a worktree. Move to the main checkout, then remove the worktree.
+  WT_PATH=$(git rev-parse --show-toplevel)
+  MAIN_CHECKOUT=$(cd "$GIT_COMMON/.." && git rev-parse --show-toplevel)
+  cd "$MAIN_CHECKOUT"
+  git worktree remove --force "$WT_PATH" 2>/dev/null || true
+fi
+
+# Delete the local branch (it lives in the shared git/refs).
+# -D, not -d, because squash-merge leaves the branch tip not-merged
+# from git's perspective even though the changes are on main.
+git branch -D "$MERGED_BRANCH" 2>/dev/null || true
+git remote prune origin
+git worktree prune
+```
+
+**Safety:** if any step in this block fails, do **not** abort —
+log the failure as a one-line note and still emit `MERGED`. The merge
+itself succeeded; cleanup failures are a maintenance issue, not a
+release blocker. The reaper script (`scripts/cleanup-stale-git-state.sh`)
+catches whatever this step missed.
+
+Final output:
 
 ```
 PR MONITOR RESULT: MERGED
 PR: #<number>
-Branch: <headRefName> (deleted)
+Branch: <headRefName> (deleted, local + remote)
+Worktree: <path> (removed) | none
 Merge: squash into main
 ```
 
 The orchestrating agent should invoke the release agent after receiving
 this result.
 
-## Step 6 — Report failure (any red)
+## Step 7 — Report failure (any red)
 
 ```bash
 # List failed checks
