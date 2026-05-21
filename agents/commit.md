@@ -39,7 +39,8 @@ else
 fi
 ```
 
-Behavioral differences are documented in Step 3 below. You must never
+Behavioral differences are documented in Step 1 below (branching is the
+first thing the agent does, before any quality checks). You must never
 `git checkout main` or destroy the orchestrator's branch inside a
 worktree.
 
@@ -94,7 +95,52 @@ Co-Authored-By: <co_author from Agent Config>
 - Body: wrap at 80 chars. Explain **why**, not what (the diff shows what).
 - One logical change per commit.
 
-## Step 1 — Verify code-quality gate
+## Step 1 — Ensure feature branch (BEFORE any other work)
+
+Branching first is intentional. If the orchestrator delegated to this
+agent while HEAD was on `main`, running `test_cmd` / `lint_cmd` /
+`build_cmd` against `main` is both wasted compute and a forensic hazard
+(build artifacts dirty the integration branch). Branch before any
+expensive step.
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+if [ "$GIT_DIR" = "$GIT_COMMON" ]; then
+  IN_WORKTREE=0
+else
+  IN_WORKTREE=1
+fi
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+```
+
+**If `IN_WORKTREE=1`:** the orchestrator already set up the right branch.
+Capture `BRANCH=$CURRENT_BRANCH` and proceed to Step 2. Do **not**
+`git checkout` anything.
+
+**If `IN_WORKTREE=0` and `CURRENT_BRANCH` is `main` / `master` / `trunk`
+/ `develop`:** Forensic log + branch creation:
+
+```bash
+# Forensic: capture what's in-flight on the integration branch before we
+# carry it onto the feature branch. If unexpected files appear here, the
+# orchestrator skipped the branch-guard hook upstream.
+git status --short
+
+# Derive a branch name from the dominant change. Use the branch_pattern
+# from Agent Config (e.g. `claude/<description>`).
+BRANCH="claude/<short-kebab-description>"
+git fetch origin "$CURRENT_BRANCH" --quiet
+git checkout -b "$BRANCH" "origin/$CURRENT_BRANCH"
+```
+
+`git checkout -b` carries the working-tree changes onto the new branch,
+so no work is lost.
+
+**If `IN_WORKTREE=0` and already on a feature branch:** capture
+`BRANCH=$CURRENT_BRANCH` and proceed.
+
+## Step 2 — Verify code-quality gate
 
 Check whether this commit includes changes to files matching
 `quality_gate_pattern` (excluding `exclusions`):
@@ -116,7 +162,7 @@ run code-quality first.
 
 **If no source files changed** (only tests, docs, config, etc.): skip this gate.
 
-## Step 2 — Survey changes
+## Step 3 — Survey changes
 
 ```bash
 git status
@@ -126,24 +172,6 @@ git branch --show-current
 ```
 
 Read the actual diffs to understand what changed and why.
-
-## Step 3 — Ensure feature branch
-
-**If `IN_WORKTREE=1`** (orchestrator set up the worktree for you):
-- Do **not** create or switch branches — the worktree is already on the
-  intended branch (e.g. `agent/<desc>`).
-- Do **not** `git checkout main` under any circumstance.
-- Capture `BRANCH=$(git rev-parse --abbrev-ref HEAD)` and skip to Step 4.
-
-**If `IN_WORKTREE=0`** (running in the main checkout):
-- If on `main`, create a descriptive branch using `branch_pattern`:
-  ```bash
-  git checkout -b <branch-name>
-  ```
-  If `branch_pattern` is `<type>/<description>`, use the dominant change
-  type (e.g., `fix/outage-detection`). If `claude/<description>`, use
-  `claude/<short-desc>`.
-- If already on a feature branch, stay on it.
 
 ## Step 4 — Plan commits
 
