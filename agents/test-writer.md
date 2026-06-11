@@ -8,7 +8,7 @@ description: >
 purpose: >
   Code-quality reported specific gaps — write tests for the listed behaviors
   only, nothing more.
-model: claude-sonnet-4-6
+model: sonnet
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
