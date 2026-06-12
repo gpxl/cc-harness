@@ -8,7 +8,7 @@ description: >
 purpose: >
   Evaluate and execute release — output is the release tag or a no-release
   reason. The caller acts on the verdict, not the analysis.
-model: claude-sonnet-4-6
+model: sonnet
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 

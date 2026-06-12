@@ -7,7 +7,7 @@ description: >
 purpose: >
   Output determines whether to proceed to commit or send back for fixes.
   Focus on evidence-backed verdicts, not advisory observations.
-model: claude-sonnet-4-6
+model: sonnet
 tools: Bash, Read, Glob, Grep
 ---
 

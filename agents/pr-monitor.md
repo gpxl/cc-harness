@@ -8,7 +8,7 @@ description: >
 purpose: >
   Watch CI and merge on green — output is merge confirmation or failure
   report for the caller.
-model: claude-sonnet-4-6
+model: sonnet
 tools: Bash, Read, Glob, Grep
 ---
 
