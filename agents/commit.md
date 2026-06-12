@@ -9,7 +9,7 @@ description: >
 purpose: >
   Stage and commit changes — output is commit SHA and PR URL, or failure
   details for the caller to act on.
-model: claude-sonnet-4-6
+model: sonnet
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 

@@ -8,7 +8,7 @@ description: >
 purpose: >
   Output informs whether to proceed to commit or delegate to test-writer.
   Focus on actionable gaps, not informational metrics.
-model: claude-haiku-4-5-20251001
+model: haiku
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
