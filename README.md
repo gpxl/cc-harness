@@ -23,7 +23,11 @@ cd cc-harness
 ./install.sh
 ```
 
-This symlinks `agents/` and `rules/` into `~/.claude/`, making them available in every project. Any existing directories are backed up first.
+This symlinks `agents/` and `rules/` into `~/.claude/`, and `global/CLAUDE.md` to `~/.claude/CLAUDE.md`, making them available in every project.
+
+Existing state is never destroyed: a real directory or file at the target is backed up first (`<name>.backup.<timestamp>`), and `./uninstall.sh` restores the most recent backup. A target that is already a *symlink* is repointed rather than backed up — the file it pointed at is left untouched, so nothing is lost, but note that `uninstall.sh` restores a backup rather than the previous symlink.
+
+Keeping the global `CLAUDE.md` here means edits to it are versioned and reviewable like everything else. It is the file Claude Code loads into *every* session, so an unversioned edit to it is an unversioned change to how every project behaves.
 
 ## Configure a project
 
@@ -60,6 +64,7 @@ The harness agents are **config-driven**: instead of hardcoding commands and thr
 
 ```
 ~/.claude/
+├── CLAUDE.md →  cc-harness/global/CLAUDE.md  (symlink)
 ├── agents/  →  cc-harness/agents/   (symlink)
 │   ├── code-quality.md
 │   ├── commit.md
