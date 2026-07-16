@@ -39,12 +39,14 @@ When a pipe is genuinely unavoidable:
 | `${PIPESTATUS[0]}` | First command's status (0-indexed) | **bash only** |
 | `${pipestatus[1]}` | First command's status (1-indexed) | **zsh only** |
 
-Mind the shell. `PIPESTATUS` is a bash-ism: in zsh it is **unset**, so `${PIPESTATUS[0]}` silently expands to an empty string — which in a conditional reads as "not non-zero", i.e. another false green. zsh spells it `$pipestatus` and indexes from 1. Claude Code's Bash tool inherits the user's login shell (zsh on macOS by default), so prefer `pipefail`, which behaves identically in both:
+Mind the shell. `PIPESTATUS` is a bash-ism: in zsh it is **unset**, so `${PIPESTATUS[0]}` silently expands to an empty string — which in a conditional reads as "not non-zero", i.e. another false green. (zsh's `[ "" -ne 0 ]` fails *silently*; bash at least complains.) zsh spells it `$pipestatus` and indexes from 1. Claude Code's Bash tool inherits the user's login shell — zsh on macOS by default — so prefer `pipefail`, which behaves identically in both:
 
 ```bash
-# verified in both shells: (exit 3) | tail -1  →  $? == 3
 set -o pipefail
+(exit 3) | tail -1        # with pipefail set: $? == 3   (without it: 0)
 ```
+
+`pipefail` cuts the other way too: it reports the **rightmost** non-zero status, so a filter that legitimately "fails" now poisons the pipeline. `pnpm test | grep -E "fail"` under `pipefail` exits 1 when the tests *passed* and grep simply matched nothing; `| head -2` can exit 141 on SIGPIPE. That's a false **red** — safer than a false green, but still noise. This is why redirect-to-a-file is the primary recommendation and `pipefail` is the fallback: the filter's status never touches the gate's.
 
 Do not report a gate as passing on an exit code that came through a pipe. Re-run it clean first.
 
