@@ -142,7 +142,7 @@ Route work to the model that fits the task. Applies to the **session model** AND
 |-----------|-------|----------|-----|
 | **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | **Fable 5** → fall back to Opus 4.8 if Fable unavailable | `claude-fable-5` | Highest reasoning ceiling. ~2× Opus cost, so reserve for genuinely novel design, not routine choices |
 | **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | **Opus 4.8** | `claude-opus-4-8` | Flagship agentic-coding model; default for most work. Run at `high`/`xhigh` effort |
-| **Probe / exploration** — codebase surveys, read-only investigation, light/mechanical passes | **Sonnet 4.6** | `claude-sonnet-4-6` | Fast + cheap; sufficient for discovery and low-stakes work |
+| **Probe / exploration** — codebase surveys, read-only investigation, light/mechanical passes | **Sonnet 5** | `claude-sonnet-5` | Fast + cheap; sufficient for discovery and low-stakes work |
 
 - **"If available"** for Fable: some environments/tiers don't expose `claude-fable-5`. When it isn't selectable, use Opus 4.8 for architecture work too — never block on Fable.
 - When in doubt between build and design, default to **Opus 4.8** — effort level (`high`/`xhigh`) usually matters more than Fable-vs-Opus.
