@@ -121,6 +121,14 @@ Projects enable isolation by adding to their CLAUDE.md Agent Config:
 
 Projects without these keys keep the old behavior — the commit and release agents take the main-checkout branch when `git rev-parse --git-dir` and `--git-common-dir` are equal (the case in a non-worktree checkout).
 
+## What worktrees do NOT isolate
+
+A worktree isolates git state only. The window server, the visible screen, audio/render engines,
+simulators, and TCC grants are machine-global: N worktree agents each running a windowed UI gate
+still pop N sets of windows on the user's desktop and can contend on shared engines. Serialize
+those stages through one gate-runner stream with a machine-global lock — see
+`windowed-gate-serialization.md`.
+
 ## Shared caches (follow-up, not a blocker)
 
 Each worktree gets its own `node_modules/` and `.next/`. pnpm's global content-addressed store already dedups package downloads across worktrees, so a fresh `pnpm install --prefer-offline` in a new worktree is typically <15s. **Use this as the default** — it's correct everywhere.
