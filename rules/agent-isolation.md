@@ -123,12 +123,20 @@ Projects without these keys keep the old behavior — the commit and release age
 
 ## Shared caches (follow-up, not a blocker)
 
-Each worktree gets its own `node_modules/` and `.next/`. pnpm's global content-addressed store already dedups package downloads across worktrees. If install time is a pain point, symlink `node_modules` after first install:
+Each worktree gets its own `node_modules/` and `.next/`. pnpm's global content-addressed store already dedups package downloads across worktrees, so a fresh `pnpm install --prefer-offline` in a new worktree is typically <15s. **Use this as the default** — it's correct everywhere.
+
+For non-Turbopack stacks (plain Webpack/Vite, no Next.js 15+), you can shave the install entirely by symlinking after the first install:
 
 ```bash
 ln -s "$REPO_ROOT/node_modules" "$WT_PATH/node_modules"
 ```
 
-Valid when the `pnpm-lock.yaml` hasn't changed between `main` and the branch; run `pnpm install` in the worktree if it has.
+Valid only when the `pnpm-lock.yaml` hasn't changed between `main` and the branch; run `pnpm install` in the worktree if it has.
+
+**Do not symlink for Turbopack / Next.js 15+ / Next.js 16+ projects.** Turbopack rejects out-of-tree symlinks at resolve time:
+
+> Symlink node_modules is invalid, it points out of the filesystem root — TurbopackInternalError
+
+Run `pnpm install --prefer-offline` instead — pnpm's global store makes it fast.
 
 Do not share `.next/` — Turbopack assumes exclusive ownership and corrupts on concurrent writes.
