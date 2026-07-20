@@ -99,3 +99,8 @@ is what makes bisection possible.
   statement: why it is invoked and how its output will be used.
 - **`agent-enforcement.md`** — commits still go through the commit agent; the
   only change is N commits on one branch instead of N branches.
+- **`windowed-gate-serialization.md`** — when the shared gate (or any per-item
+  gate) opens real application windows (GUI harnesses, screenshot/measure modes,
+  launch smokes), those stages must not run concurrently across parallel agents:
+  authoring fans out headless, windowed gates funnel through one serialized
+  stream with a machine-global lock.

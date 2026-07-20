@@ -16,6 +16,7 @@ Always consult documentation index and project files rather than relying on trai
 |agent-isolation.md: Worktree-based isolation for parallel agent pipelines — when and how
 |parallel-authoring.md: Fan-out parallel sub-agents for independent additive work; gate once
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
+|windowed-gate-serialization.md: Parallel agents on GUI-app projects — author headless in parallel, serialize window-opening gates through one stream + machine-global lock
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
