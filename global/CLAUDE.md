@@ -17,6 +17,7 @@ Always consult documentation index and project files rather than relying on trai
 |parallel-authoring.md: Fan-out parallel sub-agents for independent additive work; gate once
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
 |windowed-gate-serialization.md: Parallel agents on GUI-app projects — author headless in parallel, serialize window-opening gates through one stream + machine-global lock
+|computer-control-release.md: Release interactive control (computer-use, Simulator attach, Claude-in-Chrome) the moment active use ends, not for the rest of the task
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
