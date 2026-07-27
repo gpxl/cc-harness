@@ -12,7 +12,7 @@ Always consult documentation index and project files rather than relying on trai
 |testing-guidelines.md: Universal test quality (Q1-Q8), TDD, session close protocol
 |claude-md-project-templates.md: NEVER lists + autonomy tiers templates for project CLAUDE.md
 |memory-discipline.md: Memory exclusion reinforcements + recall-time verification protocol
-|agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
+|agent-purpose-statements.md: Purpose statements for agents/skills/orchestration AND for every phase of every plan
 |agent-isolation.md: Worktree-based isolation for parallel agent pipelines — when and how
 |parallel-authoring.md: Fan-out parallel sub-agents for independent additive work; gate once
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
@@ -134,7 +134,9 @@ When asked to **plan**: create all `bd create` issues, set dependencies with `bd
 
 Explain decisions: "I chose to extend [X] because [Y]" / "I imported [X] instead of recreating"
 
-When orchestrating agents manually, include a purpose statement: "This [context] — focus on [emphasis]." See `agent-purpose-statements.md`.
+When orchestrating agents manually, include a purpose statement: "This [context] — focus on [emphasis]."
+
+**Every phase of every plan opens with a purpose block** — *Purpose / Supports / Reduces / Introduces*. Gate phases (spikes, go/no-go) get the long form with numeric exit criteria. An empty `Supports` is a finding — say so rather than papering over it. See `agent-purpose-statements.md`.
 
 ## Model Routing
 
