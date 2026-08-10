@@ -73,8 +73,66 @@ Corollary: when a check fails somewhere your change couldn't plausibly reach (a 
 
 Both were diagnosed by reading the real log and capturing a real exit code — the same discipline as the rest of this rule.
 
+## Instruments must distinguish "healthy" from "not looking"
+
+Everything above is about *gates* — checks that decide whether work proceeds. The
+same disease infects *instruments*: monitors, health checks, dashboards, and the
+counters a long-running job returns. A gate that cannot fail wastes a green. An
+instrument that cannot fail is worse, because you consult it **precisely when
+you are not watching**, and it will tell you things are fine while nothing is
+happening at all.
+
+The test is one question, and it is not the same question as for a gate:
+
+> **If the thing I am measuring had stopped entirely, would this instrument look
+> any different from healthy?**
+
+If the answer is no, the instrument reports *unknown* and is dressed up as *good*.
+
+### Why this earned its own section
+
+On 2026-08-10 (SetDigger/mixid), across a single session, four instruments were
+built or extended and every one of them had this defect:
+
+| Instrument | Reported | Could not distinguish |
+|---|---|---|
+| Adoption RPC counters | `isrc_set: 36` | "already correct" vs "no evidence present" — the three-way branch counted two outcomes and left the third silent, so `seen − unlinked − skipped` never reconciled against `set + conflicts` |
+| Monitor stall check | `STALLED` after a restart | a stalled child vs a child two minutes old — it timed the *outage*, not the child |
+| Monitor gate detector | `0 gates` | no gates vs grepping the wrong file (the marker was written to per-item logs, not the aggregate log; 7 gated items sat on disk unseen) |
+| Monitor gate all-clear | `GATE CLEARED` | not gated vs **not fetching** — it fired during a backoff, when nothing could possibly have been gated |
+
+Each was written by someone who had just been careful about verification
+integrity in the production code. The observability *around* the work got the
+sloppiness the work itself was spared — which is backwards.
+
+### How to apply
+
+- **Gate every "all clear" on evidence of activity.** "No errors in the last 5
+  minutes" means nothing if nothing ran. Require the positive signal —
+  a live worker, a completed unit of work — before concluding health. Prefer
+  reporting `unknown` over `ok` when the subject is idle.
+- **Measure from the right epoch.** "Nothing completed in 25 minutes" is a stall
+  only if the worker has *been up* for 25 minutes. After any restart, an elapsed
+  timer anchored to the last success is measuring the outage.
+- **Confirm the signal reaches the place you are reading.** Grepping an
+  aggregate log for a marker that a child writes to its own log finds zero,
+  forever, and zero looks like good news. Verify the detector fires against a
+  **real captured sample**, not a hand-written fixture — real output contains
+  things you will not think to type. (One detector here had to match a *curly*
+  apostrophe, because the upstream service emits `you’re`, not `you're`. A
+  hand-written pattern would have missed every occurrence silently.)
+- **Make counter buckets reconcile.** If a loop has three outcomes, count three.
+  When `total` cannot be recomputed from the parts, a `0` is ambiguous between
+  "nothing to do" and "nothing was seen" — and someone will read it as the
+  former and close the task.
+- **Give every instrument a negative control.** Before trusting it, arrange for
+  the bad condition and confirm it reports. This is the same mutation discipline
+  the rest of this rule asks of gates; it takes seconds and is the only thing
+  that converts "the monitor is quiet" into "the monitor would have spoken".
+
 ## Relationship to other rules
 
 - **`testing-guidelines.md`** — Q1–Q8 covers test *quality* (empty bodies, no assertions, tautologies). This rule covers whether the *verification apparatus* around those tests reports the truth. A Q3 mock-argument warning and a piped exit code are the same disease: a check that cannot fail.
 - **`agent-enforcement.md`** — the commit agent gates on `CODE QUALITY RESULT: PASS`. That gate is only meaningful if the underlying command's status was read correctly.
 - **`agent-purpose-statements.md`** — when you delegate verification, the agent's independent re-run is a genuine second opinion. Don't instruct it to trust your gate results; let it contradict you.
+- **`agent-isolation.md`** — its collision preflight is the same idea applied to *people*: before starting, check whether the work is already underway. An instrument that cannot see a concurrent session reports "nobody is on this" for the same reason a quiet monitor reports health.

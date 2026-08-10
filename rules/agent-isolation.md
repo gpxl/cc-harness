@@ -18,6 +18,64 @@ This rule defines when to create an isolated `git worktree` and the portable lif
 
 Do **not** use the `Agent` tool's built-in `isolation: "worktree"` flag for pipelines — it isolates a single sub-agent call and would nest under the orchestrator's worktree.
 
+## Before you claim work, check nobody else has
+
+Worktrees stop two sessions from corrupting each other's *git state*. Nothing in
+them stops two sessions from independently choosing **the same work** — and that
+failure costs more, because both sides do the whole job before anyone notices.
+
+On 2026-08-10 (SetDigger) it happened twice in one day:
+
+- **Phase `tj7b.5`** — a second session had already implemented and shipped the
+  SetDigger half (RPC + migration + admin hook) while this one was working
+  elsewhere. Discovered only by reading the tracker's own notes *after* picking
+  the phase up, and only because those notes happened to be thorough.
+- **Phase `tj7b.6`** — two sessions built the same design six minutes apart:
+  the same pure module (in two different packages) and **the same script
+  filename**, both uncommitted. Discovered by accident, when a `PreToolUse`
+  branch guard refused a write and the follow-up inspection showed a `+` marker
+  in `git worktree list`.
+
+Neither was caught by a rule. Both were caught by luck.
+
+### The preflight
+
+Before claiming a tracked item and before the first edit, spend the ten seconds:
+
+```bash
+# 1. Is someone in a worktree for this? `+` marks a branch checked out elsewhere.
+git worktree list
+git branch -a --list '*<item-id>*' '*<short-slug>*'
+
+# 2. Does a sibling worktree hold uncommitted work for it?
+for wt in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+  [ -n "$(git -C "$wt" status --short 2>/dev/null)" ] && echo "DIRTY: $wt"
+done
+
+# 3. What does the tracker say — status AND notes? A phase can be half-shipped
+#    with the bead still open, which is exactly what tj7b.5 looked like.
+bd show <item-id>
+```
+
+### The rules
+
+| Situation | Do |
+|---|---|
+| A branch, worktree, or dirty sibling matches the item | **Stop.** Do not start a parallel implementation. |
+| Two sessions are already building it | **The later starter stands down** and deletes its copy. Racing to commit first just converts duplicated effort into a merge conflict. |
+| You are proceeding | Claim in the tracker **before** the first edit, not at commit time — the claim is the signal the next session will look for |
+| A phase looks unstarted | Read the item's NOTES, not just its status. "Open" can mean "half-shipped, awaiting one remaining step". |
+
+### Tells that you are in a collision
+
+- A branch-guard or similar `PreToolUse` hook refuses a write because HEAD moved
+  under you — another session may have switched the shared checkout's branch.
+- `git worktree list` shows a `+` against a branch you did not check out.
+- The tracker item's notes describe work you were about to do.
+- Migration/sequence numbers you did not create appear in your range.
+
+Treat any of these as a stop-and-look, not a puzzle to work around.
+
 ## Standard worktree lifecycle
 
 Every orchestrator that opens a PR while other sessions may be active must follow this bash pattern. Works in zsh/bash on macOS and Linux.
