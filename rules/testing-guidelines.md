@@ -47,13 +47,12 @@ Before saying "done" or "complete":
 [ ] 2. Run demo script    (if feature has demo)
 [ ] 3. Run build          (verify no errors)
 [ ] 4. Smoke test         (if major change)
-[ ] 5. git status         (check changes)
-[ ] 6. git add            (stage files)
-[ ] 7. git commit         (descriptive message)
-[ ] 8. git push           (push to remote)
+[ ] 5. git status         (check changes — read-only)
+[ ] 6. Commit agent       (code-quality → commit agent stages, commits, pushes, opens PR —
+                           never run git add / commit / push by hand; see agent-enforcement.md)
 ```
 
-**Work is NOT done until pushed.**
+**Work is NOT done until pushed and the PR is open** (via the commit agent).
 
 ---
 
