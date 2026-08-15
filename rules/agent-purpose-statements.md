@@ -2,9 +2,14 @@
 
 When manually orchestrating agents (using the Agent tool or building workflows), include a purpose statement that tells the agent **why** it's being invoked and **how** its output will be used.
 
+Without a purpose statement, an agent optimizes for completeness. With one, it optimizes for relevance.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 ## Why Purpose Statements Matter
 
-Without a purpose statement, an agent optimizes for completeness. With one, it optimizes for relevance. A code-quality agent asked to "check this module" will produce a full report. The same agent told "this is a quick pre-merge check — just verify the happy path" will focus on what matters.
+A code-quality agent asked to "check this module" will produce a full report. The same agent told "this is a quick pre-merge check — just verify the happy path" will focus on what matters.
+-->
 
 ## Pattern
 

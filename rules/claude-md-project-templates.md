@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/CLAUDE.md"
+  - "**/CLAUDE.local.md"
+  - "**/.claude/rules/**"
+---
 # CLAUDE.md Project Templates
 
 When setting up or optimizing a project's CLAUDE.md, include these sections with project-specific entries.
@@ -44,6 +50,8 @@ Add this section to a project's CLAUDE.md. The value is in entries only the proj
 | **Secrets** | Never commit `.env.local`, `credentials.json`, or `*.pem` files |
 ```
 
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 **Prompt for project owners — fill in entries for:**
 
 | Category | Think about |
@@ -55,6 +63,7 @@ Add this section to a project's CLAUDE.md. The value is in entries only the proj
 | Data | What DB operations need human approval? What's irreversible? |
 | Releases | What gates exist before publish/deploy? |
 | Secrets | What project-specific secret files beyond `.env`? |
+-->
 
 ## Autonomy Tiers (Blast Radius)
 
@@ -87,6 +96,8 @@ Add this section to define what Claude can do freely vs. what needs confirmation
 - Push to `main`/`master` directly
 ```
 
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 **Prompt for project owners — customize entries for each tier:**
 
 | Tier | Think about |
@@ -94,3 +105,5 @@ Add this section to define what Claude can do freely vs. what needs confirmation
 | Autonomous | Which commands are safe? Which directories are freely editable? |
 | Confirm first | What has moderate blast radius? What affects shared state? |
 | Never | What's irreversible? What affects production? What costs money? |
+-->
+

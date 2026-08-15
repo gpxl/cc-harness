@@ -1,10 +1,8 @@
 # Parallel Authoring (Fan-Out for Independent Additive Work)
 
-When a task splits into several independent, additive work items that share one
-expensive verification gate, author them with parallel sub-agents on a single
-branch, then run the gate once on the consolidated result. This is a
-fan-out/fan-in pattern: N agents write in parallel, one orchestrator verifies
-and ships.
+When a task splits into several independent, additive work items that share one expensive verification gate, author them with parallel sub-agents on a single branch, then run the gate once on the consolidated result — N agents write, one orchestrator verifies and ships. Handling those items sequentially would mean N runs of the same expensive gate and would leave the available authoring parallelism unused.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
 
 ## Why this rule exists
 
@@ -24,6 +22,8 @@ beads, each a new skill file plus two eval scenarios. Five parallel authoring
 agents and one consolidated `eval/run.sh all` replaced five sequential ~60-min
 gate runs — roughly 3–6 h saved — and avoided compounding a known eval-pool
 flake by running the heavy gate once instead of five times.
+
+-->
 
 ## When it applies
 
@@ -46,61 +46,23 @@ Use parallel authoring when ALL of these hold:
 
 ## Procedure
 
-1. **Branch once.** Create a single feature branch off `origin/<integration>`
-   for the whole batch (see `branch-discipline.md`). All items land here.
-2. **Fan out.** Spawn one sub-agent per item, all in a single message so they
-   run concurrently. Each agent's prompt is self-contained (see
-   `agent-purpose-statements.md`) and states:
+1. **Branch once.** One feature branch off `origin/<integration>` for the whole batch (see `branch-discipline.md`); all items land there.
+2. **Fan out.** Spawn one sub-agent per item, all in a single message so they run concurrently. Each prompt is self-contained (see `agent-purpose-statements.md`) and states:
    - exactly which files to create/edit — a disjoint set per agent;
-   - that it must **author files only** — no `git`, no running the expensive
-     gate, no issue-tracker mutations;
-   - that it may run cheap local self-checks (syntax check, `bash -n`, a
-     type-check scoped to its own files);
-   - enough context to make judgment calls without the orchestrating
-     conversation.
-3. **Fan in.** When all agents return, the orchestrator verifies the actual
-   files exist and are correct — trust but verify; an agent's summary is its
-   intent, not a guarantee.
-4. **Gate once, cascading.** Run the shared verification gate a single time on
-   the consolidated branch, narrowest stage first, widening only after each
-   stage passes (e.g. unit → integration → full). Diagnose and fix any failure
-   before widening.
-5. **Commit per item.** One commit per work item even though they share a
-   branch — this preserves per-item traceability in history and keeps the
-   issue-tracker mapping clean. Delegate to the commit agent (see
-   `agent-enforcement.md`).
-6. **One PR.** Open a single PR for the batch; CI runs once. Merge, then close
-   all the items' issues.
+   - that it must **author files only** — no `git`, no running the expensive gate, no issue-tracker mutations;
+   - that it may run cheap local self-checks (syntax check, `bash -n`, a type-check scoped to its own files);
+   - enough context to make judgment calls without the orchestrating conversation.
+3. **Fan in.** Verify the files actually exist and are correct — an agent's summary is its intent, not a guarantee.
+4. **Gate once, cascading.** Run the shared gate a single time on the consolidated branch, narrowest stage first, widening only after each stage passes (e.g. unit → integration → full). Fix any failure before widening.
+5. **Commit per item.** One commit per work item despite the shared branch — preserves per-item traceability and the issue-tracker mapping. Delegate to the commit agent (see `agent-enforcement.md`).
+6. **One PR.** A single PR for the batch; CI runs once. Merge, then close all the items' issues.
 
 ## The tradeoff: batch isolation, not per-item isolation
 
-Running the gate once on the union means a failure is attributed to the batch,
-not to one item. The orchestrator accepts the duty to **diagnose which item
-caused a failure** — by reading the failure, by re-running the failing case in
-isolation, or by bisecting the per-item commits. This is cheaper in aggregate
-than N gate runs, but it is not free: if the items are likely to interact in
-subtle ways, prefer per-item gates. Keeping the per-item commits clean (step 5)
-is what makes bisection possible.
+Gating once on the union attributes a failure to the batch, not to one item, so the orchestrator takes on the duty to **diagnose which item caused it** — by reading the failure, re-running the failing case in isolation, or bisecting the per-item commits (which is why step 5's clean per-item commits matter). Cheaper in aggregate than N gate runs, but not free: if the items are likely to interact subtly, prefer per-item gates.
 
 ## Relationship to other rules
 
-- **`agent-isolation.md`** — that rule is about *concurrent sessions / scheduled
-  routines* corrupting a shared working tree through git operations, solved with
-  worktrees. Parallel authoring is different: it is *one session* spawning
-  sub-agents that **only write files**, to **disjoint paths**, performing **no
-  git operations**. No per-agent worktree is needed — the safety comes from
-  disjoint file sets plus the no-git-in-sub-agents rule, and the orchestrator
-  does all git work serially after fan-in. The two rules compose: if the
-  orchestrating *session itself* may overlap with other sessions, that session
-  still wraps its whole pipeline in a worktree per `agent-isolation.md`.
-- **`branch-discipline.md`** — the batch uses one feature branch, created before
-  the first edit. Unchanged.
-- **`agent-purpose-statements.md`** — each fanned-out agent gets a purpose
-  statement: why it is invoked and how its output will be used.
-- **`agent-enforcement.md`** — commits still go through the commit agent; the
-  only change is N commits on one branch instead of N branches.
-- **`windowed-gate-serialization.md`** — when the shared gate (or any per-item
-  gate) opens real application windows (GUI harnesses, screenshot/measure modes,
-  launch smokes), those stages must not run concurrently across parallel agents:
-  authoring fans out headless, windowed gates funnel through one serialized
-  stream with a machine-global lock.
+- `agent-isolation.md` — no per-agent worktree here: safety comes from disjoint file sets plus no-git-in-sub-agents, and the orchestrator does all git work serially after fan-in. If the orchestrating *session* may overlap with other sessions, that session still wraps its whole pipeline in a worktree.
+- `branch-discipline.md` / `agent-enforcement.md` / `agent-purpose-statements.md` — one feature branch created before the first edit; commits still go through the commit agent (N commits on one branch); each fanned-out agent gets a purpose statement.
+- `windowed-gate-serialization.md` — if the shared or per-item gate opens real application windows, those stages funnel through one serialized stream with a machine-global lock.

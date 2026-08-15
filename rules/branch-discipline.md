@@ -2,6 +2,10 @@
 
 Feature-branch-first. Never commit on the integration branch (`main`/`master`/`trunk`/`develop`), even with intent to "move it later." Branch BEFORE the first commit, not after.
 
+Branch creation costs nothing; branching late costs at least a destructive rewind of `main` and at worst an accidental push to remote `main` (which can trigger release CI/CD).
+
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 ## Why this rule exists
 
 Committing to `main` and then rewinding it after the fact is a recoverable mistake on a local checkout, but:
@@ -11,6 +15,8 @@ Committing to `main` and then rewinding it after the fact is a recoverable mista
 3. Branch creation costs nothing. Doing it up front removes the whole class of problem.
 
 The cost of always branching first is one extra command at the start of a task. The cost of branching late is at least a recovery sequence and at worst a bad push.
+
+-->
 
 ## The rule
 
@@ -63,13 +69,11 @@ Insert a **Branch** step into the standard workflow, before any code edits:
 
 ## Interaction with the commit agent
 
-The commit agent inherits CWD and HEAD — it commits on whatever branch is checked out. It does NOT detect "we're on main and should have branched earlier" and refuse, because by the time it's invoked the code is already staged and the user has asked to commit. **The pre-commit branch check is the orchestrator's job, not the commit agent's.**
-
-Skills and orchestrators that perform multi-step git work should run the branching sequence in their preamble.
+The commit agent inherits CWD and HEAD and commits on whatever branch is checked out; it does NOT refuse when that branch is `main`, because by then the code is staged and the user has asked to commit. **The pre-commit branch check is the orchestrator's job, not the commit agent's** — skills and orchestrators doing multi-step git work run the branching sequence in their preamble.
 
 ## Interaction with worktree isolation
 
-When a pipeline runs in a `git worktree` (see `agent-isolation.md`), the worktree is created with `git worktree add -b <branch> <path> origin/main` — that already enforces feature-branch creation. No extra step needed. This rule applies primarily to non-worktree sessions (interactive work in the main checkout).
+A pipeline running in a `git worktree` (see `agent-isolation.md`) already gets a feature branch from `git worktree add -b <branch> <path> origin/main`; no extra step. This rule applies primarily to non-worktree sessions in the main checkout.
 
 ## Recovery if you slip
 
@@ -81,14 +85,17 @@ git checkout <feature-branch>              # switch off main first
 git branch -f main "origin/main"           # rewind main (NOT --hard; just moves the ref)
 ```
 
-This is reversible but should not be routine. If you find yourself doing it more than once a week, the branch step isn't sticking — add it to the project's CLAUDE.md autonomy tier as an explicit reminder.
+Reversible, but not routine: if you do this more than once a week, add the branch step to the project's CLAUDE.md autonomy tier as an explicit reminder.
 
 ## Machine-enforced branching (PreToolUse hook)
 
-If a project sees the branching step skipped repeatedly — work landing on `main`, `WIP on main` stashes accumulating, the commit agent's late branch-creation carrying unrelated dirty state onto feature branches — graduate from "rule documented" to "rule enforced" by installing a PreToolUse hook.
+When a project keeps skipping the branch step — work landing on `main`, `WIP on main` stashes accumulating, late branch-creation dragging unrelated dirty state onto feature branches — install a PreToolUse hook. Rules steer the model; hooks are a hard stop at tool-call time. Use both. (SetDigger's `scripts/branch-guard.sh` + `.claude/rules/branching.md` are a live example.)
 
 ### Project setup
 
+One-time per project: drop `scripts/branch-guard.sh` in (a PreToolUse guard that refuses Edit/Write/NotebookEdit while HEAD is on an integration branch, with an allowlist for `.beads/`, `MEMORY.md`, `~/.claude/plans/`, `~/.claude/projects/*/memory/`), wire it in `.claude/settings.json` under `hooks.PreToolUse` with matcher `Edit|Write|NotebookEdit`, and keep the allowlist narrow. Full script + settings snippet live in this file on disk inside a hidden maintainer comment (not injected into context) — copy from there or from a project that has it, e.g. SetDigger.
+
+<!-- SETUP BOILERPLATE (hidden from context, kept for maintainers):
 1. **Drop in the guard script.** Copy this into `scripts/branch-guard.sh` in the project (chmod +x):
 
    ```bash
@@ -132,19 +139,17 @@ If a project sees the branching step skipped repeatedly — work landing on `mai
    }
    ```
 
-3. **Extend the allowlist.** Each project's allowlist should cover paths that mutate on `main` by design — issue-tracker files (`.beads/`), persistent agent memory, plan files. Keep it narrow: any path you wouldn't be comfortable seeing on `main` in a `git diff` does not belong in the allowlist.
+3. **Extend the allowlist.** Cover paths that mutate on `main` by design — issue-tracker files (`.beads/`), persistent agent memory, plan files — and keep it narrow: anything you wouldn't want to see on `main` in a `git diff` does not belong there.
 
-### Why a hook and not just this rule
-
-Rules steer the model. Hooks are a hard stop at tool-call time. Use both: this rule explains intent and recovery; the hook enforces the rule when intent fails. They complement each other — see SetDigger's `scripts/branch-guard.sh` and `.claude/rules/branching.md` for a live example.
+-->
 
 ### Post-merge worktree + branch cleanup
 
-The companion to "branch first" is "clean up after merge." Without it, worktrees under `worktree_root` and local feature branches pile up. Two mechanisms cover this:
+The companion to "branch first" is "clean up after merge", or worktrees under `worktree_root` and local feature branches pile up:
 
 | Trigger | Mechanism | Scope |
 |---|---|---|
 | `pr-monitor` reports `MERGED` | `pr-monitor` Step 6 (post-merge cleanup) | The just-merged branch and (if running inside one) the orchestrator's worktree |
 | Manual / scheduled | `scripts/cleanup-stale-git-state.sh` | All stale worktrees and merged local branches in the repo |
 
-The manual script is idempotent and refuses to touch the current checkout's working tree, branch, or HEAD. Project should call it out in CLAUDE.md NEVER rules so the user knows it exists.
+The manual script is idempotent and refuses to touch the current checkout's working tree, branch, or HEAD. Projects should call it out in CLAUDE.md NEVER rules so the user knows it exists.
