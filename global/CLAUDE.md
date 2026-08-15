@@ -10,7 +10,7 @@ Always consult documentation index and project files rather than relying on trai
 |agent-enforcement.md: Agent pipeline is MANDATORY — never manual git add/commit/push
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
 |testing-guidelines.md: Universal test quality (Q1-Q8), TDD, session close protocol
-|claude-md-project-templates.md: NEVER lists + autonomy tiers templates for project CLAUDE.md
+|claude-md-project-templates.md: NEVER lists + autonomy tiers templates for project CLAUDE.md (path-scoped: loads only when a CLAUDE.md or .claude/rules file is read — Read it directly when creating a CLAUDE.md from scratch)
 |memory-discipline.md: Memory exclusion reinforcements + recall-time verification protocol
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
 |agent-isolation.md: Worktree-based isolation for parallel agent pipelines — when and how
@@ -23,11 +23,9 @@ Always consult documentation index and project files rather than relying on trai
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
 
-[Beads]|binary: bd (in PATH)
-|init: bd init --stealth (if no .beads/ in project)
-|workflow: bd prime (full context), bd ready (find work), bd create/update/close
-|session-start: run bd prime if .beads/ exists
-|persistence: bd close writes immediately — no explicit flush at session end (bd sync was removed; use bd backup for snapshots, bd export for JSONL migration)
+[Beads]|binary: bd (in PATH) — see Task Management below
+|session-start: run bd prime if .beads/ exists (prints the full command reference)
+|persistence: bd close writes immediately — no flush at session end (`bd sync` no longer exists; bd backup for snapshots, bd export for JSONL migration)
 
 [Skills]|root: ~/.claude/skills/ (SKILL.md format; legacy commands/ migrated to skills/)
 |/optimize-video: Optimize a video file/dir for web delivery (delegates to video-optimize agent)
@@ -76,23 +74,35 @@ See `.claude/rules/testing-guidelines.md` for complete patterns.
 | Commit | **Delegate to commit agent** — NEVER run `git add`/`git commit`/`git push` manually (including for doc-only changes) |
 | Complete | `bd close <id>` (writes immediately — no explicit flush needed) |
 
-### Agent-Gated Commits (CRITICAL)
+### Task Management (CRITICAL)
 
-**When a project has agents configured (Agent Config in CLAUDE.md), ALL commits MUST go through the agent pipeline. No exceptions.**
+**Use `bd` (beads) for ALL task tracking in ALL projects. No exceptions.**
 
 | Rule | Detail |
 |------|--------|
-| **PROHIBITED** | Running `git add`, `git commit`, `git push` manually for ANY change — source, docs, config, or generated files |
-| **REQUIRED** | Run code-quality agent → on PASS → delegate to commit agent |
-| **REQUIRED** | If code-quality FAIL → test-writer agent → re-run code-quality → commit agent |
+| **REQUIRED** | Create before code, claim on start, close when done (see Workflow above) |
+| **PROHIBITED** | TodoWrite, TaskCreate, or markdown checklists for task tracking |
+| Session close | `bd close` persists immediately — no flush command is needed |
+| Find work | `bd ready` — lists unblocked open issues |
+| New project | `bd init --stealth --prefix <abbrev>` if no `.beads/` exists |
+
+### Agent-Gated Commits (CRITICAL)
+
+**When a project has agents configured (Agent Config in CLAUDE.md), ALL commits MUST go through the agent pipeline** (code-quality → on PASS → commit agent; on FAIL → test-writer → re-run code-quality). The commit agent handles staging, committing, pushing, and opening PRs. Never bypass it. Full pipeline + exemptions: `agent-enforcement.md`.
+
+| Rule | Detail |
+|------|--------|
 | **TRIGGER** | Any user request to "commit", "push", "save", "ship it", "yes" (to commit prompt) |
 | **EXCEPTION** | Projects without Agent Config in CLAUDE.md use standard git workflow |
 
-The commit agent handles staging, committing, pushing, and opening PRs. Never bypass it.
-
 ### Parallel Agent Runs (CRITICAL)
 
-When multiple sessions / routines may run against the same repo simultaneously, orchestrator skills that edit code MUST wrap their pipeline in a `git worktree` so branch switches and staged changes don't leak between sessions. See `agent-isolation.md` for the lifecycle; opt in via `worktree_root` + `isolation_required_for` in the project's Agent Config.
+| Rule | Detail |
+|------|--------|
+| **WHEN** | Multiple sessions / routines may run against the same repo simultaneously |
+| **THEN** | Orchestrator skills that edit code MUST wrap their pipeline in a `git worktree` (opt in via `worktree_root` + `isolation_required_for` in the project's Agent Config) |
+
+Lifecycle: `agent-isolation.md`.
 
 ### Planning vs Implementation (CRITICAL)
 
@@ -106,22 +116,6 @@ Planning and implementation are **always separate phases** requiring explicit co
 When asked to **plan**: create all `bd create` issues, set dependencies with `bd dep add`, then say "Plan complete — run `bd ready` to start implementing."
 
 **NEVER begin writing code during a planning session unless explicitly told to implement.**
-
-### Task Management (CRITICAL)
-
-**Use `bd` (beads) for ALL task tracking in ALL projects. No exceptions.**
-
-| Rule | Detail |
-|------|--------|
-| **REQUIRED** | `bd create` before writing code for any non-trivial task |
-| **REQUIRED** | `bd update --status=in_progress` when starting a task |
-| **REQUIRED** | `bd close <id>` when done (close persists immediately; no session-end flush needed) |
-| **PROHIBITED** | TodoWrite, TaskCreate, or markdown checklists for task tracking |
-| New project | Run `bd init --stealth --prefix <abbrev>` if no `.beads/` exists |
-| Full context | `bd prime` — run this at session start in any beads project |
-| Find work | `bd ready` — lists unblocked open issues |
-
-**Session Close:** `bd close` already persists immediately — no explicit flush command is needed. The legacy `bd sync --flush-only` step has been removed (the `sync` subcommand no longer exists in current `bd`). See testing-guidelines.md.
 
 ## Security
 
@@ -156,11 +150,6 @@ Route work to the model that fits the task. Applies to the **session model** AND
 
 **Auto-apply when user says:** "optimize Claude config", "update config", "improve CLAUDE.md", "set up Claude", "create CLAUDE.md"
 
-| Config | Pass Rate |
-|--------|-----------|
-| No docs / Skills | 53% |
-| **AGENTS.md index** | **100%** |
-
 **Required:**
 1. Retrieval-led instruction at top
 2. Compressed pipe-delimited index: `[Category]|root: path/`
@@ -169,3 +158,13 @@ Route work to the model that fits the task. Applies to the **session model** AND
 5. Skills for user-triggered only
 
 **Workflow:** Read structure → Add instruction → Create index → Convert to tables → Extract to rules → Report line counts
+
+<!-- HISTORY (hidden from context, kept for maintainers):
+
+Measured pass rates that motivated the "Required" list above:
+
+| Config | Pass Rate |
+|--------|-----------|
+| No docs / Skills | 53% |
+| **AGENTS.md index** | **100%** |
+-->

@@ -1,23 +1,6 @@
 # Testing & Validation Strategy
 
-Comprehensive quality assurance guidelines for all projects.
-
-## Testing Pyramid
-
-```
-                    ┌─────────────────┐
-                    │  Integration    │  ← Few, expensive, after multi-phase work
-                    │     Tests       │
-                    ├─────────────────┤
-                    │  Smoke Tests    │  ← Quick validation of critical paths
-                    ├─────────────────┤
-                    │  Demo Scripts   │  ← Phase/feature validation with sample data
-                    ├─────────────────┤
-                    │                 │
-                    │   Unit Tests    │  ← Many, fast, TDD-driven
-                    │    (TDD)        │
-                    └─────────────────┘
-```
+Comprehensive quality assurance guidelines for all projects. Many fast unit tests at the base; few, expensive integration tests at the top.
 
 ## What to Test vs. NOT Test
 
@@ -31,49 +14,12 @@ Comprehensive quality assurance guidelines for all projects.
 
 ## Test Types
 
-### 1. Unit Tests (TDD)
-
-**When:** BEFORE implementing any feature
-**Where:** Co-located next to source (e.g., `module.test.ts` next to `module.ts`, `test_module.py` in `tests/`)
-**Run:** Project test command (see project CLAUDE.md)
-
-**Requirements:**
-- Write failing test first, then implement
-- Test user-facing behavior, not implementation
-- Must pass before committing
-
-### 2. Demo Scripts
-
-**When:** After completing a phase or feature
-**Where:** `scripts/demo-*`
-
-**Required Output:**
-```
-Phase N implements: [list]
-NOT YET IMPLEMENTED: [list]
-KNOWN LIMITATIONS: [expected behaviors]
-```
-
-### 3. Smoke Tests
-
-**When:** Before deployment, after infrastructure changes
-**Run:** Fast (<2 min), happy path only
-
-**Checklist:**
-- [ ] App builds without errors
-- [ ] App starts successfully
-- [ ] Core feature works
-- [ ] External connections work (DB, APIs)
-
-### 4. Integration Tests
-
-**When:** After multi-phase feature complete
-**Where:** Dedicated integration test directory
-
-**Create for:**
-- Multi-phase features (after final phase)
-- Critical flows (auth, payment, pipelines)
-- Cross-service communication
+| Type | When | Where | Requirements |
+|------|------|-------|--------------|
+| Unit (TDD) | BEFORE implementing any feature | Co-located next to source (`module.test.ts` beside `module.ts`; `test_module.py` in `tests/`) | Write the failing test first; test user-facing behavior, not implementation; must pass before committing. Run with the project test command (see project CLAUDE.md) |
+| Demo script | After completing a phase or feature | `scripts/demo-*` | Output must state `Phase N implements: [list]`, `NOT YET IMPLEMENTED: [list]`, `KNOWN LIMITATIONS: [expected behaviors]` |
+| Smoke | Before deployment, after infrastructure changes | — | Fast (<2 min), happy path only: app builds, app starts, core feature works, external connections (DB, APIs) work |
+| Integration | After a multi-phase feature is complete | Dedicated integration test directory | Create for multi-phase features (after final phase), critical flows (auth, payment, pipelines), cross-service communication |
 
 ## When to Use Each Test
 
@@ -88,20 +34,9 @@ KNOWN LIMITATIONS: [expected behaviors]
 
 ## Test Requirements by Phase
 
-**During Implementation:**
-1. Write unit tests (TDD) before code
-2. Run tests after each change
-3. Fix failures immediately
-
-**After Phase Complete:**
-1. Create/update demo script
-2. Run demo and verify
-3. All unit tests pass
-
-**Before "Done":**
-1. All unit tests pass
-2. Demo runs successfully
-3. Lint and build pass
+- **During implementation:** write unit tests (TDD) before code, run them after each change, fix failures immediately.
+- **After a phase completes:** create/update the demo script, run it and verify, all unit tests pass.
+- **Before "done":** all unit tests pass, demo runs successfully, lint and build pass.
 
 ## Session Close Protocol
 
@@ -169,30 +104,6 @@ code change → code-quality (evaluate) → FAIL? → test-writer (fix) → code
 - **code-quality agent**: evaluates coverage, lint, Q1-Q8 quality — does not write tests
 - **test-writer agent**: writes behavioral tests when code-quality reports gaps
 - **commit agent**: gates on `CODE QUALITY RESULT: PASS` for source changes
-
-### Python-Specific Patterns
-
-```python
-# DO: Test behavior
-def test_rejects_negative_priority():
-    with pytest.raises(ValueError, match="priority must be >= 0"):
-        parse_task(priority=-1)
-
-# DON'T: Test implementation
-def test_line_42_executes():
-    result = parse_task(priority=1)
-    assert result is not None  # proves nothing
-```
-
-### TypeScript/React-Specific Patterns
-
-```typescript
-// DO: Test user-facing behavior
-expect(screen.getByRole('button', { name: /submit/i })).toBeVisible()
-
-// DON'T: Test CSS classes
-expect(button.className).toMatch(/bg-black/)
-```
 
 ## Accessibility & Responsiveness
 

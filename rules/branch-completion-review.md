@@ -12,7 +12,10 @@ functionally complete (features done, QA passed, quality gates green)
 ```
 
 Neither stage is optional for a non-trivial branch. Green gates and passing QA qualify a branch as
-*working*; these two stages qualify it as *finished*.
+*working*; these two stages qualify it as *finished*. The author's own checks verify what the author
+thought about — these stages exist to catch what the author didn't.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
 
 ## Why this rule exists
 
@@ -37,8 +40,10 @@ authoring):
    "never co-occur" invariant. Verdict: NO-GO. One fix commit later, a re-review traced every
    original failure scenario against the new code and returned GO.
 
-The pattern in both: the author's own checks verify what the author thought about. These stages
-exist to catch what the author didn't.
+Stage 1's step-6 note about self-reported line counts comes from the same branch: an implementing
+agent claimed −100 lines where the actual commit was +23.
+
+-->
 
 ## Stage 1 — Refactor review
 
@@ -49,7 +54,7 @@ exist to catch what the author didn't.
 | 3. Judge | Not all duplication merits extraction: leave apart things with genuinely different semantics (e.g. a delay-timer hook vs an event-detector hook), and skip any unification that would change behavior of published/live content. Two consumers with identical logic over an identical shape = extract; two consumers with coincidentally similar code = leave. |
 | 4. Verify | Zero-behavior-change proof, falsifiable (`verification-integrity.md`): exported names, storage keys, emitted query strings, schema deep-equality (invoke `hidden`-style callbacks, don't just compare shapes) — each check paired with a negative control that fails on a mutated input. Then the project's standard gates. |
 | 5. Land | A separate `refactor(...)` commit (never folded into feature commits) so reviewers can diff it independently. |
-| 6. Report | Line/file counts come from the **actual commit** (`git show --stat`), never from an implementing agent's self-report — they diverged on the originating branch (claimed −100, actual +23). |
+| 6. Report | Line/file counts come from the **actual commit** (`git show --stat`), never from an implementing agent's self-report — they have diverged in practice. |
 
 ## Stage 2 — Adversarial review
 
@@ -70,33 +75,18 @@ exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 
 ### The NO-GO loop
 
-1. Triage each finding: **fix in code**, or — where the finding is a judgment call the project
-   owner controls (e.g. CMS-trust tradeoffs) — **resolve by explicit disclosure** in the PR body
-   for sign-off. Disclosure is a legitimate resolution; silent acceptance is not.
-2. Findings that require external evidence (e.g. "scan live data for affected patterns") get that
-   evidence gathered, not argued away.
+1. Triage each finding: **fix in code**, or — for judgment calls the project owner controls (e.g. CMS-trust tradeoffs) — **resolve by explicit disclosure** in the PR body for sign-off. Disclosure is a legitimate resolution; silent acceptance is not.
+2. Findings needing external evidence (e.g. "scan live data for affected patterns") get that evidence gathered, not argued away.
 3. Fixes go through the normal pipeline: code-quality gate → commit agent (own `fix(...)` commit).
-4. **Re-run the same adversary** (retained context), instructing it to re-trace its own original
-   failure scenarios against the new code AND hunt for regressions the fixes introduced.
+4. **Re-run the same adversary** (retained context) to re-trace its own original failure scenarios against the new code AND hunt for regressions the fixes introduced.
 5. Repeat until `GO`. Only then does the branch proceed to PR-body drafting.
 
 ### Skip conditions
 
-Same as Stage 1: trivially small diffs (single-file fixes, doc-only changes) may skip either
-stage — and the skip must be stated explicitly, never silent.
+Trivially small diffs (single-file fixes, doc-only changes) may skip either stage — and the skip must be stated explicitly, never silent.
 
 ## Relationship to other rules
 
-- **`verification-integrity.md`** — both stages are applications of it: Stage 1's zero-behavior
-  proof must be falsifiable with negative controls; Stage 2's reviewer is the independent
-  second opinion whose contradiction you believe first. When the adversary and the author
-  disagree, re-check before dismissing.
-- **`parallel-authoring.md`** — clone-the-sibling / fan-out authoring is the expected *source* of
-  Stage 1's findings. Using that authoring strategy is correct; sweeping its residue afterward is
-  the other half of the bargain.
-- **`agent-enforcement.md`** — NO-GO fixes are ordinary source changes: code-quality gate, then
-  the commit agent. The adversary itself never edits.
-- **`agent-purpose-statements.md`** — the adversary's prompt is a purpose statement with teeth:
-  it knows its output decides the PR, so it optimizes for decisive findings over coverage theater.
-- **Project-level PR-approval rules** (where present) run *after* GO — this rule feeds them, it
-  does not replace them.
+- `verification-integrity.md` — Stage 1's zero-behavior proof needs negative controls; Stage 2's reviewer is the second opinion you believe first.
+- `parallel-authoring.md` — fan-out / clone-the-sibling authoring is the expected *source* of Stage 1's findings.
+- `agent-enforcement.md` / `agent-purpose-statements.md` — NO-GO fixes go through code-quality → commit (the adversary never edits), and its prompt is a purpose statement with teeth. Project-level PR-approval rules run *after* GO.

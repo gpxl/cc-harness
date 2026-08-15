@@ -39,9 +39,14 @@ The **code-quality gate** (step 1) is exempt when changes ONLY touch:
 
 The **commit agent** (step 3) is **never exempt** — even doc-only changes must use the commit agent, not manual git commands.
 
+Manual `git commit` bypasses quality gates (coverage, lint, test quality Q1-Q8) that the agent pipeline enforces.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 ## Why This Exists
 
-Manual `git commit` bypasses quality gates (coverage, lint, test quality Q1-Q8) that the agent pipeline enforces. Even when the code-quality gate is exempt (e.g., doc changes), using the commit agent ensures consistent commit formatting, proper branch workflow, and PR creation.
+Even when the code-quality gate is exempt (e.g., doc changes), using the commit agent ensures consistent commit formatting, proper branch workflow, and PR creation.
+-->
 
 ## Project-Specific Rules
 

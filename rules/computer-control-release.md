@@ -6,6 +6,8 @@ Any tool that hands an agent control of a real, user-owned interactive surface �
 task "just in case." Requesting or attaching again later is cheap; holding is not free for the
 user, who cannot naturally use that surface themselves while an agent has it.
 
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 ## Why this rule exists
 
 These tools are structurally different from ordinary file/shell tools: they take over something the
@@ -22,6 +24,7 @@ addresses N *parallel* agents flooding the user's desktop with windows at once):
 mode — duration instead of concurrency — but the same underlying resource. Both rules treat the
 user's screen and attention as shared and exclusive, not as idle capacity an agent can assume it can
 occupy indefinitely.
+-->
 
 ## The rule
 
@@ -42,13 +45,9 @@ flow boundary, let go.
 
 ## What this doesn't change
 
-This doesn't walk back attach-early guidance already built into these tools — opening early, as soon
-as it's useful to the user, stays correct. It adds the missing other half: closing just as promptly
-once the reason for holding it has passed.
+Attach-early guidance stays correct — opening as soon as it's useful to the user. This rule adds the
+missing other half: closing just as promptly once the reason for holding it has passed.
 
 ## Relationship to other rules
 
-- **`windowed-gate-serialization.md`** — that rule serializes *parallel* agents' windowed gates so N
-  sessions don't flood the desktop at once. This rule bounds how long a *single* agent holds one
-  surface open. Compose them: an agent following both attaches only when needed, one session at a
-  time, and only for as long as it's actually driving that surface.
+- **`windowed-gate-serialization.md`** — that rule serializes *parallel* agents' windowed gates; this one bounds how long a *single* agent holds one surface. Compose them.
