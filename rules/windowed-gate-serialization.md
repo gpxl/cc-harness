@@ -5,6 +5,12 @@ windows** — a macOS window-server harness, an Electron app, a headed browser, 
 screenshot/measure mode — those windowed gates must NOT run concurrently. Parallelize the
 authoring; serialize the windows.
 
+Each agent is individually following the project's own gate checklist correctly; the failure is
+emergent — correctness gates that are safe solo become a desktop-flooding, contention-prone swarm
+in parallel.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
+
 ## Why this rule exists
 
 On 2026-07-20 (StemLab), six parallel worktree agents each independently ran the project's UI
@@ -15,10 +21,7 @@ flickering with app windows opening and closing — disruptive enough that the u
 to ask what was wrong. The same project had already merged a fix for uitest scenario spillover
 from *engine contention* between overlapping harness runs, so concurrency here risks flaky
 results, not just annoyance.
-
-The mistake is easy to make because each agent is individually following the project's own gate
-checklist correctly. The failure is emergent: correctness gates that are safe solo become a
-desktop-flooding, contention-prone swarm in parallel.
+-->
 
 ## The rule
 
@@ -68,11 +71,11 @@ Projects that adopt this pattern permanently should fold the lock into the gate 
 themselves (the same funnel-everything-through-one-runner discipline as a bounded test runner),
 so it holds for humans and agents alike.
 
-## Sub-agent execution discipline (observed in the same incident)
+## Sub-agent execution discipline
 
-Background authoring agents repeatedly stranded themselves by launching the test suite as a
-background task and stopping to "wait for the notification" — a wake-up that never reaches a
-sub-agent. In authoring-agent prompts:
+Background authoring agents strand themselves by launching the test suite as a background task and
+stopping to "wait for the notification" — a wake-up that never reaches a sub-agent. In
+authoring-agent prompts:
 
 - Run the test suite **synchronously in the foreground** (bounded runners finish in seconds/minutes).
 - Capture exit codes via redirect-to-file, never through a pipe (`verification-integrity.md`).
@@ -81,12 +84,6 @@ sub-agent. In authoring-agent prompts:
 
 ## Relationship to other rules
 
-- **`parallel-authoring.md`** — fan-out authoring with one shared expensive gate. This rule is the
-  GUI-project refinement: the shared gate's *windowed* stages are what get run once, serially, in
-  Phase B. The two compose: fan out authors, fan in through one windowed-gate stream.
-- **`agent-isolation.md`** — worktrees isolate *git state*; they do NOT isolate the window server,
-  the screen, or a shared audio/render engine. Machine-global resources need machine-global
-  serialization regardless of checkout isolation.
-- **`verification-integrity.md`** — deferring a gate to Phase B is only honest if the PR says so.
-  A Phase-A PR must state which gates were deferred and are outstanding; never describe a
-  deferred gate as passed.
+- **`parallel-authoring.md`** — fan out authors, fan in through one windowed-gate stream.
+- **`agent-isolation.md`** — worktrees isolate git state, NOT the window server / screen / shared engines.
+- **`verification-integrity.md`** — a Phase-A PR must state which gates were deferred; never describe a deferred gate as passed.

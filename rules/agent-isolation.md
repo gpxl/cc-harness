@@ -1,8 +1,6 @@
 # Agent Isolation (Parallel-Safe Pipelines)
 
-When multiple Claude sessions / scheduled routines / orchestrator skills run against the same repo at the same time, they corrupt each other by sharing one working tree: branch switches, cross-contaminated `git status`, and `git checkout main` in one session flips another out of its feature branch.
-
-This rule defines when to create an isolated `git worktree` and the portable lifecycle every orchestrator must follow.
+Concurrent Claude sessions / scheduled routines / orchestrator skills sharing one working tree corrupt each other: branch switches, cross-contaminated `git status`, and `git checkout main` in one session flipping another out of its feature branch. This rule defines when to create an isolated `git worktree` and the lifecycle every orchestrator must follow.
 
 ## When to use a worktree
 
@@ -14,15 +12,13 @@ This rule defines when to create an isolated `git worktree` and the portable lif
 | Release agent (tags on `main`, runs after merge) | **No** — must run in main checkout |
 | Commit / code-quality / test-writer / pr-monitor | **Inherit** the orchestrator's CWD; do not create their own |
 
-**Unit of isolation is the pipeline**, not the agent call: code-quality must see the diff the orchestrator wrote, and commit must commit that same diff. One worktree wraps the whole orchestrator → code-quality → commit → pr-monitor chain.
-
-Do **not** use the `Agent` tool's built-in `isolation: "worktree"` flag for pipelines — it isolates a single sub-agent call and would nest under the orchestrator's worktree.
+**The unit of isolation is the pipeline**, not the agent call: one worktree wraps the whole orchestrator → code-quality → commit → pr-monitor chain, because code-quality must see the diff the orchestrator wrote and commit must commit that same diff. Do **not** use the `Agent` tool's built-in `isolation: "worktree"` flag for pipelines — it isolates a single sub-agent call and would nest under the orchestrator's worktree.
 
 ## Before you claim work, check nobody else has
 
-Worktrees stop two sessions from corrupting each other's *git state*. Nothing in
-them stops two sessions from independently choosing **the same work** — and that
-failure costs more, because both sides do the whole job before anyone notices.
+Worktrees isolate *git state*, not *work selection*: two sessions can still pick the same item, and that costs more, because both sides finish the whole job before anyone notices.
+
+<!-- HISTORY (hidden from context, kept for maintainers):
 
 On 2026-08-10 (SetDigger) it happened twice in one day:
 
@@ -36,7 +32,11 @@ On 2026-08-10 (SetDigger) it happened twice in one day:
   branch guard refused a write and the follow-up inspection showed a `+` marker
   in `git worktree list`.
 
-Neither was caught by a rule. Both were caught by luck.
+Neither was caught by a rule. Both were caught by luck. That is why the preflight
+below exists, and why step 3 says to read a tracker item's NOTES and not just its
+status — `tj7b.5` was "open" and half-shipped at the same time.
+
+-->
 
 ### The preflight
 
@@ -53,7 +53,7 @@ for wt in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
 done
 
 # 3. What does the tracker say — status AND notes? A phase can be half-shipped
-#    with the bead still open, which is exactly what tj7b.5 looked like.
+#    with the bead still open.
 bd show <item-id>
 ```
 
@@ -68,17 +68,16 @@ bd show <item-id>
 
 ### Tells that you are in a collision
 
-- A branch-guard or similar `PreToolUse` hook refuses a write because HEAD moved
-  under you — another session may have switched the shared checkout's branch.
+Treat any of these as a stop-and-look, not a puzzle to work around:
+
+- A `PreToolUse` branch guard refuses a write because HEAD moved under you (another session switched the shared checkout's branch).
 - `git worktree list` shows a `+` against a branch you did not check out.
 - The tracker item's notes describe work you were about to do.
 - Migration/sequence numbers you did not create appear in your range.
 
-Treat any of these as a stop-and-look, not a puzzle to work around.
-
 ## Standard worktree lifecycle
 
-Every orchestrator that opens a PR while other sessions may be active must follow this bash pattern. Works in zsh/bash on macOS and Linux.
+Every orchestrator that opens a PR while other sessions may be active must follow this pattern (zsh/bash, macOS and Linux).
 
 ```bash
 # --- 0. Read Agent Config ---
@@ -92,9 +91,7 @@ mkdir -p "$WORKTREE_ROOT"
 # --- 1. Reap orphans from prior crashed runs (safe: only prunes missing paths) ---
 git worktree prune
 
-# --- 2. Create this run's worktree ---
-# Naming: <purpose>-<yyyymmddHHMMSS>-<pid>. $$ guarantees two concurrent runs
-# of the same skill never collide on path.
+# --- 2. Create this run's worktree (naming: see table below) ---
 PURPOSE="<short-purpose>"                         # e.g. "engagement-instrumentation"
 BRANCH="agent/<short-description>"                # or claude/<description>, etc.
 TS=$(date -u +%Y%m%d%H%M%S)
@@ -117,11 +114,11 @@ git worktree remove --force "$WT_PATH"
 
 ### Required properties
 
-1. **Branched from `origin/main`, not local `main`** — local `main` may lag.
+1. **Branch from `origin/main`, not local `main`** — local `main` may lag.
 2. **Unique path per run** — `$$` (PID) + timestamp covers concurrent invocations.
-3. **Cleanup on every exit path** — use `trap ... EXIT` or explicit cleanup in every error branch. Never leak worktrees.
-4. **`cd` before any agent call** — sub-agents (code-quality, commit, pr-monitor) inherit CWD; they do not know about the worktree.
-5. **Never `git checkout main` inside a worktree** — it succeeds but pulls the main checkout's `main` ref into the worktree, defeating isolation. Use `git fetch origin main` + `git merge --ff-only origin/main` if you need to update.
+3. **Cleanup on every exit path** — `trap ... EXIT` or explicit cleanup in every error branch; never leak worktrees.
+4. **`cd` before any agent call** — sub-agents inherit CWD and know nothing about the worktree.
+5. **Never `git checkout main` inside a worktree** — it succeeds but pulls the main checkout's `main` ref in, defeating isolation. To update, use `git fetch origin main` + `git merge --ff-only origin/main`.
 
 ## Concurrency-safe naming
 
@@ -138,7 +135,7 @@ The branch name is independent of the path and follows the project's `branch_pat
 
 ## Orphan cleanup
 
-Crashed runs leave worktrees on disk. Every orchestrator runs `git worktree prune` before creating its own (shown in Step 1 above) — this is cheap and removes only worktrees whose paths no longer exist.
+Crashed runs leave worktrees on disk, so every orchestrator runs `git worktree prune` before creating its own (Step 1 above) — cheap, and it removes only worktrees whose paths no longer exist.
 
 For worktrees whose paths still exist but whose branches are already merged (agent branches after pr-monitor merge + delete), add this to session-start scripts that manage `worktree_root`:
 
@@ -157,7 +154,7 @@ Safe default if you're unsure: just `git worktree prune`. Never remove the main 
 
 ## Per-agent policy
 
-The globally-shared agents in `~/.claude/agents/` implement worktree-awareness as follows. Rule contents are normative; the agent prompts describe them too.
+Worktree-awareness of the globally-shared agents in `~/.claude/agents/` (this table is normative):
 
 | Agent | Behavior |
 |-------|----------|
@@ -167,42 +164,27 @@ The globally-shared agents in `~/.claude/agents/` implement worktree-awareness a
 
 ## Per-project opt-in
 
-Projects enable isolation by adding to their CLAUDE.md Agent Config:
+Projects enable isolation with two CLAUDE.md Agent Config keys:
 
 ```
 | worktree_root | ../<repo>-worktrees |
 | isolation_required_for | <skill-name-1>, <skill-name-2> |
 ```
 
-- `worktree_root` — parent directory for all worktrees. Keep outside the repo (so it's not staged) and outside common watched paths.
-- `isolation_required_for` — comma-separated list of skill names that MUST run in a worktree. The skill preamble enforces this by failing fast if invoked without the lifecycle in place.
+- `worktree_root` — parent directory for all worktrees; keep it outside the repo (so it's not staged) and outside common watched paths.
+- `isolation_required_for` — comma-separated skill names that MUST run in a worktree; the skill preamble fails fast without the lifecycle in place.
 
-Projects without these keys keep the old behavior — the commit and release agents take the main-checkout branch when `git rev-parse --git-dir` and `--git-common-dir` are equal (the case in a non-worktree checkout).
+Without these keys, the commit and release agents take the main-checkout branch when `git rev-parse --git-dir` and `--git-common-dir` are equal.
 
 ## What worktrees do NOT isolate
 
-A worktree isolates git state only. The window server, the visible screen, audio/render engines,
-simulators, and TCC grants are machine-global: N worktree agents each running a windowed UI gate
-still pop N sets of windows on the user's desktop and can contend on shared engines. Serialize
-those stages through one gate-runner stream with a machine-global lock — see
-`windowed-gate-serialization.md`.
+Git state only. The window server, the visible screen, audio/render engines, simulators, and TCC grants are machine-global: N worktree agents each running a windowed UI gate still pop N sets of windows and contend on shared engines. Serialize those stages through one gate-runner stream with a machine-global lock — see `windowed-gate-serialization.md`.
 
 ## Shared caches (follow-up, not a blocker)
 
-Each worktree gets its own `node_modules/` and `.next/`. pnpm's global content-addressed store already dedups package downloads across worktrees, so a fresh `pnpm install --prefer-offline` in a new worktree is typically <15s. **Use this as the default** — it's correct everywhere.
-
-For non-Turbopack stacks (plain Webpack/Vite, no Next.js 15+), you can shave the install entirely by symlinking after the first install:
-
-```bash
-ln -s "$REPO_ROOT/node_modules" "$WT_PATH/node_modules"
-```
-
-Valid only when the `pnpm-lock.yaml` hasn't changed between `main` and the branch; run `pnpm install` in the worktree if it has.
-
-**Do not symlink for Turbopack / Next.js 15+ / Next.js 16+ projects.** Turbopack rejects out-of-tree symlinks at resolve time:
-
-> Symlink node_modules is invalid, it points out of the filesystem root — TurbopackInternalError
-
-Run `pnpm install --prefer-offline` instead — pnpm's global store makes it fast.
-
-Do not share `.next/` — Turbopack assumes exclusive ownership and corrupts on concurrent writes.
+- **Default everywhere:** `pnpm install --prefer-offline` in the fresh worktree — pnpm's global store dedups downloads across worktrees, typically <15s.
+- **Non-Turbopack stacks only** (plain Webpack/Vite, no Next.js 15+) may skip that install by symlinking, and only when `pnpm-lock.yaml` is unchanged between `main` and the branch:
+  ```bash
+  ln -s "$REPO_ROOT/node_modules" "$WT_PATH/node_modules"
+  ```
+- **Never symlink for Turbopack / Next.js 15+ / 16+** — it rejects out-of-tree symlinks (`Symlink node_modules is invalid, it points out of the filesystem root — TurbopackInternalError`) — and never share `.next/`: Turbopack assumes exclusive ownership and corrupts on concurrent writes.
