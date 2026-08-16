@@ -274,6 +274,13 @@ EOF
 **PR title rules:**
 - If single commit: use the commit message as the PR title.
 - If multiple commits: write a short summary (max 70 chars).
+- **Bead id in the title (repos with `.beads/`).** Resolve the tracker issue(s) this PR
+  resolves — from the branch name, the commit messages, the conversation, or
+  `bd list --status=in_progress` — and append them as `(<prefix>-<id>)` to the title
+  (e.g. `fix(db): guard the tier (setdigger-a2iv)`). Post-merge close-on-merge hooks grep
+  the title/branch/body for ids; a PR without one leaves its bead `in_progress` forever.
+  If you genuinely cannot identify a bead, say so in the result (`Beads: none found`) so
+  the orchestrator can supply it — do not invent an id.
 
 ## Hard Constraints
 
@@ -283,7 +290,8 @@ EOF
 - **Do not** commit files containing secrets (`.env`, credentials, tokens).
 - **Do not** use `git add -A` or `git add .` — always stage specific files.
 - **Do not** commit generated files, caches, `__pycache__/`, or `node_modules/`.
-- **Do not** close any issues — that is the delegating agent's job.
+- **Do not** close any issues — that is the delegating agent's job (in beads repos: the
+  merge step is `gh pr merge … && bd close <id>`, plus the post-merge hook).
 - **Do not** modify code — only stage and commit what exists in the working tree.
 - **Do not** push directly to main — always use a branch + PR.
 - Respect `.gitignore` — never force-add ignored files.
@@ -299,6 +307,7 @@ Commits:
   <hash> <type>: <description>
 Branch: <branch-name>
 PR: <PR URL>
+Beads: <id> [<id> ...] | none found        # repos with .beads/ only
 ```
 
 On failure:
