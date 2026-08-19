@@ -9,6 +9,7 @@ purpose: >
   Code-quality reported specific gaps — write tests for the listed behaviors
   only, nothing more.
 model: sonnet
+effort: medium
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 

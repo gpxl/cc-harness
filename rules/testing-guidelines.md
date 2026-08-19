@@ -1,6 +1,6 @@
 # Testing & Validation Strategy
 
-Comprehensive quality assurance guidelines for all projects. Many fast unit tests at the base; few, expensive integration tests at the top.
+Many fast unit tests at the base; few, expensive integration tests at the top. Every test must answer: "If someone breaks this behavior, will this test catch it?"
 
 ## What to Test vs. NOT Test
 
@@ -16,51 +16,14 @@ Comprehensive quality assurance guidelines for all projects. Many fast unit test
 
 | Type | When | Where | Requirements |
 |------|------|-------|--------------|
-| Unit (TDD) | BEFORE implementing any feature | Co-located next to source (`module.test.ts` beside `module.ts`; `test_module.py` in `tests/`) | Write the failing test first; test user-facing behavior, not implementation; must pass before committing. Run with the project test command (see project CLAUDE.md) |
-| Demo script | After completing a phase or feature | `scripts/demo-*` | Output must state `Phase N implements: [list]`, `NOT YET IMPLEMENTED: [list]`, `KNOWN LIMITATIONS: [expected behaviors]` |
-| Smoke | Before deployment, after infrastructure changes | — | Fast (<2 min), happy path only: app builds, app starts, core feature works, external connections (DB, APIs) work |
-| Integration | After a multi-phase feature is complete | Dedicated integration test directory | Create for multi-phase features (after final phase), critical flows (auth, payment, pipelines), cross-service communication |
+| Unit (TDD) | BEFORE implementing any feature | Co-located next to source (`module.test.ts` beside `module.ts`; `test_module.py` in `tests/`) | Write the failing test first; test user-facing behavior, not implementation; must pass before committing |
+| Demo script | After completing a phase or feature | `scripts/demo-*` | Output states `Phase N implements: [list]`, `NOT YET IMPLEMENTED: [list]`, `KNOWN LIMITATIONS: [list]` |
+| Smoke | Before deployment, after infrastructure changes | — | Fast (<2 min), happy path only: builds, starts, core feature works, external connections (DB, APIs) work |
+| Integration | After a multi-phase feature is complete | Dedicated integration test directory | Multi-phase features (after final phase), critical flows (auth, payment, pipelines), cross-service communication |
 
-## When to Use Each Test
-
-| Scenario | Unit | Demo | Smoke | Integration |
-|----------|:----:|:----:|:-----:|:-----------:|
-| New component/module | Yes | - | - | - |
-| Bug fix | Yes | - | - | - |
-| Single-phase feature | Yes | Yes | - | - |
-| Multi-phase feature | Yes | Yes/phase | - | Yes final |
-| Pre-deployment | - | - | Yes | - |
-| Major refactor | Yes | Yes | Yes | Yes |
-
-## Test Requirements by Phase
-
-- **During implementation:** write unit tests (TDD) before code, run them after each change, fix failures immediately.
-- **After a phase completes:** create/update the demo script, run it and verify, all unit tests pass.
-- **Before "done":** all unit tests pass, demo runs successfully, lint and build pass.
-
-## Session Close Protocol
-
-Before saying "done" or "complete":
-
-```
-[ ] 1. Run tests          (fix any failures)
-[ ] 2. Run demo script    (if feature has demo)
-[ ] 3. Run build          (verify no errors)
-[ ] 4. Smoke test         (if major change)
-[ ] 5. git status         (check changes — read-only)
-[ ] 6. Commit agent       (code-quality → commit agent stages, commits, pushes, opens PR —
-                           never run git add / commit / push by hand; see agent-enforcement.md)
-```
-
-**Work is NOT done until pushed and the PR is open** (via the commit agent).
-
----
+Bug fixes and new modules need unit tests only. Single-phase features add a demo script; multi-phase features add integration tests at the end. Major refactors want all four.
 
 ## Test Quality Checklist (All Languages)
-
-Every test must answer: "If someone breaks this behavior, will this test catch it?"
-
-### Quality Gates
 
 | # | Check | Severity |
 |---|-------|----------|
@@ -71,7 +34,9 @@ Every test must answer: "If someone breaks this behavior, will this test catch i
 | Q5 | Only happy-path tests — no error/edge-case coverage | WARN |
 | Q6 | Tests implementation details (CSS classes, private state, DOM structure) | WARN |
 | Q7 | Asserts on private/internal state when public API exists | WARN |
-| Q8 | Module has validation schemas, API endpoints, config keys, or enum switches where not all are exercised by tests (behavioral completeness gap) | WARN |
+| Q8 | Validation schemas, API endpoints, config keys, or enum switches where not all are exercised (behavioral completeness gap) | WARN |
+
+WARN findings do not block. The code-quality agent files them as tracker tasks in the same run it reports them (`agents/code-quality.md`) — don't leave them to the orchestrator.
 
 ### Anti-Patterns
 
@@ -85,28 +50,21 @@ Every test must answer: "If someone breaks this behavior, will this test catch i
 
 ### Principles
 
-| Principle | Apply when |
-|-----------|-----------|
-| Test the contract, not the implementation | Always — assert outcomes, not that line N ran |
-| Use realistic inputs | Always — production-like data, not `{"a": 1}` |
-| One behavior per test | Always — name the test after what it verifies |
-| Edge cases are first-class | If inputs can be empty, None, zero, boundary — test them |
-| Error paths are first-class | If it can raise/throw, test that it does correctly |
+Test the contract, not the implementation (assert outcomes, not that line N ran). Use realistic, production-shaped inputs. One behavior per test, named after what it verifies. Edge cases (empty, None, zero, boundary) and error paths are first-class, not extras.
 
-### Agent Workflow
+## Session Close Protocol
+
+Before saying "done" or "complete":
 
 ```
-code change → code-quality (evaluate) → FAIL? → test-writer (fix) → code-quality (re-verify)
-                                       → PASS  → track warnings as tasks → commit
+[ ] 1. Tests pass, demo script runs (if the feature has one), smoke test (if major)
+[ ] 2. Verify (lint + test + build) — run ONCE, record the result; see pipeline-contract.md
+[ ] 3. git status (read-only check of what changed)
+[ ] 4. code-quality → commit agent (stages, commits, pushes, opens PR)
 ```
 
-- **code-quality agent**: evaluates coverage, lint, Q1-Q8 quality — does not write tests
-- **test-writer agent**: writes behavioral tests when code-quality reports gaps
-- **commit agent**: gates on `CODE QUALITY RESULT: PASS` for source changes
+Never run `git add` / `commit` / `push` by hand (`agent-enforcement.md`). **Work is NOT done until pushed and the PR is open.**
 
 ## Accessibility & Responsiveness
 
-- Use ARIA roles appropriately
-- Test keyboard navigation
-- Test screen reader compatibility
-- Use semantic HTML elements
+Use semantic HTML and appropriate ARIA roles; test keyboard navigation and screen reader compatibility.

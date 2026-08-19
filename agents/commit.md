@@ -10,6 +10,7 @@ purpose: >
   Stage and commit changes — output is commit SHA and PR URL, or failure
   details for the caller to act on.
 model: sonnet
+effort: low
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
@@ -51,9 +52,11 @@ all key-value pairs. You need these keys:
 
 | Key | Used for |
 |-----|----------|
-| `test_cmd` | Running tests before commit |
-| `lint_cmd` | Linting before commit |
-| `build_cmd` | Build verification |
+| `verify_cmd` | **Optional.** Single command running lint+test+build (e.g. `pnpm verify`). If present, it is the verify command — prefer it over the three below |
+| `test_cmd` | Tests (fallback verify, part 1) |
+| `lint_cmd` | Lint (fallback verify, part 2) |
+| `build_cmd` | Build (fallback verify, part 3) |
+| `package_dir` | Where source lives — used for the fast path |
 | `quality_gate_pattern` | Which files require code-quality PASS |
 | `exclusions` | Files excluded from quality gate |
 | `branch_pattern` | Branch naming convention |
@@ -185,37 +188,106 @@ coherent change. Common groupings:
 
 Output your plan as a numbered list before proceeding.
 
-## Step 5 — Run quality checks
+## Step 5 — Consume the recorded gate (do not re-run it)
 
-Execute `test_cmd`. If any test fails, output `COMMIT RESULT: FAIL` with
-details and stop. Do **not** commit broken code.
+The gate protocol is `~/.claude/rules/pipeline-contract.md`: the **full**
+lint+test+build runs **once per working tree** — "gate once" means one full
+verify per tree — and whoever runs it records the result. Your job here is to
+find that record, or to be the one who produces it.
 
-Execute `lint_cmd`. If lint fails, attempt to fix and re-check. If still
-failing, output `COMMIT RESULT: FAIL` and stop.
+**5a — Look in the conversation context** for either:
 
-If `build_cmd` is not `(none)`, execute it. If build fails, output
-`COMMIT RESULT: FAIL` and stop.
+- `VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` — the full verify, run by the
+  orchestrator or by a previous commit-agent invocation. This line always discharges
+  the gate, or
+- `CODE QUALITY RESULT: PASS sha=<short-sha> tree=<short-tree> covered=<...>`. The
+  code-quality agent runs its tests **scoped to the changed modules** and never runs the
+  build, so this is a **pre-check**, not the full verify. It discharges the gate only when
+  `covered=` includes `test` (the full suite — `test-scoped` does **not** count) **and**
+  `lint` **and** `build_cmd` is `(none)` — otherwise you
+  still owe the full verify below, and you are the one who runs and records it.
 
-## Step 6 — Browser validation (if applicable)
+**5b — Check it still describes this tree.** The gate ran on the *working tree*
+you are about to commit, so the record is valid when **both** hold:
 
-If `browser_validation` is not `(none)` and changes touch UI components,
-pages, CSS, or client-side logic, execute the validation commands.
+```bash
+# Canonical stamp: builds the tree in a throwaway index, so the real index and
+# the stash are never touched. `git add -A` honours .gitignore, so the hash
+# covers tracked *and* untracked-but-not-ignored files.
+stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp   # tree= must equal the recorded tree
+```
 
-Check for:
+Use that stamp verbatim. Do **not** substitute a stash-based one-liner: it does
+not see untracked files, so adding a new file leaves the hash unchanged and a
+stale green reads as fresh (`~/.claude/rules/pipeline-contract.md`).
+
+1. the working-tree hash is unchanged (`tree=` matches — commits that merely
+   land the verified tree keep it valid; checkouts, rebases, or any change to
+   the tree — **including a newly added untracked file** — do not), **and**
+2. no file was edited after that result line — scan the conversation for any
+   `Edit` / `Write` / `NotebookEdit` following it. One source edit afterwards
+   makes the record stale, even for a one-line change.
+
+When in doubt, treat the record as stale and re-run.
+
+**If a valid record exists:** do **not** run tests, lint, or build. Cite the
+line you found and proceed to Step 6.
+
+**If it is absent, FAIL, or stale:** run the verify **once**, capturing the exit
+code without a pipe (`verification-integrity.md`):
+
+```bash
+# Use verify_cmd if Agent Config has it; otherwise the three-command fallback.
+{ pnpm verify; } > /tmp/commit-verify.log 2>&1; VERIFY_EXIT=$?
+echo "REAL_EXIT=$VERIFY_EXIT"
+grep -E "error|Test Files|ELIFECYCLE|Failed|warning" /tmp/commit-verify.log | head -20
+```
+
+Fallback when `verify_cmd` is absent: `test_cmd`, then `lint_cmd`, then
+`build_cmd` (skipping any that are `(none)`), each with its own captured exit
+code. A lint failure may be auto-fixed once with `lint_fix_cmd` and re-checked.
+
+Then emit this line so downstream steps (orchestrator verify, release check)
+do not repeat it:
+
+```
+VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>
+```
+
+On non-zero exit: emit `VERIFY RESULT: FAIL sha=<short-sha> tree=<short-tree>`, output
+`COMMIT RESULT: FAIL` with the relevant log lines, and stop. Do **not** commit
+broken code.
+
+## Step 6 — Browser validation (only when it can tell you something new)
+
+Run this **only if all three hold**:
+
+1. `browser_validation` is not `(none)`, **and**
+2. the diff touches the project's UI surface (components, pages, CSS,
+   client-side logic under `package_dir`), **and**
+3. no browser-validation evidence for this same tree (stamp matches) already appears in the
+   conversation context.
+
+If evidence is already present, cite it and skip. If the diff is backend-only,
+config-only, docs, or tests, skip and say so in one line.
+
+When you do run it, check for:
 - `pageerror` events → BLOCKER
 - Body text containing "500" + "Something went wrong" → BLOCKER
 - Navigation timeouts → WARNING
 
 If BLOCKERs found, output `COMMIT RESULT: FAIL`.
 
-Skip this step for non-UI changes.
+## Step 7 — Coverage gate (only if not already reported)
 
-## Step 7 — Coverage gate (if applicable)
+If `coverage_per_module` is `(none)`, skip.
 
-If `coverage_per_module` is not `(none)`, verify per-module coverage for
-changed modules meets the threshold.
+If the `CODE QUALITY RESULT:` line for this tree (stamp matches) already reported per-module
+coverage (its `covered=` list includes `coverage`), consume those numbers —
+do **not** re-run the coverage command. Only run coverage yourself when no such
+report exists for this tree.
 
-If any module is below threshold, output `COMMIT RESULT: FAIL` with
+If any changed module is below threshold, output `COMMIT RESULT: FAIL` with
 instructions to run code-quality and test-writer agents.
 
 ## Step 8 — Create commits
@@ -260,10 +332,8 @@ gh pr create --title "<PR title>" --body "$(cat <<'EOF'
 <list each commit hash and message>
 
 ## Test plan
-- [x] All tests pass
-- [x] Lint clean
-- [x] Build clean (if applicable)
-- [x] Code-quality agent: PASS (if source changes)
+- [x] Verify (full lint + test + build): PASS — tree <short-tree>, run by <commit | orchestrator>
+- [x] Code-quality agent (scoped test + lint pre-check): PASS (if source changes)
 - [ ] Manual verification
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -281,6 +351,9 @@ EOF
   the title/branch/body for ids; a PR without one leaves its bead `in_progress` forever.
   If you genuinely cannot identify a bead, say so in the result (`Beads: none found`) so
   the orchestrator can supply it — do not invent an id.
+- **Deferred gates are named, never implied passed.** If browser validation or the
+  coverage gate was skipped per Steps 6–7, add a line to the PR body saying which step
+  still owes it.
 
 ## Hard Constraints
 
@@ -307,8 +380,13 @@ Commits:
   <hash> <type>: <description>
 Branch: <branch-name>
 PR: <PR URL>
+Verify: consumed <VERIFY RESULT|CODE QUALITY RESULT> tree=<tree> | ran once (sha=<sha> tree=<tree>)
+Deferred: <browser validation | coverage | none>
 Beads: <id> [<id> ...] | none found        # repos with .beads/ only
 ```
+
+If you ran the verify yourself, also emit the standalone
+`VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` line (Step 5) so later steps can consume it.
 
 On failure:
 
