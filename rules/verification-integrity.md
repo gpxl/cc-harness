@@ -12,7 +12,7 @@ pnpm test | grep -E "fail"      # $? is grep's status
 npm run build | head -20        # $? is head's status
 ```
 
-Same for any background/async runner whose command ends in a pipe — the harness's "completed (exit code 0)" then reports the pipe's status, not the work's. (This shipped 3 real lint errors past two "green" runs; see `docs/reference/rule-histories.md`.)
+Same for any background/async runner whose command ends in a pipe — the harness's "completed (exit code 0)" then reports the pipe's status, not the work's. (This shipped 3 real lint errors past two "green" runs; see `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ### How to apply
 

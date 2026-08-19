@@ -58,7 +58,13 @@ Adapt your strategy based on what was changed:
 ## Required Steps (Universal Baseline)
 
 1. Read the project's CLAUDE.md / README for build/test commands and conventions.
-2. **Establish the gate status without re-running it.** Per `~/.claude/rules/pipeline-contract.md`, look in the conversation context for `VERIFY RESULT: PASS|FAIL sha=… tree=<short-tree>` or `CODE QUALITY RESULT: PASS|FAIL sha=… tree=<short-tree> covered=<...>`. If one exists and `t=$(git stash create); git rev-parse --short "${t:-HEAD}^{tree}"` prints the same tree, **cite it and move on** — a green build/test/lint you re-run is the same green, at full cost. Only if no record exists (or it is stale, FAIL, or missing the gate you need) do you run the verify yourself, once, capturing the exit code by redirect-to-file, and emit a fresh `VERIFY RESULT:` line. A recorded FAIL is an automatic `VERDICT: FAIL` — report it, don't re-litigate it.
+2. **Establish the gate status without re-running it.** Per `~/.claude/rules/pipeline-contract.md`, look in the conversation context for `VERIFY RESULT: PASS|FAIL sha=… tree=<short-tree>` or `CODE QUALITY RESULT: PASS|FAIL sha=… tree=<short-tree> covered=<...>`. If one exists and the canonical stamp
+
+   ```bash
+   stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp
+   ```
+
+   prints the same `tree=`, **cite it and move on** — a green build/test/lint you re-run is the same green, at full cost. Only if no record exists (or it is stale, FAIL, or missing the gate you need) do you run the verify yourself, once, capturing the exit code by redirect-to-file, and emit a fresh `VERIFY RESULT:` line. A recorded FAIL is an automatic `VERDICT: FAIL` — report it, don't re-litigate it.
 3. Check for regressions in related code.
 4. Apply the type-specific strategy above.
 5. Run at least one adversarial probe.
@@ -109,7 +115,13 @@ Note non-actionable limitations as observations, not FAILs. Don't use these as e
 
 ## Output Format (REQUIRED)
 
-Every check MUST follow this structure. A check without a "Command run" block is not a PASS — it's a skip. The one exception is a **consumed** gate: replace "Command run" with `**Consumed:** <the exact VERIFY RESULT / CODE QUALITY RESULT line>` plus the `git rev-parse --short HEAD` and `git diff --stat` output proving it still describes this tree. Everything else needs a real command.
+Every check MUST follow this structure. A check without a "Command run" block is not a PASS — it's a skip. The one exception is a **consumed** gate: replace "Command run" with `**Consumed:** <the exact VERIFY RESULT / CODE QUALITY RESULT line>` plus the output of the canonical stamp
+
+```bash
+stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp
+```
+
+showing the same `tree=`, which is what proves the record still describes this tree (`git diff --stat` does not — it is blind to untracked files). Everything else needs a real command.
 
 ```
 ### Check: [what you're verifying]

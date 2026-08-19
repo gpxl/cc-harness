@@ -16,7 +16,7 @@ Any tool that hands an agent control of a real, user-owned interactive surface â
 (`claude-in-chrome`) â€” should be released the moment active use ends, not held for the rest of a
 task "just in case." Requesting or attaching again later is cheap; holding is not free for the
 user, who cannot naturally use that surface themselves while an agent has it. (Rationale:
-`docs/reference/rule-histories.md`.)
+`~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ## The rule
 

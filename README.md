@@ -6,9 +6,9 @@ A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 | Agent | Purpose |
 |-------|---------|
-| **code-quality** | Evaluates test coverage, quality (Q1-Q8 checklist), and lint — tests scoped to changed packages where the framework allows. Does not build. Reports `CODE QUALITY RESULT: PASS\|FAIL sha=<sha> covered=<gates>` and files Q3-Q8 warnings as tracker tasks in the same run. |
+| **code-quality** | A **pre-check**, not the full verify: evaluates test coverage, quality (Q1-Q8 checklist), and lint — tests scoped to changed packages where the framework allows, and never the build. Reports `CODE QUALITY RESULT: PASS\|FAIL sha=<sha> tree=<tree> covered=<gates>` and files Q3-Q8 warnings as tracker tasks in the same run (deduped, changed modules only). |
 | **test-writer** | Writes behavioral tests for gaps reported by code-quality. Never writes line-coverage tests. |
-| **commit** | Gates on code-quality PASS, consumes the recorded verify (runs it once only if none exists for this HEAD), creates Conventional Commits, pushes branch, opens PR. Browser validation and the coverage gate run only when nothing already covered them for this HEAD. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
+| **commit** | Gates on code-quality PASS, consumes the recorded full verify (and runs that full lint+test+build itself, once, when no record covers this tree), creates Conventional Commits, pushes branch, opens PR. Browser validation and the coverage gate run only when nothing already covered them for this HEAD. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
 | **release** | Early-exits in three lines on tags-only projects with no `feat:`/`fix:` since the last tag. Otherwise: documentation audit (FAILs if user-facing `feat:` commits aren't reflected in README/`docs/`), version bump, changelog, tag, GitHub Release. Does not re-run gates for an already-merged tree. Refuses to run inside a worktree — must be invoked from the main checkout. |
 | **pr-monitor** | **Skipped entirely when Agent Config `ci` is `none`** — it exists to poll CI checks. Where CI exists: watches checks and auto-merges on green only when (a) the branch matches `branch_pattern` and (b) the PR carries one of `auto_merge_labels`. PRs without a permitted label get CI watched but emit `AWAITING_HUMAN`. Unset `auto_merge_labels` skips label-gating. |
 | **verification** | Adversarial verification before reporting done. Consumes the recorded gate rather than re-running the suite, then spends its run trying to break the change. Anti-rationalization catalog. |
@@ -88,11 +88,13 @@ The agents form a pipeline:
 
 ```
 code change
-  → code-quality (scoped tests + lint + coverage)
+  → code-quality (PRE-CHECK: scoped tests + lint + coverage — never the build)
     → FAIL? → test-writer (fix gaps) → code-quality (re-verify)
     → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> tree=<tree> covered=test,lint,coverage
-      → commit  — consumes that result; runs the verify ONCE only if none is
-                  recorded for this HEAD, then emits VERIFY RESULT: PASS sha=<sha> tree=<tree>
+      → the FULL verify (lint + test + build) runs ONCE for this tree — by the
+        orchestrator, or by the commit agent when no record exists — and is
+        recorded as VERIFY RESULT: PASS sha=<sha> tree=<tree>
+      → commit  — consumes that record (or produces it)
                   → stage, push, open PR
         → pr-monitor  [only if the project has CI — Agent Config `ci` ≠ none]
           → release   [only if `version_strategy` ≠ none]
@@ -101,8 +103,11 @@ Non-trivial work:
   → verification (consumes the recorded gate; spends its run on adversarial checks)
 ```
 
-**Gate once.** The lint+test+build triple runs a single time per HEAD; every later
-step reads the recorded result line rather than re-running it. The contract lives in
+**Gate once** = **one full verify per tree.** code-quality's scoped test + lint is a
+pre-check, not that gate: it never runs the build, and its tests cover only the changed
+modules. The full lint+test+build triple runs a single time per working tree — by the
+orchestrator or the commit agent, whoever gets there first — and every later step reads
+the recorded `VERIFY RESULT:` line rather than re-running it. The contract lives in
 [`rules/pipeline-contract.md`](rules/pipeline-contract.md) — orchestrators pass that
 file by reference to subagents instead of restating gate instructions.
 

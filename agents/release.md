@@ -54,6 +54,7 @@ all key-value pairs. You need these keys:
 | `version_files` | Files to sync version strings (format: `file (field)`) |
 | `pr_merge_strategy` | How feature PRs are merged (`merge` or `squash`) |
 | `release_merge_strategy` | How release PRs are merged (`squash`) |
+| `verify_cmd` | **Optional.** Single command running lint+test+build (e.g. `pnpm verify`). Only needed for the narrow Step 9 case where your own Step 7–8 edits could break the build. Fall back to `test_cmd`, `lint_cmd`, `build_cmd` (skipping any that are `(none)`) when it is absent |
 
 **If `version_strategy` is `(none)`:** Output `RELEASE RESULT: SKIP — This
 project has no release configuration` and stop immediately.
@@ -65,16 +66,22 @@ projects that never cut one. Answer those in three lines and stop — do **not**
 CHANGELOG.md, README, or `docs/`, and do **not** run any gate.
 
 ```bash
-git describe --tags --abbrev=0 2>/dev/null || echo "none"
-git log <last-tag>..HEAD --oneline --no-merges | grep -cE '^[0-9a-f]+ (feat|fix)(\(|:)'
+LAST=$(git describe --tags --abbrev=0 2>/dev/null)
+if [ -n "$LAST" ]; then RANGE="$LAST..HEAD"; else RANGE="HEAD"; fi   # untagged repo: all history is unreleased
+COUNT=$(git log $RANGE --oneline --no-merges | grep -cE '^[0-9a-f]+ (feat|fix)(\(|:)')
+echo "LAST=${LAST:-none} COUNT=$COUNT"
 ```
 
+**An empty `$LAST` is not an early exit.** A repo with no tags has released nothing, so
+every `feat:`/`fix:` in its history is unreleased: count over all of `HEAD` and continue.
+Only `COUNT=0` justifies the exit.
+
 If `version_strategy` is `git-tags-only` **and** `release_merge_strategy` is `(none)`
-**and** that count is `0`, output exactly:
+**and** `COUNT` is `0`, output exactly:
 
 ```
 RELEASE RESULT: SKIP
-Reason: No feat:/fix: commits since <tag> (tags-only project, no release merge strategy)
+Reason: No feat:/fix: commits since <tag, or "the beginning" when untagged> (tags-only project, no release merge strategy)
 ```
 
 Stop there. Otherwise continue to the Release Criteria below.
@@ -92,12 +99,15 @@ trigger one.
 
 ```bash
 gh pr list --base main --state open --json number,title,headRefName
-git describe --tags --abbrev=0 2>/dev/null || echo "none"
-git log <last-tag>..HEAD --oneline
+LAST=$(git describe --tags --abbrev=0 2>/dev/null)
+if [ -n "$LAST" ]; then RANGE="$LAST..HEAD"; else RANGE="HEAD"; fi   # same untagged rule as Step 0b
+echo "LAST=${LAST:-none}"
+git log $RANGE --oneline
 ```
 
 **Decision logic:**
-- If `feat:` or `fix:` commits on main since last tag → skip to Step 4.
+- If `feat:` or `fix:` commits on main since the last tag — or anywhere in history when
+  there is no tag → skip to Step 4.
 - If an open PR contains qualifying commits → proceed to Step 2.
 - If neither → output `RELEASE RESULT: SKIP` and stop.
 
@@ -241,7 +251,9 @@ merge (`~/.claude/rules/pipeline-contract.md`) — in your report as
 
 Run the verify yourself **only** if you changed files in Steps 7–8 (CHANGELOG or
 version-file edits) in a way that could break a build — e.g. a version constant
-compiled into the source. Editing only Markdown never warrants it.
+compiled into the source. Editing only Markdown never warrants it. When you do, use
+`verify_cmd` from Step 0, or its `test_cmd` / `lint_cmd` / `build_cmd` fallback, capturing
+the exit code by redirect-to-file rather than through a pipe.
 
 If the merge commit is not on `main`, output `RELEASE RESULT: FAIL` and stop.
 

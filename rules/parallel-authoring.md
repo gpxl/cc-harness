@@ -7,7 +7,7 @@ paths:
 ---
 # Parallel Authoring (Fan-Out for Independent Additive Work)
 
-When a task splits into several independent, additive work items that share one expensive verification gate, author them with parallel sub-agents on a single branch, then run the gate once on the consolidated result — N agents write, one orchestrator verifies and ships. Handling those items sequentially would mean N runs of the same expensive gate and would leave the available authoring parallelism unused. (Measured payoff: `docs/reference/rule-histories.md`.)
+When a task splits into several independent, additive work items that share one expensive verification gate, author them with parallel sub-agents on a single branch, then run the gate once on the consolidated result — N agents write, one orchestrator verifies and ships. Handling those items sequentially would mean N runs of the same expensive gate and would leave the available authoring parallelism unused. (Measured payoff: `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ## When it applies
 

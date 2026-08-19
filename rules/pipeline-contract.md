@@ -13,11 +13,19 @@ later step in the pipeline **consumes the recorded result instead of re-running 
 Capture the exit code by redirect-to-file, never through a pipe (`verification-integrity.md`), then stamp the record:
 
 ```bash
-t=$(git stash create); echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "${t:-HEAD}^{tree}")"
+stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp
 ```
 
+It builds the tree in a **throwaway index** — the real index and the stash are never touched —
+and `git add -A` honours `.gitignore`, so the hash covers tracked *and* untracked-but-not-ignored
+files. Use it verbatim. Stash-based one-liners are **banned** for this: `git stash` does not
+capture untracked files, so a new file leaves the hash unchanged and a stale green reads as
+fresh.
+
 `tree=` is the **working-tree** hash: committing the verified tree does not change it, so one
-record stays valid through commit → PR → merge; `sha=` is forensic only.
+record stays valid through commit → PR → merge **as long as nothing — tracked or untracked —
+changed**. Re-stamp after every edit; and note that a squash-merge onto a moved `main` produces a
+**new tree** that no earlier record covers. `sha=` is forensic only.
 
 ## Consume, don't re-run
 

@@ -81,4 +81,4 @@ Add this section to define what Claude can do freely vs. what needs confirmation
 - Push to `main`/`master` directly
 ```
 
-Elicitation prompts for filling in both templates: `docs/reference/rule-histories.md`.
+Elicitation prompts for filling in both templates: `~/projects/cc-harness/docs/reference/rule-histories.md`.

@@ -4,11 +4,17 @@ paths:
   - "**/.claude/rules/**"
   - "**/.github/**"
   - "**/*PULL_REQUEST*"
+  - "**/src/**"
+  - "**/app/**"
+  - "**/apps/**"
+  - "**/packages/**"
+  - "**/lib/**"
+  - "**/Sources/**"
 ---
 # Branch Completion Review (Refactor Pass + Adversarial Go/No-Go)
 
-Two review stages sit between "the branch is functionally complete" and "a PR may be
-opened", in this order:
+Two **mandatory** review stages sit between "the branch is functionally complete" and "a PR
+may be opened", in this order:
 
 ```
 functionally complete (features done, QA passed, quality gates green)
@@ -21,7 +27,7 @@ functionally complete (features done, QA passed, quality gates green)
 Green gates and passing QA qualify a branch as *working*; these stages qualify it as
 *finished*. The author's own checks verify what the author thought about — these stages catch
 what the author didn't. (Both stages earned their place on one branch in one day; the incident
-is in `docs/reference/rule-histories.md`.)
+is in `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ## Size gate — do these stages apply at all?
 
@@ -38,6 +44,10 @@ git diff --name-only origin/<integration>...HEAD | grep -vE '(test|spec)' | wc -
 | Below both thresholds | **Skip both.** One line: `Branch completion review: skipped (<N> lines, <M> non-test files — below threshold).` |
 
 A silent skip is not a skip; say it. Only a diff that clears the threshold justifies the cost.
+
+**The size gate above is the only skip condition.** For any branch that clears it, both
+stages are mandatory — neither is optional, and "the gates are green" is not a substitute
+(green gates prove the branch *works*; these stages decide it is *finished*).
 
 ## Stage 1 — Refactor review
 
@@ -79,7 +89,9 @@ It runs **once** per branch (plus one re-review per NO-GO loop) — not per comm
 
 ### Skip conditions
 
-Below the size gate at the top, or doc-only changes: skip both stages, stated in one line, never silent.
+**The size gate at the top is the only one.** Below it (which doc-only branches almost
+always are): skip both stages, stated in one line, never silent. Above it: both stages are
+mandatory, no exceptions.
 
 ## Relationship to other rules
 

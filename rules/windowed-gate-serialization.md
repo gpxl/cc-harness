@@ -17,7 +17,7 @@ authoring; serialize the windows.
 
 Each agent is individually following the project's own gate checklist correctly; the failure is
 emergent — correctness gates that are safe solo become a desktop-flooding, contention-prone swarm
-in parallel. (Incident: `docs/reference/rule-histories.md`.)
+in parallel. (Incident: `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ## The rule
 

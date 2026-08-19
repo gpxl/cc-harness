@@ -21,6 +21,11 @@ meaningful — then report a structured PASS or FAIL. You do **not** write or fi
 report gaps for the test-writer. You do **not** run the build: it belongs to the single
 verify run (`~/.claude/rules/pipeline-contract.md`), and running it here duplicates it.
 
+Your test run is **scoped to the changed modules** and your lint may be too, so your result
+is a **pre-check, not the full verify**. The one full lint+test+build per tree is run by the
+orchestrator or the commit agent and recorded as `VERIFY RESULT:`. Never present your
+`CODE QUALITY RESULT:` as that gate.
+
 ## Step 0 — Read Agent Config
 
 Read the project's CLAUDE.md `## Agent Config` table. Keys you need: `test_cmd` and
@@ -35,7 +40,15 @@ found in CLAUDE.md". A value of `(none)` means skip that step.
 
 Take the changed files from the delegating agent's prompt (or `git diff --name-only`).
 Map each changed source file to its test file via `test_pattern`. Skip files matching
-`exclusions`. Record `SHA=$(git rev-parse --short HEAD)` — it goes in your result line.
+`exclusions`. Record the sha **and the working-tree hash** with the canonical stamp — both go
+in your result line, and `tree=` is what later steps match against:
+
+```bash
+# Throwaway index: the real index and the stash are never touched, and `git add -A`
+# honours .gitignore, so untracked-but-not-ignored files count. Use it verbatim — a
+# stash-based one-liner misses untracked files and reports a stale tree as fresh.
+stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp
+```
 
 ## Step 2 — Run tests, scoped to what changed
 
@@ -82,9 +95,19 @@ Q8 is behavioral, not line-based: a module validating 10 config keys with 2 test
 Q8 warning at 86% line coverage.
 
 **Warnings become beads in this run.** Q3–Q8 don't block, and **you** file them — the
-orchestrator historically never does. Per warning, in repos with a `.beads/` directory:
-`bd create --title="Fix Q<n>: <file> — <one-line gap>" --type=task --priority=3`. List the
-ids under `Warning beads:`; without `.beads/`, write `Warning beads: n/a (no beads repo)`.
+orchestrator historically never does. Two limits keep this from flooding the tracker:
+
+1. **Scope.** File only for test files belonging to the **modules changed in this run**
+   (Step 1's mapping). A warning in an untouched test file is not yours to file.
+2. **Dedup — check before you create.** In repos with a `.beads/` directory:
+
+   ```bash
+   bd list --status=open --limit 0 | grep -F "Fix Q<n>: <file>"   # non-empty => already filed, skip
+   bd create --title="Fix Q<n>: <file> — <one-line gap>" --type=task --priority=3
+   ```
+
+List the ids under `Warning beads:` (note skipped duplicates as `already filed: <id>`);
+without `.beads/`, write `Warning beads: n/a (no beads repo)`.
 
 ## Step 5 — Lint
 

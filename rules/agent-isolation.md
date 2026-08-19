@@ -23,7 +23,7 @@ Concurrent Claude sessions / scheduled routines / orchestrator skills sharing on
 
 ## Before you claim work, check nobody else has
 
-Worktrees isolate *git state*, not *work selection*: two sessions can still pick the same item, and that costs more, because both sides finish the whole job before anyone notices. (Two same-day collisions, both caught by luck rather than by a rule: `docs/reference/rule-histories.md`.)
+Worktrees isolate *git state*, not *work selection*: two sessions can still pick the same item, and that costs more, because both sides finish the whole job before anyone notices. (Two same-day collisions, both caught by luck rather than by a rule: `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ### The preflight
 

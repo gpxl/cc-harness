@@ -190,27 +190,39 @@ Output your plan as a numbered list before proceeding.
 
 ## Step 5 — Consume the recorded gate (do not re-run it)
 
-The gate protocol is `~/.claude/rules/pipeline-contract.md`: lint+test+build
-runs **once per HEAD**, and whoever runs it records the result. Your job here
-is to find that record, not to repeat the work.
+The gate protocol is `~/.claude/rules/pipeline-contract.md`: the **full**
+lint+test+build runs **once per working tree** — "gate once" means one full
+verify per tree — and whoever runs it records the result. Your job here is to
+find that record, or to be the one who produces it.
 
 **5a — Look in the conversation context** for either:
 
-- `VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` — the orchestrator ran the project's
-  verify command, or
-- `CODE QUALITY RESULT: PASS sha=<short-sha> tree=<short-tree> covered=<...>` where `covered=`
-  includes `test` **and** `lint` (and `build`, if `build_cmd` is not `(none)`).
+- `VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` — the full verify, run by the
+  orchestrator or by a previous commit-agent invocation. This is the only line that
+  discharges the gate, or
+- `CODE QUALITY RESULT: PASS sha=<short-sha> tree=<short-tree> covered=<...>`. The
+  code-quality agent runs its tests **scoped to the changed modules** and never runs the
+  build, so this is a **pre-check**, not the full verify. It discharges the gate only when
+  `covered=` includes `test` **and** `lint` **and** `build_cmd` is `(none)` — otherwise you
+  still owe the full verify below, and you are the one who runs and records it.
 
 **5b — Check it still describes this tree.** The gate ran on the *working tree*
 you are about to commit, so the record is valid when **both** hold:
 
 ```bash
-t=$(git stash create); echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "${t:-HEAD}^{tree}")"   # tree= must equal the recorded tree
+# Canonical stamp: builds the tree in a throwaway index, so the real index and
+# the stash are never touched. `git add -A` honours .gitignore, so the hash
+# covers tracked *and* untracked-but-not-ignored files.
+stamp() { ( export GIT_INDEX_FILE="$(mktemp -u)"; git read-tree HEAD && git add -A >/dev/null 2>&1 && echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "$(git write-tree)")"; rm -f "$GIT_INDEX_FILE" ); }; stamp   # tree= must equal the recorded tree
 ```
 
+Use that stamp verbatim. Do **not** substitute a stash-based one-liner: it does
+not see untracked files, so adding a new file leaves the hash unchanged and a
+stale green reads as fresh (`~/.claude/rules/pipeline-contract.md`).
+
 1. the working-tree hash is unchanged (`tree=` matches — commits that merely
-   land the verified tree keep it valid; checkouts, rebases, or stashes that
-   change the tree do not), **and**
+   land the verified tree keep it valid; checkouts, rebases, or any change to
+   the tree — **including a newly added untracked file** — do not), **and**
 2. no file was edited after that result line — scan the conversation for any
    `Edit` / `Write` / `NotebookEdit` following it. One source edit afterwards
    makes the record stale, even for a one-line change.
@@ -319,10 +331,9 @@ gh pr create --title "<PR title>" --body "$(cat <<'EOF'
 <list each commit hash and message>
 
 ## Test plan
-- [x] Verify (lint + test + build): PASS — sha <short-sha>, run by <code-quality | commit | orchestrator>
-- [x] Code-quality agent: PASS (if source changes)
+- [x] Verify (full lint + test + build): PASS — tree <short-tree>, run by <commit | orchestrator>
+- [x] Code-quality agent (scoped test + lint pre-check): PASS (if source changes)
 - [ ] Manual verification
-
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
