@@ -97,7 +97,7 @@ End your response with this block, exact capitalization — the commit agent par
 `covered=` lists the gates you actually ran (`test`, `lint`, `coverage`); never `build`.
 
 ```
-CODE QUALITY RESULT: PASS|FAIL sha=<short-sha> covered=test,lint,coverage
+CODE QUALITY RESULT: PASS|FAIL sha=<short-sha> tree=<short-tree> covered=test,lint,coverage
 
 Changed modules:
   <module path>  — coverage: <N>%

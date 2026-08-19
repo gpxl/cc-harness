@@ -9,7 +9,7 @@ Always consult documentation index and project files rather than relying on trai
 [Rules]|root: ~/.claude/rules/ → symlinked from ~/projects/cc-harness/rules/ (single source of truth; edits follow cc-harness branch+commit-agent pipeline). Project rules live in each project's own .claude/rules/. Incidents behind each rule: cc-harness docs/reference/ (never loaded)
 |Always loaded:
 |agent-enforcement.md: Agent pipeline is MANDATORY — never manual git add/commit/push
-|pipeline-contract.md: Gate once per HEAD — `VERIFY RESULT: PASS sha=` / `CODE QUALITY RESULT:` formats, consume don't re-run, small-diff fast path
+|pipeline-contract.md: Gate once per working tree — `VERIFY RESULT: PASS sha= tree=` / `CODE QUALITY RESULT:` formats, consume don't re-run, small-diff fast path
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
 |testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red

@@ -90,9 +90,9 @@ The agents form a pipeline:
 code change
   → code-quality (scoped tests + lint + coverage)
     → FAIL? → test-writer (fix gaps) → code-quality (re-verify)
-    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> covered=test,lint,coverage
+    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> tree=<tree> covered=test,lint,coverage
       → commit  — consumes that result; runs the verify ONCE only if none is
-                  recorded for this HEAD, then emits VERIFY RESULT: PASS sha=<sha>
+                  recorded for this HEAD, then emits VERIFY RESULT: PASS sha=<sha> tree=<tree>
                   → stage, push, open PR
         → pr-monitor  [only if the project has CI — Agent Config `ci` ≠ none]
           → release   [only if `version_strategy` ≠ none]

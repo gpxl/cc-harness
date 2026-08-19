@@ -234,8 +234,8 @@ git rev-parse --abbrev-ref HEAD        # must be main
 git merge-base --is-ancestor <merge-commit> HEAD && echo "on main"
 ```
 
-Then note the recorded result — the `VERIFY RESULT: PASS sha=<sha>` or
-`CODE QUALITY RESULT: PASS sha=<sha>` line from the pipeline run that gated the
+Then note the recorded result — the `VERIFY RESULT: PASS … tree=<tree>` or
+`CODE QUALITY RESULT: PASS … tree=<tree>` line from the pipeline run that gated the
 merge (`~/.claude/rules/pipeline-contract.md`) — in your report as
 `Gate: <the line>` or `Gate: recorded pre-merge, line not in this context`.
 

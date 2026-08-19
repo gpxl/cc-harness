@@ -196,20 +196,21 @@ is to find that record, not to repeat the work.
 
 **5a — Look in the conversation context** for either:
 
-- `VERIFY RESULT: PASS sha=<short-sha>` — the orchestrator ran the project's
+- `VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` — the orchestrator ran the project's
   verify command, or
-- `CODE QUALITY RESULT: PASS sha=<short-sha> covered=<...>` where `covered=`
+- `CODE QUALITY RESULT: PASS sha=<short-sha> tree=<short-tree> covered=<...>` where `covered=`
   includes `test` **and** `lint` (and `build`, if `build_cmd` is not `(none)`).
 
 **5b — Check it still describes this tree.** The gate ran on the *working tree*
 you are about to commit, so the record is valid when **both** hold:
 
 ```bash
-git rev-parse --short HEAD        # must equal the recorded sha
+t=$(git stash create); echo "sha=$(git rev-parse --short HEAD) tree=$(git rev-parse --short "${t:-HEAD}^{tree}")"   # tree= must equal the recorded tree
 ```
 
-1. HEAD is unchanged (the sha matches — no commit, checkout, rebase, or stash
-   since the gate ran), **and**
+1. the working-tree hash is unchanged (`tree=` matches — commits that merely
+   land the verified tree keep it valid; checkouts, rebases, or stashes that
+   change the tree do not), **and**
 2. no file was edited after that result line — scan the conversation for any
    `Edit` / `Write` / `NotebookEdit` following it. One source edit afterwards
    makes the record stale, even for a one-line change.
@@ -237,10 +238,10 @@ Then emit this line so downstream steps (orchestrator verify, release check)
 do not repeat it:
 
 ```
-VERIFY RESULT: PASS sha=<short-sha>
+VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>
 ```
 
-On non-zero exit: emit `VERIFY RESULT: FAIL sha=<short-sha>`, output
+On non-zero exit: emit `VERIFY RESULT: FAIL sha=<short-sha> tree=<short-tree>`, output
 `COMMIT RESULT: FAIL` with the relevant log lines, and stop. Do **not** commit
 broken code.
 
@@ -367,13 +368,13 @@ Commits:
   <hash> <type>: <description>
 Branch: <branch-name>
 PR: <PR URL>
-Verify: consumed <VERIFY RESULT|CODE QUALITY RESULT> sha=<sha> | ran once (sha=<sha>)
+Verify: consumed <VERIFY RESULT|CODE QUALITY RESULT> tree=<tree> | ran once (sha=<sha> tree=<tree>)
 Deferred: <browser validation | coverage | none>
 Beads: <id> [<id> ...] | none found        # repos with .beads/ only
 ```
 
 If you ran the verify yourself, also emit the standalone
-`VERIFY RESULT: PASS sha=<short-sha>` line (Step 5) so later steps can consume it.
+`VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` line (Step 5) so later steps can consume it.
 
 On failure:
 
