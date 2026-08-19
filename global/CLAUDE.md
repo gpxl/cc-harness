@@ -19,7 +19,7 @@ Always consult documentation index and project files rather than relying on trai
 |memory-discipline.md: Memory exclusions + recall-time verification — memory dirs, MEMORY.md
 |agent-isolation.md: Worktree isolation for parallel pipelines — .claude/{skills,agents,rules}, *worktree*
 |parallel-authoring.md: Fan out sub-agents for independent additive work; gate once — same scope
-|branch-completion-review.md: Refactor pass + adversarial GO/NO-GO, only for diffs ≥200 lines or ≥5 non-test files — .claude/{skills,rules}, .github
+|branch-completion-review.md: Refactor pass + adversarial GO/NO-GO, only for diffs ≥200 lines or ≥5 non-test files — source trees (src/app/apps/packages/lib/Sources), .claude/{skills,rules}, .github
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
 
@@ -85,7 +85,7 @@ Write tests BEFORE implementing; test user behavior, not implementation; co-loca
 |------|--------|
 | **TRIGGER** | Any user request to "commit", "push", "save", "ship it", "yes" (to commit prompt) |
 | **EXCEPTION** | Projects without Agent Config in CLAUDE.md use standard git workflow |
-| **GATE ONCE** | lint+test+build runs once per HEAD; later steps consume the recorded `VERIFY RESULT:` / `CODE QUALITY RESULT:` line instead of re-running (`pipeline-contract.md`) |
+| **GATE ONCE** | lint+test+build runs once per working tree; later steps consume the recorded `VERIFY RESULT:` / `CODE QUALITY RESULT:` line instead of re-running (`pipeline-contract.md`) |
 | **pr-monitor** | Skipped when Agent Config `ci` is `none` — it polls CI checks that don't exist; merge on the recorded verify instead. `release` likewise skipped when `version_strategy` is `(none)` |
 
 ### Parallel Agent Runs (CRITICAL)

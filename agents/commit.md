@@ -198,12 +198,13 @@ find that record, or to be the one who produces it.
 **5a — Look in the conversation context** for either:
 
 - `VERIFY RESULT: PASS sha=<short-sha> tree=<short-tree>` — the full verify, run by the
-  orchestrator or by a previous commit-agent invocation. This is the only line that
-  discharges the gate, or
+  orchestrator or by a previous commit-agent invocation. This line always discharges
+  the gate, or
 - `CODE QUALITY RESULT: PASS sha=<short-sha> tree=<short-tree> covered=<...>`. The
   code-quality agent runs its tests **scoped to the changed modules** and never runs the
   build, so this is a **pre-check**, not the full verify. It discharges the gate only when
-  `covered=` includes `test` **and** `lint` **and** `build_cmd` is `(none)` — otherwise you
+  `covered=` includes `test` (the full suite — `test-scoped` does **not** count) **and**
+  `lint` **and** `build_cmd` is `(none)` — otherwise you
   still owe the full verify below, and you are the one who runs and records it.
 
 **5b — Check it still describes this tree.** The gate ran on the *working tree*
@@ -264,7 +265,7 @@ Run this **only if all three hold**:
 1. `browser_validation` is not `(none)`, **and**
 2. the diff touches the project's UI surface (components, pages, CSS,
    client-side logic under `package_dir`), **and**
-3. no browser-validation evidence for this same HEAD already appears in the
+3. no browser-validation evidence for this same tree (stamp matches) already appears in the
    conversation context.
 
 If evidence is already present, cite it and skip. If the diff is backend-only,
@@ -281,10 +282,10 @@ If BLOCKERs found, output `COMMIT RESULT: FAIL`.
 
 If `coverage_per_module` is `(none)`, skip.
 
-If the `CODE QUALITY RESULT:` line for this HEAD already reported per-module
+If the `CODE QUALITY RESULT:` line for this tree (stamp matches) already reported per-module
 coverage (its `covered=` list includes `coverage`), consume those numbers —
 do **not** re-run the coverage command. Only run coverage yourself when no such
-report exists for this HEAD.
+report exists for this tree.
 
 If any changed module is below threshold, output `COMMIT RESULT: FAIL` with
 instructions to run code-quality and test-writer agents.

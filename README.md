@@ -90,7 +90,7 @@ The agents form a pipeline:
 code change
   → code-quality (PRE-CHECK: scoped tests + lint + coverage — never the build)
     → FAIL? → test-writer (fix gaps) → code-quality (re-verify)
-    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> tree=<tree> covered=test,lint,coverage
+    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> tree=<tree> covered=test-scoped,lint,coverage
       → the FULL verify (lint + test + build) runs ONCE for this tree — by the
         orchestrator, or by the commit agent when no record exists — and is
         recorded as VERIFY RESULT: PASS sha=<sha> tree=<tree>

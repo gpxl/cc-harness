@@ -8,7 +8,7 @@ later step in the pipeline **consumes the recorded result instead of re-running 
 | Emitted by | Exact line | Means |
 |---|---|---|
 | Orchestrator or commit agent | `VERIFY RESULT: PASS\|FAIL sha=<short-sha> tree=<short-tree>` | The project's verify (`verify_cmd`, or `test_cmd && lint_cmd && build_cmd`) ran on that tree |
-| code-quality agent | `CODE QUALITY RESULT: PASS\|FAIL sha=<short-sha> tree=<short-tree> covered=<test,lint,coverage>` | Those gates ran on that tree; `covered=` says which |
+| code-quality agent | `CODE QUALITY RESULT: PASS\|FAIL sha=<short-sha> tree=<short-tree> covered=<test|test-scoped,lint,coverage>` | Those gates ran on that tree; `covered=` says which |
 
 Capture the exit code by redirect-to-file, never through a pipe (`verification-integrity.md`), then stamp the record:
 

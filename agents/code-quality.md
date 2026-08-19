@@ -117,7 +117,9 @@ or `// eslint-disable` unless the violation is a genuine false positive you can 
 ## Step 6 — Report result
 
 End your response with this block, exact capitalization — the commit agent parses it.
-`covered=` lists the gates you actually ran (`test`, `lint`, `coverage`); never `build`.
+`covered=` lists the gates you actually ran: `test` only if you ran the **full** suite,
+`test-scoped` if you ran the changed-module subset (the usual case), plus `lint`,
+`coverage`; never `build`.
 
 ```
 CODE QUALITY RESULT: PASS|FAIL sha=<short-sha> tree=<short-tree> covered=test,lint,coverage
