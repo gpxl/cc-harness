@@ -1,3 +1,13 @@
+---
+paths:
+  - "**/*.swift"
+  - "**/*.xcodeproj/**"
+  - "**/electron/**"
+  - "**/ios/**"
+  - "**/playwright*"
+  - "**/scripts/visual-testing/**"
+  - "**/.claude/skills/**"
+---
 # Windowed-Gate Serialization (Parallel Agents on GUI-App Projects)
 
 When parallel agents work on a project whose verification gates open **real, visible application
@@ -7,21 +17,7 @@ authoring; serialize the windows.
 
 Each agent is individually following the project's own gate checklist correctly; the failure is
 emergent — correctness gates that are safe solo become a desktop-flooding, contention-prone swarm
-in parallel.
-
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-## Why this rule exists
-
-On 2026-07-20 (StemLab), six parallel worktree agents each independently ran the project's UI
-gates (`uitest.sh`, `check-clipping.sh`, `archive-ux.sh`, `bundle.sh --verify`, and
-`swift run App --measure/--audit/--scenario` harness modes). Every one of those pops real windows
-via the window server. Six agents × several gate runs each = the user's desktop continuously
-flickering with app windows opening and closing — disruptive enough that the user stopped the run
-to ask what was wrong. The same project had already merged a fix for uitest scenario spillover
-from *engine contention* between overlapping harness runs, so concurrency here risks flaky
-results, not just annoyance.
--->
+in parallel. (Incident: `docs/reference/rule-histories.md`.)
 
 ## The rule
 

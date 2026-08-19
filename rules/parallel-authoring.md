@@ -1,29 +1,13 @@
+---
+paths:
+  - "**/.claude/skills/**"
+  - "**/.claude/agents/**"
+  - "**/.claude/rules/**"
+  - "**/*worktree*"
+---
 # Parallel Authoring (Fan-Out for Independent Additive Work)
 
-When a task splits into several independent, additive work items that share one expensive verification gate, author them with parallel sub-agents on a single branch, then run the gate once on the consolidated result — N agents write, one orchestrator verifies and ships. Handling those items sequentially would mean N runs of the same expensive gate and would leave the available authoring parallelism unused.
-
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-## Why this rule exists
-
-The naive approach to N independent work items is sequential: take item 1 end to
-end (author → gate → commit → PR), then item 2, and so on. When each item must
-pass an expensive shared gate (a full test suite, an eval suite, CI), that is N
-expensive gate runs — and on the agentic side, sequential authoring leaves most
-of the available parallelism unused.
-
-The items are usually independent: each adds new files, none depends on
-another's output, and no two touch the same file. Independent additive work has
-no reason to be serialized. Authoring it in parallel and verifying it once
-collapses N gate runs into one and N authoring passes into wall-clock-one.
-
-Measured on a real run (CMS phases 9d–9h, May 2026): five workflow-skill
-beads, each a new skill file plus two eval scenarios. Five parallel authoring
-agents and one consolidated `eval/run.sh all` replaced five sequential ~60-min
-gate runs — roughly 3–6 h saved — and avoided compounding a known eval-pool
-flake by running the heavy gate once instead of five times.
-
--->
+When a task splits into several independent, additive work items that share one expensive verification gate, author them with parallel sub-agents on a single branch, then run the gate once on the consolidated result — N agents write, one orchestrator verifies and ships. Handling those items sequentially would mean N runs of the same expensive gate and would leave the available authoring parallelism unused. (Measured payoff: `docs/reference/rule-histories.md`.)
 
 ## When it applies
 

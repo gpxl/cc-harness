@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/.claude/projects/**/memory/**"
+  - "**/MEMORY.md"
+---
 # Memory Discipline
 
 Reinforcements beyond the built-in memory exclusion rules. Apply these when saving or recalling memories.
