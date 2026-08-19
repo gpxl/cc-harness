@@ -6,12 +6,12 @@ A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 | Agent | Purpose |
 |-------|---------|
-| **code-quality** | Evaluates test coverage, quality (Q1-Q8 checklist), and lint. Reports PASS/FAIL. |
+| **code-quality** | Evaluates test coverage, quality (Q1-Q8 checklist), and lint — tests scoped to changed packages where the framework allows. Does not build. Reports `CODE QUALITY RESULT: PASS\|FAIL sha=<sha> covered=<gates>` and files Q3-Q8 warnings as tracker tasks in the same run. |
 | **test-writer** | Writes behavioral tests for gaps reported by code-quality. Never writes line-coverage tests. |
-| **commit** | Gates on code-quality PASS, creates Conventional Commits, pushes branch, opens PR. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
-| **release** | Evaluates whether to release, runs a documentation audit (FAILs if user-facing `feat:`/`fix:` commits aren't reflected in README/`docs/`), bumps version, updates changelog, tags, creates GitHub Release. Refuses to run inside a worktree — must be invoked from the main checkout. |
-| **pr-monitor** | Watches CI checks. Auto-merges on green only when (a) the branch matches the `branch_pattern` and (b) the PR carries one of the labels listed in `auto_merge_labels` (Agent Config). PRs without a permitted label get CI watched but emit `AWAITING_HUMAN` for manual merge. If `auto_merge_labels` is unset, label-gating is skipped (backward compatible). |
-| **verification** | Adversarial verification before reporting done. Anti-rationalization catalog. Tries to break it. |
+| **commit** | Gates on code-quality PASS, consumes the recorded verify (runs it once only if none exists for this HEAD), creates Conventional Commits, pushes branch, opens PR. Browser validation and the coverage gate run only when nothing already covered them for this HEAD. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
+| **release** | Early-exits in three lines on tags-only projects with no `feat:`/`fix:` since the last tag. Otherwise: documentation audit (FAILs if user-facing `feat:` commits aren't reflected in README/`docs/`), version bump, changelog, tag, GitHub Release. Does not re-run gates for an already-merged tree. Refuses to run inside a worktree — must be invoked from the main checkout. |
+| **pr-monitor** | **Skipped entirely when Agent Config `ci` is `none`** — it exists to poll CI checks. Where CI exists: watches checks and auto-merges on green only when (a) the branch matches `branch_pattern` and (b) the PR carries one of `auto_merge_labels`. PRs without a permitted label get CI watched but emit `AWAITING_HUMAN`. Unset `auto_merge_labels` skips label-gating. |
+| **verification** | Adversarial verification before reporting done. Consumes the recorded gate rather than re-running the suite, then spends its run trying to break the change. Anti-rationalization catalog. |
 
 Plus rules for test quality, memory discipline, CLAUDE.md project templates, and agent purpose statements.
 
@@ -45,6 +45,8 @@ Then edit the values for your project. Key fields:
 | `test_cmd` | `pnpm test` or `python3 -m pytest tests/` |
 | `lint_cmd` | `pnpm lint` or `ruff check src/` |
 | `build_cmd` | `pnpm build` or `(none)` |
+| `verify_cmd` | optional single command running lint+test+build (e.g. `pnpm verify`); preferred over the three above when present |
+| `ci` | `github-actions`, `none`, … — `none` makes the pipeline skip pr-monitor |
 | `coverage_per_module` | `80` or `(none)` |
 | `version_strategy` | `semver`, `semver-beta`, `git-tags-only`, or `(none)` |
 | `deploy_model` | `discrete` or `auto-deploy` |
@@ -54,7 +56,7 @@ Then edit the values for your project. Key fields:
 
 Use `(none)` to skip any capability your project doesn't need.
 
-See [`templates/agent-config.md`](templates/agent-config.md) for the full 25-key schema with descriptions.
+See [`templates/agent-config.md`](templates/agent-config.md) for the full schema with descriptions.
 
 ## How it works
 
@@ -86,15 +88,23 @@ The agents form a pipeline:
 
 ```
 code change
-  → code-quality (evaluate)
+  → code-quality (scoped tests + lint + coverage)
     → FAIL? → test-writer (fix gaps) → code-quality (re-verify)
-    → PASS  → commit (stage, push, open PR)
-      → pr-monitor (watch CI, merge on green)
-        → release (evaluate, tag, publish)
+    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> covered=test,lint,coverage
+      → commit  — consumes that result; runs the verify ONCE only if none is
+                  recorded for this HEAD, then emits VERIFY RESULT: PASS sha=<sha>
+                  → stage, push, open PR
+        → pr-monitor  [only if the project has CI — Agent Config `ci` ≠ none]
+          → release   [only if `version_strategy` ≠ none]
 
 Non-trivial work:
-  → verification (adversarial checks before reporting done)
+  → verification (consumes the recorded gate; spends its run on adversarial checks)
 ```
+
+**Gate once.** The lint+test+build triple runs a single time per HEAD; every later
+step reads the recorded result line rather than re-running it. The contract lives in
+[`rules/pipeline-contract.md`](rules/pipeline-contract.md) — orchestrators pass that
+file by reference to subagents instead of restating gate instructions.
 
 ## Per-project overrides
 
@@ -108,8 +118,13 @@ This is useful for projects with unique workflows (e.g., student-facing agents t
 
 ## Rules included
 
+Rules with a `paths:` frontmatter block load only when a matching file is read; the rest load
+in every session. Maintainer-only history (incidents, measurements, setup boilerplate) lives in
+[`docs/reference/`](docs/reference/), which is **not** symlinked into `~/.claude/`.
+
 | Rule | What it provides |
 |------|-----------------|
+| **pipeline-contract** | The gate-once contract: who runs the verify, the result-line formats, consume-don't-re-run, and the small-diff fast path |
 | **testing-guidelines** | Test quality checklist (Q1-Q8), TDD workflow, anti-patterns, session close protocol |
 | **claude-md-project-templates** | NEVER rules template + autonomy tier template for project CLAUDE.md |
 | **memory-discipline** | Memory exclusion reinforcements + recall-time verification protocol |

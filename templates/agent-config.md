@@ -24,6 +24,8 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | lint_cmd | pnpm lint |
 | lint_fix_cmd | (none) |
 | build_cmd | pnpm build |
+| verify_cmd | pnpm verify |
+| ci | github-actions |
 | test_pattern | src/foo.ts -> tests/foo.test.ts |
 | test_framework | vitest |
 | test_fixtures | (none) |
@@ -57,6 +59,8 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | `lint_cmd` | Run linter | `pnpm lint`, `ruff check src/` |
 | `lint_fix_cmd` | Auto-fix lint issues | `ruff check --fix src/`, `(none)` |
 | `build_cmd` | Build/compile step | `pnpm build`, `(none)` |
+| `verify_cmd` | **Optional.** One command running lint+test+build. When present it *is* the verify — the gate runs it once per HEAD and later steps consume the recorded `VERIFY RESULT:` line (see `rules/pipeline-contract.md`) instead of re-running the three separately | `pnpm verify`, `make check`, `(none)` |
+| `ci` | Whether the project has CI running checks on PRs. `none` makes the pipeline **skip pr-monitor** — it exists to poll checks, so with no CI the orchestrator merges on the recorded local verify instead | `github-actions`, `none` |
 | `test_pattern` | Map source files to test files | `src/foo.ts -> tests/foo.test.ts` |
 | `test_framework` | Which test framework | `pytest`, `jest + react-testing-library`, `vitest` |
 | `test_fixtures` | Available shared fixtures/helpers | `conftest.py: fixture1, fixture2`, `(none)` |

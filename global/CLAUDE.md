@@ -6,19 +6,22 @@ Always consult documentation index and project files rather than relying on trai
 ## Documentation Index
 
 ```
-[Rules]|root: ~/.claude/rules/ → symlinked from ~/projects/cc-harness/rules/ (single source of truth; edits follow cc-harness branch+commit-agent pipeline). Project-specific rules live in each project's own .claude/rules/
+[Rules]|root: ~/.claude/rules/ → symlinked from ~/projects/cc-harness/rules/ (single source of truth; edits follow cc-harness branch+commit-agent pipeline). Project rules live in each project's own .claude/rules/. Incidents behind each rule: cc-harness docs/reference/ (never loaded)
+|Always loaded:
 |agent-enforcement.md: Agent pipeline is MANDATORY — never manual git add/commit/push
+|pipeline-contract.md: Gate once per HEAD — `VERIFY RESULT: PASS sha=` / `CODE QUALITY RESULT:` formats, consume don't re-run, small-diff fast path
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
-|testing-guidelines.md: Universal test quality (Q1-Q8), TDD, session close protocol
-|claude-md-project-templates.md: NEVER lists + autonomy tiers templates for project CLAUDE.md (path-scoped: loads only when a CLAUDE.md or .claude/rules file is read — Read it directly when creating a CLAUDE.md from scratch)
-|memory-discipline.md: Memory exclusion reinforcements + recall-time verification protocol
-|agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
-|agent-isolation.md: Worktree-based isolation for parallel agent pipelines — when and how
-|parallel-authoring.md: Fan-out parallel sub-agents for independent additive work; gate once
-|branch-completion-review.md: Two mandatory stages between "functionally complete" and PR: refactor review of the branch diff, then adversarial agent review with GO/NO-GO veto
+|testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
-|windowed-gate-serialization.md: Parallel agents on GUI-app projects — author headless in parallel, serialize window-opening gates through one stream + machine-global lock
-|computer-control-release.md: Release interactive control (computer-use, Simulator attach, Claude-in-Chrome) the moment active use ends, not for the rest of the task
+|agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
+|Path-scoped (load only on a matching file; Read directly if needed elsewhere):
+|claude-md-project-templates.md: NEVER lists + autonomy tiers templates — CLAUDE.md, .claude/rules
+|memory-discipline.md: Memory exclusions + recall-time verification — memory dirs, MEMORY.md
+|agent-isolation.md: Worktree isolation for parallel pipelines — .claude/{skills,agents,rules}, *worktree*
+|parallel-authoring.md: Fan out sub-agents for independent additive work; gate once — same scope
+|branch-completion-review.md: Refactor pass + adversarial GO/NO-GO, only for diffs ≥200 lines or ≥5 non-test files — .claude/{skills,rules}, .github
+|windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
+|computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
@@ -42,23 +45,11 @@ Always consult documentation index and project files rather than relying on trai
 
 ## Code Reuse
 
-1. Check code index before writing
-2. **REUSE** > **EXTEND** > **CREATE**
-3. Explain: "I'm [reusing/extending/creating] because [reason]"
-
-| Similarity | Action |
-|------------|--------|
-| >80% | Use existing |
-| 60-80% | Ask user |
-| 40-60% | Reference patterns |
+Check the code index before writing. **REUSE** > **EXTEND** > **CREATE** — and say which: "I'm [reusing/extending/creating] because [reason]." Similarity >80% → use the existing thing; 60-80% → ask the user; 40-60% → reference its patterns.
 
 ## Testing (TDD)
 
-See `.claude/rules/testing-guidelines.md` for complete patterns.
-
-- Write tests BEFORE implementing
-- Test user behavior, NOT implementation
-- Co-locate tests next to source files
+Write tests BEFORE implementing; test user behavior, not implementation; co-locate tests next to source files. Full patterns: `testing-guidelines.md`.
 
 ## Workflow
 
@@ -94,15 +85,12 @@ See `.claude/rules/testing-guidelines.md` for complete patterns.
 |------|--------|
 | **TRIGGER** | Any user request to "commit", "push", "save", "ship it", "yes" (to commit prompt) |
 | **EXCEPTION** | Projects without Agent Config in CLAUDE.md use standard git workflow |
+| **GATE ONCE** | lint+test+build runs once per HEAD; later steps consume the recorded `VERIFY RESULT:` / `CODE QUALITY RESULT:` line instead of re-running (`pipeline-contract.md`) |
+| **pr-monitor** | Skipped when Agent Config `ci` is `none` — it polls CI checks that don't exist; merge on the recorded verify instead. `release` likewise skipped when `version_strategy` is `(none)` |
 
 ### Parallel Agent Runs (CRITICAL)
 
-| Rule | Detail |
-|------|--------|
-| **WHEN** | Multiple sessions / routines may run against the same repo simultaneously |
-| **THEN** | Orchestrator skills that edit code MUST wrap their pipeline in a `git worktree` (opt in via `worktree_root` + `isolation_required_for` in the project's Agent Config) |
-
-Lifecycle: `agent-isolation.md`.
+When multiple sessions / routines may run against the same repo simultaneously, orchestrator skills that edit code MUST wrap their pipeline in a `git worktree` (opt in via `worktree_root` + `isolation_required_for` in the project's Agent Config). Lifecycle: `agent-isolation.md`.
 
 ### Planning vs Implementation (CRITICAL)
 
@@ -119,11 +107,7 @@ When asked to **plan**: create all `bd create` issues, set dependencies with `bd
 
 ## Security
 
-- Never expose, log, or commit secrets
-- Never commit `.env`, credentials, or tokens
-- Validate at system boundaries (user input, external APIs)
-- Use least-privilege approach for all operations
-- Project-specific auth patterns live in each project's rules/
+Never expose, log, or commit secrets, `.env` files, credentials, or tokens. Validate at system boundaries (user input, external APIs) and use least privilege everywhere. Project-specific auth patterns live in each project's `rules/`.
 
 ## Communication
 
@@ -148,23 +132,6 @@ Route work to the model that fits the task. Applies to the **session model** AND
 
 ## CLAUDE.md Optimization
 
-**Auto-apply when user says:** "optimize Claude config", "update config", "improve CLAUDE.md", "set up Claude", "create CLAUDE.md"
+**Auto-apply when user says:** "optimize Claude config", "update config", "improve CLAUDE.md", "set up Claude", "create CLAUDE.md".
 
-**Required:**
-1. Retrieval-led instruction at top
-2. Compressed pipe-delimited index: `[Category]|root: path/`
-3. Tables over lists (~50% reduction)
-4. Security inline, details in rules/
-5. Skills for user-triggered only
-
-**Workflow:** Read structure → Add instruction → Create index → Convert to tables → Extract to rules → Report line counts
-
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-Measured pass rates that motivated the "Required" list above:
-
-| Config | Pass Rate |
-|--------|-----------|
-| No docs / Skills | 53% |
-| **AGENTS.md index** | **100%** |
--->
+Required elements: retrieval-led instruction at top; compressed pipe-delimited index (`[Category]|root: path/`); tables over lists; security inline with details in `rules/`; skills for user-triggered work only. Templates and the fill-in prompts: `claude-md-project-templates.md`.
