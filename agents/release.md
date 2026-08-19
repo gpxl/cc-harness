@@ -9,6 +9,7 @@ purpose: >
   Evaluate and execute release — output is the release tag or a no-release
   reason. The caller acts on the verdict, not the analysis.
 model: sonnet
+effort: low
 tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
@@ -51,14 +52,32 @@ all key-value pairs. You need these keys:
 | `version_strategy` | How versions are managed: `semver`, `semver-beta`, `git-tags-only`, or `(none)` |
 | `deploy_model` | `discrete` (explicit releases) or `auto-deploy` (Vercel/similar) |
 | `version_files` | Files to sync version strings (format: `file (field)`) |
-| `test_cmd` | Quality gate |
-| `lint_cmd` | Quality gate |
-| `build_cmd` | Quality gate |
 | `pr_merge_strategy` | How feature PRs are merged (`merge` or `squash`) |
 | `release_merge_strategy` | How release PRs are merged (`squash`) |
 
 **If `version_strategy` is `(none)`:** Output `RELEASE RESULT: SKIP — This
 project has no release configuration` and stop immediately.
+
+## Step 0b — Cheap early exit (run before reading anything else)
+
+Most invocations of this agent are post-merge "is a release warranted?" checks on
+projects that never cut one. Answer those in three lines and stop — do **not** read
+CHANGELOG.md, README, or `docs/`, and do **not** run any gate.
+
+```bash
+git describe --tags --abbrev=0 2>/dev/null || echo "none"
+git log <last-tag>..HEAD --oneline --no-merges | grep -cE '^[0-9a-f]+ (feat|fix)(\(|:)'
+```
+
+If `version_strategy` is `git-tags-only` **and** `release_merge_strategy` is `(none)`
+**and** that count is `0`, output exactly:
+
+```
+RELEASE RESULT: SKIP
+Reason: No feat:/fix: commits since <tag> (tags-only project, no release merge strategy)
+```
+
+Stop there. Otherwise continue to the Release Criteria below.
 
 ## Release Criteria
 
@@ -140,73 +159,20 @@ Categorize commits:
 
 ## Step 5 — Documentation audit
 
-Before cutting a release, verify that user-facing and developer documentation
-accurately reflects the features and architecture being released.
-
-### 5a — Discover documentation files
-
-```bash
-# Find user-facing docs
-ls README.md CHANGELOG.md docs/*.md docs/**/*.md 2>/dev/null
-```
-
-### 5b — CHANGELOG completeness
-
-Read CHANGELOG.md's `[Unreleased]` section. For each `feat:` and `fix:`
-commit identified in Step 4, check whether a corresponding entry exists.
-
-- If `[Unreleased]` is empty and there are qualifying commits →
-  **documentation gap** (the release agent will generate entries in the
-  CHANGELOG step, but user-facing docs below still need checking).
-
-### 5c — Feature documentation
-
-For each `feat:` commit, extract the feature's key concept (e.g.
-"health alerts", "budget tracking", "plugin system"). Search README.md
-and any files under `docs/` for mention of that concept.
-
-A feature is **documented** if at least one of these is true:
-- README.md describes the feature (even briefly)
-- A dedicated doc page covers it
-- The CHANGELOG `[Unreleased]` section has a clear entry
-
-A feature is **undocumented** if none of the above apply.
-
-### 5d — Architecture documentation
-
-If unreleased commits added new modules, renamed files, changed data flow,
-or modified the state schema:
-
-- Check `docs/ARCHITECTURE.md` (if it exists) for accuracy
-- Check that module maps, diagrams, or state schemas reflect the current code
-- New modules should appear in any module map table
-
-### 5e — API documentation
-
-If unreleased commits changed HTTP endpoints, state snapshot fields, or
-public function signatures:
-
-- Check `docs/API.md` (if it exists) for accuracy
-- New endpoints or response fields should be documented
-- Removed or renamed fields should not appear in the docs
-
-### 5f — Decision
+Only for the `feat:` commits in this release, and only against docs that exist
+(`README.md`, `docs/**`). For each feature, search those files for its key concept.
+It counts as documented if README, a doc page, **or** the CHANGELOG `[Unreleased]`
+section mentions it.
 
 | Outcome | Action |
 |---------|--------|
-| All features documented, docs accurate | Proceed to Step 6 |
-| Minor gaps (CHANGELOG only) | Proceed — the release agent writes CHANGELOG entries in Step 7 |
-| No doc files found (README.md, docs/) | Proceed — project has no docs to audit |
-| User-facing feature undocumented in README/docs | **RELEASE RESULT: FAIL** — report gaps |
-| Architecture/API docs stale | **RELEASE RESULT: FAIL** — report gaps |
+| Every `feat:` documented, or no doc files exist | Proceed to Step 6 |
+| CHANGELOG-only gap | Proceed — Step 7 writes those entries |
+| A user-facing feature appears nowhere in README/`docs/` | `RELEASE RESULT: FAIL` |
+| A `feat:` added/renamed modules or changed public endpoints and `docs/ARCHITECTURE.md` or `docs/API.md` contradicts the code | `RELEASE RESULT: FAIL` |
 
-When reporting FAIL, list each gap with:
-- The commit that introduced the change
-- Which doc file needs updating
-- A brief description of what's missing
-
-The release agent does **not** write README, architecture, or API docs —
-that is the caller's responsibility. The agent only gates on their accuracy.
+On FAIL, list each gap as: commit → doc file → what's missing. The agent gates on
+doc accuracy; it never writes README, architecture, or API docs.
 
 ## Step 6 — Determine version bump
 
@@ -257,14 +223,27 @@ Update each file's field to the new version string. Common patterns:
 | `package.json` | `"version": "X.Y.Z"` |
 | TypeScript `version.ts` | `export const VERSION = "X.Y.Z"` |
 
-## Step 9 — Run quality gates
+## Step 9 — Confirm the gate that already ran (do not re-run it)
 
-Execute `test_cmd`. If any test fails, output `RELEASE RESULT: FAIL` and stop.
+You release commits that are **already merged to main**, and merging required a
+green gate. Re-running lint+test+build here verifies a tree that was verified to
+get here. Instead, confirm two cheap facts:
 
-Execute `lint_cmd`. If lint fails, output `RELEASE RESULT: FAIL` and stop.
+```bash
+git rev-parse --abbrev-ref HEAD        # must be main
+git merge-base --is-ancestor <merge-commit> HEAD && echo "on main"
+```
 
-If `build_cmd` is not `(none)`, execute it. If build fails, output
-`RELEASE RESULT: FAIL` and stop.
+Then note the recorded result — the `VERIFY RESULT: PASS sha=<sha>` or
+`CODE QUALITY RESULT: PASS sha=<sha>` line from the pipeline run that gated the
+merge (`~/.claude/rules/pipeline-contract.md`) — in your report as
+`Gate: <the line>` or `Gate: recorded pre-merge, line not in this context`.
+
+Run the verify yourself **only** if you changed files in Steps 7–8 (CHANGELOG or
+version-file edits) in a way that could break a build — e.g. a version constant
+compiled into the source. Editing only Markdown never warrants it.
+
+If the merge commit is not on `main`, output `RELEASE RESULT: FAIL` and stop.
 
 ## Step 10 — Commit, tag, push
 
@@ -329,7 +308,8 @@ EOF
 
 - Do **not** modify files outside version + changelog scope.
 - Do **not** write or update README, architecture, or API docs — only gate on them.
-- Do **not** push if quality gates fail — report FAIL and stop.
+- Do **not** push on a recorded gate FAIL — report FAIL and stop.
+- Do **not** re-run lint/test/build for a tree already gated pre-merge (Step 9).
 - Do **not** merge a PR with failing checks.
 - Do **not** release if no qualifying commits exist — report SKIP.
 - Always use annotated tags (`-a`), not lightweight.
@@ -347,6 +327,7 @@ On success:
 RELEASE RESULT: PASS
 Version: X.Y.Z
 Tag: vX.Y.Z
+Gate: <recorded VERIFY/CODE QUALITY line, or "recorded pre-merge">
 Release URL: <GitHub Release URL>
 ```
 
