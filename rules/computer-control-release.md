@@ -1,30 +1,22 @@
+---
+paths:
+  - "**/*.swift"
+  - "**/*.xcodeproj/**"
+  - "**/electron/**"
+  - "**/ios/**"
+  - "**/playwright*"
+  - "**/scripts/visual-testing/**"
+  - "**/.claude/skills/**"
+  - "**/.claude/agents/**"
+---
 # Computer Control Release
 
 Any tool that hands an agent control of a real, user-owned interactive surface — the desktop
 (`computer-use`), the iOS Simulator's live panel, or the user's actual logged-in Chrome
 (`claude-in-chrome`) — should be released the moment active use ends, not held for the rest of a
 task "just in case." Requesting or attaching again later is cheap; holding is not free for the
-user, who cannot naturally use that surface themselves while an agent has it.
-
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-## Why this rule exists
-
-These tools are structurally different from ordinary file/shell tools: they take over something the
-user owns and would otherwise be using themselves — their screen, their simulator window, their
-logged-in browser. The existing tool-level instructions already cover the *first* half of this well
-(attach/request early, as soon as it's useful to show the user something) but say little about the
-second half: handing it back. Left unaddressed, the default failure mode is an agent that opens a
-live surface for a legitimate reason early in a task, then keeps working through several unrelated
-steps — edits, builds, reads — with that surface still attached, simply because nothing in the loop
-ever prompted it to close.
-
-This is the single-agent, single-surface analogue of `windowed-gate-serialization.md` (which
-addresses N *parallel* agents flooding the user's desktop with windows at once): a different failure
-mode — duration instead of concurrency — but the same underlying resource. Both rules treat the
-user's screen and attention as shared and exclusive, not as idle capacity an agent can assume it can
-occupy indefinitely.
--->
+user, who cannot naturally use that surface themselves while an agent has it. (Rationale:
+`~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ## The rule
 

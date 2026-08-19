@@ -50,21 +50,6 @@ Add this section to a project's CLAUDE.md. The value is in entries only the proj
 | **Secrets** | Never commit `.env.local`, `credentials.json`, or `*.pem` files |
 ```
 
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-**Prompt for project owners — fill in entries for:**
-
-| Category | Think about |
-|----------|-------------|
-| Testing | What should never be mocked? What tests must never be skipped? |
-| Architecture | What boundaries exist? What import rules? What patterns are banned? |
-| Dependencies | Which libraries are forbidden? What's the approved alternative? |
-| Infrastructure | Which directories/configs are dangerous to modify? |
-| Data | What DB operations need human approval? What's irreversible? |
-| Releases | What gates exist before publish/deploy? |
-| Secrets | What project-specific secret files beyond `.env`? |
--->
-
 ## Autonomy Tiers (Blast Radius)
 
 Add this section to define what Claude can do freely vs. what needs confirmation. The built-in system prompt handles generic cases — these entries are project-specific.
@@ -96,14 +81,4 @@ Add this section to define what Claude can do freely vs. what needs confirmation
 - Push to `main`/`master` directly
 ```
 
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-**Prompt for project owners — customize entries for each tier:**
-
-| Tier | Think about |
-|------|-------------|
-| Autonomous | Which commands are safe? Which directories are freely editable? |
-| Confirm first | What has moderate blast radius? What affects shared state? |
-| Never | What's irreversible? What affects production? What costs money? |
--->
-
+Elicitation prompts for filling in both templates: `~/projects/cc-harness/docs/reference/rule-histories.md`.

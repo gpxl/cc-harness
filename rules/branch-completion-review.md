@@ -1,7 +1,20 @@
+---
+paths:
+  - "**/.claude/skills/**"
+  - "**/.claude/rules/**"
+  - "**/.github/**"
+  - "**/*PULL_REQUEST*"
+  - "**/src/**"
+  - "**/app/**"
+  - "**/apps/**"
+  - "**/packages/**"
+  - "**/lib/**"
+  - "**/Sources/**"
+---
 # Branch Completion Review (Refactor Pass + Adversarial Go/No-Go)
 
-Two mandatory review stages sit between "the branch is functionally complete" and "a PR may be
-opened", in this order:
+Two **mandatory** review stages sit between "the branch is functionally complete" and "a PR
+may be opened", in this order:
 
 ```
 functionally complete (features done, QA passed, quality gates green)
@@ -11,39 +24,30 @@ functionally complete (features done, QA passed, quality gates green)
   → PR
 ```
 
-Neither stage is optional for a non-trivial branch. Green gates and passing QA qualify a branch as
-*working*; these two stages qualify it as *finished*. The author's own checks verify what the author
-thought about — these stages exist to catch what the author didn't.
+Green gates and passing QA qualify a branch as *working*; these stages qualify it as
+*finished*. The author's own checks verify what the author thought about — these stages catch
+what the author didn't. (Both stages earned their place on one branch in one day; the incident
+is in `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
-<!-- HISTORY (hidden from context, kept for maintainers):
+## Size gate — do these stages apply at all?
 
-## Why this rule exists
+Run this **first**, and state the answer either way:
 
-Both stages earned their place on the same branch, on the same day (2026-08-06, SetDigger,
-`feat/slide-in-demo-cta` — two CMS-managed marketing features built by parallel clone-the-sibling
-authoring):
+```bash
+git diff --shortstat origin/<integration>...HEAD
+git diff --name-only origin/<integration>...HEAD | grep -vE '(test|spec)' | wc -l
+```
 
-1. **Refactor pass:** clone-the-sibling authoring (fast, correct, the right way to build feature
-   #2 from feature #1) left **8 duplication sites** — cloned fetch functions, cloned
-   path-condition logic + the type shape it operates on, cloned storage getters/setters, cloned
-   close-button JSX, repeated GROQ field groups, repeated schema field triplets. A single
-   `refactor(...)` commit collapsed all of them. None of this was visible to lint, typecheck, or
-   QA — it was invisible to every existing gate precisely because it *worked*.
-2. **Adversarial review:** after ALL gates were green — code-quality passes, two browser-QA
-   rounds, the refactor pass itself — an independent adversarial agent still found a
-   code-confirmed **BLOCKER**: a root-layout-mounted exit-intent detector whose armed listener
-   survived client-side navigations, so it could burn its once-per-session token invisibly on an
-   excluded page and then pop its modal with no trigger on the next eligible page. It sat exactly
-   in a gap that an interrupted QA run had left — and the orchestrating session, having written
-   the code, read right past it. The same review also caught an **undisclosed behavior change to
-   live third-party script gating** buried in a feature commit, and a CMS-trust hole in a
-   "never co-occur" invariant. Verdict: NO-GO. One fix commit later, a re-review traced every
-   original failure scenario against the new code and returned GO.
+| Branch diff | Stages |
+|---|---|
+| ≥200 changed lines **or** ≥5 non-test files | Both stages run |
+| Below both thresholds | **Skip both.** One line: `Branch completion review: skipped (<N> lines, <M> non-test files — below threshold).` |
 
-Stage 1's step-6 note about self-reported line counts comes from the same branch: an implementing
-agent claimed −100 lines where the actual commit was +23.
+A silent skip is not a skip; say it. Only a diff that clears the threshold justifies the cost.
 
--->
+**The size gate above is the only skip condition.** For any branch that clears it, both
+stages are mandatory — neither is optional, and "the gates are green" is not a substitute
+(green gates prove the branch *works*; these stages decide it is *finished*).
 
 ## Stage 1 — Refactor review
 
@@ -63,11 +67,13 @@ exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 
 ### Setting it up
 
+It runs **once** per branch (plus one re-review per NO-GO loop) — not per commit, not per fix.
+
 | Aspect | Requirement |
 |--------|-------------|
-| Model | Highest reasoning tier available (per the model-routing table: Fable, falling back to Opus). The whole point is a reviewer at least as capable as the author. |
-| Access | Read-only: no edits, no commits. It MAY run the project's quality gates and read-only commands, and write scratch scripts to the session scratchpad. |
-| Prompt: context | Full branch inventory (commits, features, requirements as given by the client/user), the project's known gotchas, and the exact gate commands. |
+| Model | **Opus by default.** Fable only for architecture-class diffs (new abstractions, cross-service contracts, data-model changes). The reviewer must be at least as capable as the author — rarely more expensive than it. |
+| Access | Read-only: no edits, no commits. It MAY run read-only commands and write scratch scripts to the session scratchpad. |
+| Prompt: input | **Hand it the diff and the recorded gate results** (`git diff origin/<integration>...HEAD`, plus the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines per `pipeline-contract.md`) rather than making it re-explore the repo or re-run gates. Add the branch inventory (commits, features, requirements as given) and the project's known gotchas. |
 | Prompt: evidence status | Label prior verification honestly — what was gate-verified, what was browser-QA'd, and **what was never covered** (interrupted runs, env-blocked checks). Tell it to weight attention toward the gaps. Per `verification-integrity.md`: don't instruct it to trust your results; let it contradict you. |
 | Prompt: attack surface | Seed a minimum checklist (SSR/hydration, listener/observer lifetimes across client navs, state that outlives rendering, invariants under CMS/config edits, refactor behavior-drift, a11y, perf, tracking shapes, "anything that contradicts the commit messages") — and invite angles beyond it. |
 | Prompt: honesty | A clean branch gets `GO` with a short confirmed-checks list — manufactured findings are as much a failure as missed ones. |
@@ -83,7 +89,9 @@ exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 
 ### Skip conditions
 
-Trivially small diffs (single-file fixes, doc-only changes) may skip either stage — and the skip must be stated explicitly, never silent.
+**The size gate at the top is the only one.** Below it (which doc-only branches almost
+always are): skip both stages, stated in one line, never silent. Above it: both stages are
+mandatory, no exceptions.
 
 ## Relationship to other rules
 

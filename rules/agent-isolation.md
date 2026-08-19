@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/.claude/skills/**"
+  - "**/.claude/agents/**"
+  - "**/.claude/rules/**"
+  - "**/*worktree*"
+---
 # Agent Isolation (Parallel-Safe Pipelines)
 
 Concurrent Claude sessions / scheduled routines / orchestrator skills sharing one working tree corrupt each other: branch switches, cross-contaminated `git status`, and `git checkout main` in one session flipping another out of its feature branch. This rule defines when to create an isolated `git worktree` and the lifecycle every orchestrator must follow.
@@ -16,27 +23,7 @@ Concurrent Claude sessions / scheduled routines / orchestrator skills sharing on
 
 ## Before you claim work, check nobody else has
 
-Worktrees isolate *git state*, not *work selection*: two sessions can still pick the same item, and that costs more, because both sides finish the whole job before anyone notices.
-
-<!-- HISTORY (hidden from context, kept for maintainers):
-
-On 2026-08-10 (SetDigger) it happened twice in one day:
-
-- **Phase `tj7b.5`** — a second session had already implemented and shipped the
-  SetDigger half (RPC + migration + admin hook) while this one was working
-  elsewhere. Discovered only by reading the tracker's own notes *after* picking
-  the phase up, and only because those notes happened to be thorough.
-- **Phase `tj7b.6`** — two sessions built the same design six minutes apart:
-  the same pure module (in two different packages) and **the same script
-  filename**, both uncommitted. Discovered by accident, when a `PreToolUse`
-  branch guard refused a write and the follow-up inspection showed a `+` marker
-  in `git worktree list`.
-
-Neither was caught by a rule. Both were caught by luck. That is why the preflight
-below exists, and why step 3 says to read a tracker item's NOTES and not just its
-status — `tj7b.5` was "open" and half-shipped at the same time.
-
--->
+Worktrees isolate *git state*, not *work selection*: two sessions can still pick the same item, and that costs more, because both sides finish the whole job before anyone notices. (Two same-day collisions, both caught by luck rather than by a rule: `~/projects/cc-harness/docs/reference/rule-histories.md`.)
 
 ### The preflight
 
