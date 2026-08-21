@@ -55,8 +55,43 @@ Everything above concerns *gates*. The same disease infects *instruments* — mo
 
 If the answer is no, the instrument is reporting *unknown* dressed up as *good*. So: gate every "all clear" on positive evidence of activity (prefer `unknown` over `ok` when the subject is idle); anchor timers to the right epoch (after a restart, a timer on last-success measures the outage, not a stall); confirm the signal actually reaches the log you grep (a marker written to a child's own log is zero forever, and zero looks like good news — verify detectors against a real captured sample, never a hand-written fixture); make counter buckets reconcile, so `0` can't mean both "nothing to do" and "nothing was seen"; and give every instrument a negative control before trusting it.
 
+## A regression claim needs a baseline you can point at
+
+The rule above asks whether a green could have been red. This one asks the mirror question about
+the past: **before claiming a change removes, regresses, or loses a capability, establish what was
+there — mechanically.**
+
+> **Am I comparing against the shipped product, or against my own recollection of this session?**
+
+Recollection is not a baseline. Code you wrote earlier in the same effort is *not* product history,
+and scaffolding is the easiest thing in the world to mistake for it: you built it, you saw it work,
+it is the freshest version in your head. On 2026-08-21 an interim five-control row — written hours
+earlier, never in a comp, never requested, live under a day — was removed as part of shipping the
+real design. Its removal was then escalated to the design authority as a P2 regression, "the phone
+lost these controls". The controls had in fact been desktop-only since a PR months prior. One
+command would have said so:
+
+```bash
+git log origin/main --oneline -- <path>          # when did this actually appear?
+git show "$(git merge-base HEAD origin/main)":<path> | grep -n <feature>
+```
+
+### How to apply
+
+- **Any sentence of the form "this used to…" / "yesterday it…" / "we lost…" is a claim about a
+  commit.** Name the commit, or don't make the claim.
+- **Escalating costs more than checking.** A regression report consumes someone else's attention and
+  frames the discussion around a loss. The baseline check is one command; get it wrong and every
+  answer downstream is answering the wrong question.
+- **Distinguish the three states** a capability can be in: shipped and removed (a real regression),
+  never shipped (a feature request), and *scaffolding you removed yourself* (not an event). The
+  third is the one that masquerades as the first.
+- The blast-radius habit in `agent-enforcement.md` is the same instinct pointed forward — there you
+  enumerate what a deletion breaks; here you enumerate what a change actually had.
+
 ## Relationship to other rules
 
 - `pipeline-contract.md` — the gate runs once and is recorded; this rule is why that recorded exit code must be real.
 - `testing-guidelines.md` — Q1–Q8 is test quality; this rule is whether the apparatus around those tests reports the truth.
 - `agent-enforcement.md` — the commit agent's `CODE QUALITY RESULT: PASS` gate is only meaningful if the status was read correctly.
+- `testing-guidelines.md` — the Session Close Protocol asks whether the work is done; a regression claim is a statement about what *was* done, and needs the same standard of proof.
