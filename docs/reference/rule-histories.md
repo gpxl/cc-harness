@@ -177,6 +177,44 @@ token" on all 72 pairings the moment the declarations became `package static let
 
 ---
 
+### Revision, 2026-08-22 — scope by shared resource
+
+The rule was written the same morning and the instruction behind it was "coordinate with other
+agents *in project* automatically". By evening a review of every peer `SendMessage` on the machine
+(134 peer-to-peer messages over 45 days; 109 of them that day) showed the traffic had spread well past
+one repo: 37 messages crossed project directories, all stemlab ↔ setdigger/setdigger-mixid. Read in
+full, they sorted into five kinds, and a "same project" restriction keyed on session directory would
+have cut the wrong four:
+
+- **~22 machine-resource handoffs** between different repos — window server, CPU, the Swift
+  toolchain — which is the rule's own table being followed; the resource belongs to the Mac, not the
+  repo. Gates held this way came back green first time. Cost: setdigger-01 held a one-minute
+  `pnpm verify` for 49 minutes because it was told "wait until I message" — a queue would have
+  released it the moment the other gate finished.
+- **7 messages of a collision check on cc-harness** (user-requested) that found a real defect in the
+  rule PR — the `global/CLAUDE.md` index line claimed a path-scoping the frontmatter did not have —
+  and the fact that `~/.claude/rules` symlinks into the working tree, so merging swaps the ruleset
+  under every live session. A peer's "go ahead and merge" was withdrawn on challenge.
+- **5 messages on a same-repo collision that only looked cross-project**: a session started in
+  `setdigger/` was working the mixid checkout and branched under a live mixid session. The repo
+  being worked, not the session's cwd, is what "same project" has to mean.
+- **2 messages landing files across repos** on the user's instruction — unanswered, defaulted to a
+  worktree, zero disruption.
+- **6 messages of open-ended engineering discussion** (mutation tests "aimed backwards", comments that
+  rot), agent-initiated while the standing instruction was "merge it once the gate passes", median
+  ~2,300 chars, never surfaced to the user. The only kind that strayed — and it would be equally
+  off-charter between two sessions in one repo.
+
+Hence the revision: tiers by what is shared (repo → full protocol; machine → resource notices only;
+shared dependency → one collision check), a size bound (notice or question, not an essay), and
+"prefer a mechanism to a message" — the per-project lock in `windowed-gate-serialization.md` does
+not reach another repo, which is the whole reason the machine tier exists. Noise seen on the way:
+questions fanned out to every peer because names say nothing about what a session holds; ~10
+messages of re-introduction after a restart; one ping sent 12 times for 3 recipients (`name` and
+`name [hash]` forms, two session ids); two empty messages.
+
+---
+
 ## computer-control-release
 
 These tools are structurally different from ordinary file/shell tools: they take over
