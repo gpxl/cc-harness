@@ -141,6 +141,42 @@ concurrency here risks flaky results, not just annoyance.
 
 ---
 
+## peer-session-coordination
+
+On 2026-08-22 (StemLab) two interactive sessions were driving the same repo: one finishing PR #334
+(Arrange interactions, in a worktree) and one running PR #336 (extracting `DesignSystem` into its own
+SwiftPM target, in the main checkout). The #334 session found the collision on its own — it measured
+that all ten of its `Sources/StemLabApp/` files were in #336's diff, including an `AXID.swift` that
+#336 deletes by rename — and then **offered to route the information to the peer through the user**
+("tell me which session is Lite and I'll pass it the overlap table"). The peer messaged first anyway,
+and the two settled ordering, the `package`-visibility change to the relocated hunk, and who held the
+window server in two exchanges that cost the user nothing.
+
+Nothing broke, which is the point: the failure mode is not a corrupted tree but a user turned into a
+message bus between agents that could have asked each other. Everything the #334 session needed to
+know — that #336 was mid-`clipping` and owned the window server, that `AXID` was being raised to
+`package` and a bare `static let` would fail one file away from its cause, that #336 was closer to a
+green gate and should merge first — was known only to the peer, and none of it was in the user's head.
+
+The `package` detail is worth stating precisely, because the peer corrected the first write-up of it
+and the correction is the more useful lesson. It was not knowledge one session happened to hold and
+the other lacked. The peer had assumed a `package struct` with `package` members would synthesize a
+`package` memberwise init; it does not — the synthesized init stays `internal` — and it only found
+that out by building a throwaway package to test it, which is why its branch carries 36 hand-written
+`package init`s. So the asymmetry a peer can resolve is usually not *"they know more"* but
+**"they have already paid for the experiment"**: an hour of someone else's measurement, available for
+the cost of a message. That is a far more common condition than superior knowledge, and it is the one
+worth asking about.
+
+The exchange also produced a finding neither session would have reached alone: the #334 session
+noticed that once `DesignSystem` became a sibling target, the `ui_review_gate_pattern` naming
+`Sources/StemLabApp/` would stop matching it, so the ui-review/clipping/uitest stages would silently
+not fire on DS changes — a gate that cannot come back red. #336 had already closed it, and confirmed
+a related one: the palette scanner's `^[[:space:]]*static let` token grep went to "cannot resolve
+token" on all 72 pairings the moment the declarations became `package static let`.
+
+---
+
 ## computer-control-release
 
 These tools are structurally different from ordinary file/shell tools: they take over
