@@ -158,6 +158,16 @@ know — that #336 was mid-`clipping` and owned the window server, that `AXID` w
 `package` and a bare `static let` would fail one file away from its cause, that #336 was closer to a
 green gate and should merge first — was known only to the peer, and none of it was in the user's head.
 
+The `package` detail is worth stating precisely, because the peer corrected the first write-up of it
+and the correction is the more useful lesson. It was not knowledge one session happened to hold and
+the other lacked. The peer had assumed a `package struct` with `package` members would synthesize a
+`package` memberwise init; it does not — the synthesized init stays `internal` — and it only found
+that out by building a throwaway package to test it, which is why its branch carries 36 hand-written
+`package init`s. So the asymmetry a peer can resolve is usually not *"they know more"* but
+**"they have already paid for the experiment"**: an hour of someone else's measurement, available for
+the cost of a message. That is a far more common condition than superior knowledge, and it is the one
+worth asking about.
+
 The exchange also produced a finding neither session would have reached alone: the #334 session
 noticed that once `DesignSystem` became a sibling target, the `ui_review_gate_pattern` naming
 `Sources/StemLabApp/` would stop matching it, so the ui-review/clipping/uitest stages would silently

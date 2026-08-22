@@ -44,6 +44,7 @@ A peer whose name does not say what it is working on is not a mystery to escalat
 | You are about to take one | That you are taking it, and roughly for how long |
 | You finish with it | That it is free — an unreleased resource nobody announced is indistinguishable from a hung one |
 | You learn something that invalidates their plan | Immediately, even if it makes your own work look worse |
+| You are about to go and measure something adjacent to their work | Ask first. The cheapest thing a peer can hand you is **an experiment they have already paid for** — not superior knowledge, just an hour already spent. That asymmetry is far more common than the knowledge kind, and it is invisible from the outside |
 
 **Measure before you claim.** "Our branches conflict" is a claim about a diff; produce it
 (`git diff --name-status origin/main...HEAD`) rather than recalling it. The same standard
