@@ -1,3 +1,17 @@
+---
+paths:
+  - "**/.claude/skills/**"
+  - "**/.claude/agents/**"
+  - "**/.claude/rules/**"
+  - "**/*worktree*"
+  - "**/src/**"
+  - "**/app/**"
+  - "**/apps/**"
+  - "**/packages/**"
+  - "**/lib/**"
+  - "**/Sources/**"
+---
+
 # Peer Session Coordination (Live Sessions Sharing One Repo)
 
 When another Claude session is working the same repository at the same time, **talk to it directly.**
