@@ -20,7 +20,7 @@ Always consult documentation index and project files rather than relying on trai
 |agent-isolation.md: Worktree isolation for parallel pipelines — .claude/{skills,agents,rules}, *worktree*
 |parallel-authoring.md: Fan out sub-agents for independent additive work; gate once — same scope
 |branch-completion-review.md: Refactor pass + adversarial GO/NO-GO, only for diffs ≥200 lines or ≥5 non-test files — source trees (src/app/apps/packages/lib/Sources), .claude/{skills,rules}, .github
-|peer-session-coordination.md: Message peer sessions directly about collisions + machine ownership; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
+|peer-session-coordination.md: Message peer sessions directly, scoped by what is shared (same repo → full protocol; same machine → resource notices only; shared dependency → one collision check); notices not essays; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
 
