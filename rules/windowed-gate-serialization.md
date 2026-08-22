@@ -82,5 +82,5 @@ authoring-agent prompts:
 
 - **`parallel-authoring.md`** — fan out authors, fan in through one windowed-gate stream.
 - **`agent-isolation.md`** — worktrees isolate git state, NOT the window server / screen / shared engines.
-- **`peer-session-coordination.md`** — the machine-global lock and the single gate-runner stream both assume ONE orchestrator owns every agent. Independent peer sessions have no such owner, so telling the peers directly ("taking the window server", "it's free") is the only serialization available to them.
+- **`peer-session-coordination.md`** — this lock is per-project (`/tmp/<project>-uigate.lock`) and the gate-runner stream assumes ONE orchestrator owns every agent. A peer session in another repo neither holds the lock nor sees it, so for that case telling it directly ("taking the window server for ~5 min", "it's free") is the only serialization — and it carries only what a lock can't. Where the lock reaches, take it and send nothing.
 - **`verification-integrity.md`** — a Phase-A PR must state which gates were deferred; never describe a deferred gate as passed.
