@@ -49,6 +49,7 @@ bd show <item-id>
 | Situation | Do |
 |---|---|
 | A branch, worktree, or dirty sibling matches the item | **Stop.** Do not start a parallel implementation. |
+| The other side is a **live peer session** (`ListAgents`) | Message it directly and settle who takes the item — don't infer its intent from its branch, and don't ask the user to relay. See `peer-session-coordination.md`. |
 | Two sessions are already building it | **The later starter stands down** and deletes its copy. Racing to commit first just converts duplicated effort into a merge conflict. |
 | You are proceeding | Claim in the tracker **before** the first edit, not at commit time — the claim is the signal the next session will look for |
 | A phase looks unstarted | Read the item's NOTES, not just its status. "Open" can mean "half-shipped, awaiting one remaining step". |
