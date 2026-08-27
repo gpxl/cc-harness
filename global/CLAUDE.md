@@ -42,6 +42,12 @@ Always consult documentation index and project files rather than relying on trai
 |config: ~/.dotfiles/claude/hub.yaml
 |manage: loadout link/unlink/sync/status
 |scan: loadout scan (suggest after adding new deps/frameworks)
+
+[Codex]|plugin: openai-codex/codex (OpenAI models) — see Model Routing below
+|root: ~/.claude/plugins/cache/openai-codex/codex/<version>/ (= ${CLAUDE_PLUGIN_ROOT} inside the plugin)
+|delegate: /codex:rescue [--model <slug>] [--effort none|minimal|low|medium|high|xhigh] [--background|--wait] [--resume|--fresh] <task>
+|readiness: /codex:setup, or `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → "ready": true
+|models: authoritative local list in ~/.codex/models_cache.json; user default in ~/.codex/config.toml
 ```
 
 ## Code Reuse
@@ -60,6 +66,7 @@ Write tests BEFORE implementing; test user behavior, not implementation; co-loca
 | Plan | `bd create` issue BEFORE writing code |
 | Claim | `bd update <id> --status=in_progress` when starting |
 | **Branch** | **If on `main`/`master`/`trunk`/`develop`, create feature branch off `origin/<integration>` BEFORE first edit (`git checkout -b claude/<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
+| **Delegate** | **Codex-first**: hand implementation, debugging, and design work to OpenAI models via `/codex:rescue` unless it is orchestration, a gate, or tool-bound work. See `## Model Routing`. |
 | TDD | Write tests, then implement |
 | Test | All tests pass |
 | Lint | Run project linter — code NOT complete until lint passes |
@@ -118,18 +125,79 @@ When orchestrating agents manually, include a purpose statement: "This [context]
 
 ## Model Routing
 
-Route work to the model that fits the task. Applies to the **session model** AND to **subagent `model:` overrides** (Agent tool, Workflow `agent({model})`, `/loop`, etc.). Governs the model that *drives development* — separate from any project's eval/test model (e.g. a repo's `EVAL_MODEL`, which decides how the agent-under-test runs; never conflate them).
+Route work to the model that fits the task, and **prefer OpenAI models through the Codex
+plugin over doing that work in Claude**. Claude's job is orchestration: decide, delegate,
+verify, gate, commit. Applies to the **session model**, to **subagent `model:` overrides**
+(Agent tool, Workflow `agent({model})`, `/loop`), and to the delegate-or-not decision
+itself. Governs the model that *drives development* — separate from any project's eval/test
+model (e.g. a repo's `EVAL_MODEL`, which decides how the agent-under-test runs; never
+conflate them).
 
-| Work type | Model | Model ID | Why |
-|-----------|-------|----------|-----|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | **Fable 5** → fall back to Opus 5 if Fable unavailable | `claude-fable-5` | Highest reasoning ceiling. ~2× Opus cost, so reserve for genuinely novel design, not routine choices |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | **Opus 5** | `claude-opus-5` | Flagship agentic-coding model; default for most work. Run at `high`/`xhigh` effort |
-| **Probe / exploration** — codebase surveys, read-only investigation, light/mechanical passes | **Sonnet 5** | `claude-sonnet-5` | Fast + cheap; sufficient for discovery and low-stakes work |
+### Codex-first (default)
 
-- **"If available"** for Fable: some environments/tiers don't expose `claude-fable-5`. When it isn't selectable, use Opus 5 for architecture work too — never block on Fable.
-- When in doubt between build and design, default to **Opus 5** — effort level (`high`/`xhigh`) usually matters more than Fable-vs-Opus.
-- **Older Opus generations** (`claude-opus-4-8`, `claude-opus-4-7`) are superseded by Opus 5 for every row above; pick one only when a specific run must reproduce earlier behavior.
-- **Mismatch protocol (GATE, not advisory):** whenever the work type changes — most commonly at plan approval (ExitPlanMode) — check the session model against this table. On mismatch, STOP: either ask the user to run `/model <correct-id>` before executing, or delegate the work to subagents with an explicit `model:` override matching the table. Never proceed inline on the wrong model after merely mentioning the mismatch (a one-line "you may want to switch" does not satisfy this rule).
+| Step | How |
+|------|-----|
+| Check readiness | `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → `"ready": true`. User-facing: `/codex:setup` |
+| Delegate | `/codex:rescue [--model <slug>] [--effort <e>] <task>` — routes to the `codex:codex-rescue` subagent, which forwards exactly one `codex-companion.mjs task` call and returns its stdout verbatim |
+| Long / open-ended | add `--background`; small and bounded → `--wait` (foreground) |
+| Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
+| Read-only work | say so explicitly; the subagent defaults to `--write` |
+
+`$CODEX_PLUGIN` = `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is
+`${CLAUDE_PLUGIN_ROOT}` inside the plugin's own commands). The rescue subagent is a
+**forwarder, not an orchestrator** — it does not read the repo, poll, or summarize. Shaping
+the prompt before the handoff is the orchestrator's job; the plugin's `gpt-5-4-prompting`
+skill is the contract for that.
+
+### Equivalence table
+
+| Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
+|-----------|------------------------|-----------------------------------|--------|
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-5.6-sol` — frontier agentic model, highest ceiling | `claude-fable-5` → `claude-opus-5` | `xhigh` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder; the local Codex default | `claude-opus-5` | `high` |
+| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-5.6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
+| **Mechanical** — trivial rewrites, formatting-scale edits, ultra-fast passes | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
+
+- **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
+  to move a tier deliberately. Same for `--effort` — set it when the row above disagrees
+  with the local default, not by reflex.
+- The companion's `--effort` accepts `none|minimal|low|medium|high|xhigh` only. `max` and
+  `ultra` exist on some raw Codex models but are not reachable through this path.
+- `gpt-5.4` / `gpt-5.4-mini` are deprecated; Codex upgrades them to `gpt-5.6-terra` /
+  `gpt-5.6-luna`. Never pin them. **Older Opus generations** (`claude-opus-4-8`,
+  `claude-opus-4-7`) are likewise superseded for every Claude-column row.
+- Model slugs move. The authoritative local list is `~/.codex/models_cache.json`
+  (`slug`, `description`, `visibility`, `upgrade`) — read it before pinning a slug this
+  table doesn't name.
+
+### What stays in Claude
+
+| Stays here | Why |
+|------------|-----|
+| Choosing what to delegate, shaping the Codex prompt, judging what comes back | That is the orchestration role — it cannot be delegated to the thing being orchestrated |
+| The agent pipeline — `verify_cmd`-class gates, code-quality, test-writer, commit, pr-monitor, release | `agent-enforcement.md`; and a gate is only evidence when run by the party reporting it (`verification-integrity.md`) |
+| Beads (`bd`), branch discipline, git state, PR flow | Session-level bookkeeping the Codex run has no view of |
+| Tool-bound work: MCP servers, browser / computer-use, Artifacts, iOS Simulator, Figma | Not reachable from inside a Codex run |
+| Edits cheaper than the handoff | A one-line fix is not worth a round trip |
+
+Orchestration itself runs on **Opus 5** (`claude-opus-5`); **Sonnet 5** is enough for a
+session that only forwards and reports.
+
+### Fallback to Claude
+
+Fall back **only when Codex is genuinely unavailable**: `setup --json` reports
+`ready: false`, auth is missing (`codex login` / `/codex:setup`), the plugin is not
+installed in this session, or a delegated run fails and returns nothing. State which one
+applies in one line, then do the work inline on that row's Claude model. Never fall back
+silently, and never because delegating merely feels slower.
+
+- **Mismatch protocol (GATE, not advisory):** whenever the work type changes — most
+  commonly at plan approval (ExitPlanMode) — check both axes. (1) Is this Codex-delegable
+  work about to be done inline anyway? (2) For the work that legitimately stays here, does
+  the session / subagent model match the Claude column? On mismatch, STOP: delegate to
+  Codex, ask the user to run `/model <correct-id>`, or spawn subagents with an explicit
+  `model:` override. Never proceed inline on the wrong model after merely mentioning the
+  mismatch (a one-line "you may want to switch" does not satisfy this rule).
 
 ## CLAUDE.md Optimization
 
