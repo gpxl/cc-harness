@@ -133,6 +133,13 @@ itself. Governs the model that *drives development* — separate from any projec
 model (e.g. a repo's `EVAL_MODEL`, which decides how the agent-under-test runs; never
 conflate them).
 
+**The budget rule this exists to serve: spend the OpenAI allowance first; Claude tokens are
+the reserve.** So the question at every step is not "could Claude do this?" — it is "is
+there any reason this cannot be a Codex run?" Two kinds of Claude spend are in scope and
+both count: work Claude *does*, and context Claude *holds* (every file read, grep result,
+and pasted Codex output is re-sent on every subsequent turn — see § Keeping Claude's
+context small).
+
 ### Codex-first (default)
 
 | Step | How |
@@ -141,7 +148,9 @@ conflate them).
 | Delegate | `/codex:rescue [--model <slug>] [--effort <e>] <task>` — routes to the `codex:codex-rescue` subagent, which forwards exactly one `codex-companion.mjs task` call and returns its stdout verbatim |
 | Long / open-ended | add `--background`; small and bounded → `--wait` (foreground) |
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
-| Read-only work | say so explicitly; the subagent defaults to `--write` |
+| Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
+| Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
+| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently (currently **off**) |
 
 `$CODEX_PLUGIN` = `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is
 `${CLAUDE_PLUGIN_ROOT}` inside the plugin's own commands). The rescue subagent is a
@@ -170,18 +179,47 @@ skill is the contract for that.
   (`slug`, `description`, `visibility`, `upgrade`) — read it before pinning a slug this
   table doesn't name.
 
-### What stays in Claude
+### What stays in Claude — and it is a short list
 
-| Stays here | Why |
-|------------|-----|
-| Choosing what to delegate, shaping the Codex prompt, judging what comes back | That is the orchestration role — it cannot be delegated to the thing being orchestrated |
-| The agent pipeline — `verify_cmd`-class gates, code-quality, test-writer, commit, pr-monitor, release | `agent-enforcement.md`; and a gate is only evidence when run by the party reporting it (`verification-integrity.md`) |
-| Beads (`bd`), branch discipline, git state, PR flow | Session-level bookkeeping the Codex run has no view of |
-| Tool-bound work: MCP servers, browser / computer-use, Artifacts, iOS Simulator, Figma | Not reachable from inside a Codex run |
-| Edits cheaper than the handoff | A one-line fix is not worth a round trip |
+Only two things are genuinely irreducible: **the orchestrator's own turn** (Claude Code is
+Claude; the driving loop cannot be moved) and **tools Codex cannot reach** — MCP servers,
+browser / computer-use, Artifacts, iOS Simulator, Figma, and anything needing a permission
+prompt. Everything else has a Codex route:
 
-Orchestration itself runs on **Opus 5** (`claude-opus-5`); **Sonnet 5** is enough for a
-session that only forwards and reports.
+| Reflex | Route it to Codex instead |
+|--------|---------------------------|
+| `Explore` / `general-purpose` / `Plan` subagents for a survey or investigation | one read-only `/codex:rescue` run; ask for a written findings file, not a narrative |
+| A `Workflow` / ultracode fan-out of Claude subagents | several `--background` Codex tasks — parallelism does not have to be Claude parallelism |
+| `/code-review`, `/security-review`, a branch-completion review pass | `/codex:review` / `/codex:adversarial-review` |
+| `test-writer`, and code-quality's *analysis* half | a Codex `task`; Claude keeps only the pass/fail bookkeeping |
+| Reading files to understand before editing | don't — hand the question to Codex with the paths, and let it do the reading |
+
+Genuinely Claude-side bookkeeping — beads, branch discipline, git state, PR flow, and
+**running** the `verify_cmd` gate — stays here, but it is nearly free: a `bd` call or a Bash
+exit code costs a fraction of one file read. Keep it here for correctness (a gate is only
+evidence when run by the party reporting it — `verification-integrity.md`), not because it
+is expensive to move.
+
+**Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
+by default.** Opus 5 is for a session where the *orchestration itself* is the hard part
+(multi-repo state, a delicate migration). If the hard part is the engineering, that is a
+`gpt-5.6-sol` handoff, not an Opus session. `claude-haiku-4-5-20251001` is enough for a
+forward-and-report loop.
+
+### Keeping Claude's context small
+
+The orchestrator's context is the second Claude budget and the easy one to blow: a 2,000-line
+file read once is re-sent on every turn that follows.
+
+- **Ask Codex for a file, not a monologue.** "Write findings to `docs/x-findings.md`; reply
+  with ≤10 lines" beats pasting a full report into the transcript.
+- **Use compact output contracts** (`gpt-5-4-prompting`: `<compact_output_contract>`) on
+  every handoff. The default Codex answer is longer than Claude needs.
+- **Fewer, larger handoffs.** Each round trip re-reads the accumulated thread; one task with
+  a clear done-condition costs less than five clarifying ones.
+- **Prefer `--background`** for anything long, and collect the result once.
+- **Do not pre-read the repo to write the prompt.** Paths and a question are usually enough;
+  Codex opens the files on its own tokens.
 
 ### Fallback to Claude
 
@@ -189,7 +227,10 @@ Fall back **only when Codex is genuinely unavailable**: `setup --json` reports
 `ready: false`, auth is missing (`codex login` / `/codex:setup`), the plugin is not
 installed in this session, or a delegated run fails and returns nothing. State which one
 applies in one line, then do the work inline on that row's Claude model. Never fall back
-silently, and never because delegating merely feels slower.
+silently, and never because delegating merely feels slower. "It's only a one-liner" is not a
+fallback reason either — under the budget rule the handoff is the default even for small
+edits; the only edits worth keeping inline are ones already open in Claude's context where
+the round trip would cost more Claude tokens than the edit itself.
 
 - **Mismatch protocol (GATE, not advisory):** whenever the work type changes — most
   commonly at plan approval (ExitPlanMode) — check both axes. (1) Is this Codex-delegable
