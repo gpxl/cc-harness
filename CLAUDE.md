@@ -8,6 +8,9 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 - `global/CLAUDE.md` is the user's global `~/.claude/CLAUDE.md`, symlinked by `install.sh` — distinct from *this* file, which is the instructions for working on this repo. When you add a rule to `rules/`, add its one-line entry to the `[Rules]` index in `global/CLAUDE.md` in the same PR: a rule that isn't indexed is a file nothing loads.
 - Changes here propagate to all projects via symlinks after `./install.sh`
 - Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`)
+- Use the committed Beads workspace for cc-harness work: run `bd prime` at session start, `bd ready` for next work, `bd create` before non-trivial changes, and `bd close` when done.
+- `.beads/.gitignore` excludes the Dolt store (`embeddeddolt/`, `dolt/`, and lock/socket/daemon files); track only `issues.jsonl`, `config.yaml`, `metadata.json`, and `README.md`.
+- Run `git config beads.role maintainer` once per clone; `bd` warns when it is unset.
 
 ## Agent Config
 
