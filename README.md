@@ -23,7 +23,7 @@ cd cc-harness
 ./install.sh
 ```
 
-This symlinks `agents/` and `rules/` into `~/.claude/`, and `global/CLAUDE.md` to `~/.claude/CLAUDE.md`, making them available in every project.
+This symlinks `agents/`, `rules/`, `hooks/`, and `scripts/` into `~/.claude/`, and `global/CLAUDE.md` to `~/.claude/CLAUDE.md`, making them available in every project. Set `CC_HARNESS_CLAUDE_DIR=/path/to/.claude` to install or uninstall against a non-default Claude directory (for testing or an isolated setup).
 
 Existing state is never destroyed: a real directory or file at the target is backed up first (`<name>.backup.<timestamp>`), and `./uninstall.sh` restores the most recent backup. A target that is already a *symlink* is repointed rather than backed up — the file it pointed at is left untouched, so nothing is lost, but note that `uninstall.sh` restores a backup rather than the previous symlink.
 

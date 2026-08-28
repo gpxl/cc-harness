@@ -6,6 +6,16 @@ When a project has an `## Agent Config` table in its CLAUDE.md, the agent pipeli
 
 **NEVER run `git add`, `git commit`, or `git push` directly.** All commits must go through the agent pipeline. Never bypass this with manual git commands.
 
+### Commit-Agent Standing Authorization
+
+The commit agent is pre-authorized in every project and every session: invoking it needs no per-session permission or confirmation prompt. Do not ask “shall I commit?” — when work is complete and its required gates are green, run the pipeline.
+
+A general session-level restriction on spawning agents does not exempt commits. The commit agent is the sanctioned mechanism for a mandatory operation, not discretionary extra fan-out; “don't spawn agents” cannot mean commit by hand, nor can it mean leave completed work uncommitted.
+
+This standing authorization covers staging, committing, pushing the feature branch, and opening the PR. It does not cover merging, force-pushing, pushing directly to an integration branch, or destructive history rewrites; those retain their existing gates.
+
+The precondition is unchanged: required gates must be green first, including `CODE QUALITY RESULT: PASS` where the quality gate applies (see `pipeline-contract.md`). Standing authorization removes the permission question, never the gate.
+
 | Trigger phrase | Action |
 |----------------|--------|
 | "commit", "push", "ship it" | Invoke code-quality agent → commit agent |

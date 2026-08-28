@@ -26,6 +26,9 @@ Always consult documentation index and project files rather than relying on trai
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
+|routing-report: Measures Codex-first delegation from transcript occurrence counts; run `bash scripts/routing-report.sh [--days N|--since YYYY-MM-DD] [--json]`
+
+[Hooks]|root: ~/.claude/hooks/ → symlinked from ~/projects/cc-harness/hooks/ (Model Routing enforcement; run `bash hooks/selftest.sh` after changes)
 
 [Beads]|binary: bd (in PATH) — see Task Management below
 |session-start: run bd prime if .beads/ exists (prints the full command reference)
@@ -144,7 +147,7 @@ context small).
 
 | Step | How |
 |------|-----|
-| Check readiness | `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → `"ready": true`. User-facing: `/codex:setup` |
+| Check readiness | `~/.claude/scripts/codex.sh setup --json` → `"ready": true`; `~/.claude/scripts` is symlinked from this repo's `scripts/`. User-facing: `/codex:setup` |
 | Delegate | `/codex:rescue [--model <slug>] [--effort <e>] <task>` — routes to the `codex:codex-rescue` subagent, which forwards exactly one `codex-companion.mjs task` call and returns its stdout verbatim |
 | Long / open-ended | add `--background`; small and bounded → `--wait` (foreground) |
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
@@ -152,11 +155,16 @@ context small).
 | Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
 | Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently (currently **off**) |
 
-`$CODEX_PLUGIN` = `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is
-`${CLAUDE_PLUGIN_ROOT}` inside the plugin's own commands). The rescue subagent is a
+`$CODEX_PLUGIN` is **not exported by default**; `scripts/codex-plugin-root.sh` resolves
+`~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is `${CLAUDE_PLUGIN_ROOT}`
+inside the plugin's own commands). A `module not found` error means the path is wrong, not
+that Codex is unavailable. The rescue subagent is a
 **forwarder, not an orchestrator** — it does not read the repo, poll, or summarize. Shaping
 the prompt before the handoff is the orchestrator's job; the plugin's `gpt-5-4-prompting`
 skill is the contract for that.
+
+A Codex task inherits the session cwd as its sandbox root, so cross-repo delegation must pass
+`--cwd <repo>`; a sandbox refusal is a plumbing error, not a reason to work inline.
 
 ### Equivalence table
 
@@ -223,9 +231,12 @@ file read once is re-sent on every turn that follows.
 
 ### Fallback to Claude
 
-Fall back **only when Codex is genuinely unavailable**: `setup --json` reports
-`ready: false`, auth is missing (`codex login` / `/codex:setup`), the plugin is not
-installed in this session, or a delegated run fails and returns nothing. State which one
+Fall back **only when Codex is genuinely unavailable**: a successful `setup --json` reports
+`ready: false`, or login is missing or fails (`codex login` / `/codex:setup`). A readiness
+check that **ERRORS** (module not found, path wrong, resolver failure) is **not** evidence that
+Codex is unavailable — resolve the path and retry before ever falling back. Only an actual
+`"ready": false` from a successful setup run, or a missing/failed login, counts as unavailable.
+State which one
 applies in one line, then do the work inline on that row's Claude model. Never fall back
 silently, and never because delegating merely feels slower. "It's only a one-liner" is not a
 fallback reason either — under the budget rule the handoff is the default even for small

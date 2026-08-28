@@ -6,7 +6,8 @@ set -euo pipefail
 # Does not delete backed-up directories.
 
 HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
-CLAUDE_DIR="${HOME}/.claude"
+# Set CC_HARNESS_CLAUDE_DIR to uninstall from a non-default Claude directory.
+CLAUDE_DIR="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
 
 echo "cc-harness uninstaller"
 echo "========================="
@@ -75,7 +76,12 @@ unlink_file() {
 echo "Removing symlinks..."
 unlink_dir "agents"
 unlink_dir "rules"
+unlink_dir "scripts"
+echo ""
+echo "Removing hook registrations..."
+CC_HARNESS_CLAUDE_DIR="${CLAUDE_DIR}" bash "${HARNESS_DIR}/hooks/install-hooks.sh" --remove
+unlink_dir "hooks"
 unlink_file "global/CLAUDE.md" "CLAUDE.md"
 
 echo ""
-echo "Done. Global agents, rules, and CLAUDE.md have been removed."
+echo "Done. Global agents, rules, hooks, scripts, hook registrations, and CLAUDE.md have been removed."
