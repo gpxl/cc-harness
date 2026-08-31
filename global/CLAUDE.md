@@ -13,6 +13,7 @@ Always consult documentation index and project files rather than relying on trai
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
 |testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
+|codex-job-status-integrity.md: `unknown`/`orphaned` on a backgrounded Codex job is an integrity incident, not a pending result — inspect log/git diff/threadId before claiming completion or rerunning
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
 |Path-scoped (load only on a matching file; Read directly if needed elsewhere):
 |claude-md-project-templates.md: NEVER lists + autonomy tiers templates — CLAUDE.md, .claude/rules
@@ -150,6 +151,7 @@ context small).
 | Check readiness | `~/.claude/scripts/codex.sh setup --json` → `"ready": true`; `~/.claude/scripts` is symlinked from this repo's `scripts/`. User-facing: `/codex:setup` |
 | Delegate | `/codex:rescue [--model <slug>] [--effort <e>] <task>` — routes to the `codex:codex-rescue` subagent, which forwards exactly one `codex-companion.mjs task` call and returns its stdout verbatim |
 | Long / open-ended | add `--background`; small and bounded → `--wait` (foreground) |
+| Poll a background job | `/codex:status <job-id>`; treat `unknown`/`orphaned` as an integrity incident, not a pending result — see `codex-job-status-integrity.md` before claiming completion or rerunning |
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
 | Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
 | Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
