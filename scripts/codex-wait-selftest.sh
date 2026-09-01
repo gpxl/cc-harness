@@ -74,6 +74,10 @@ completed_file="$tmp_root/completed.json"
 write_job "$completed_file" 'completed-job' 'completed' 'done' 'null' '2000-01-01T00:00:00.000Z'
 run_wait "$completed_file" 'completed-job' --interval 1 --max-minutes 0
 assert_status 0
+# Field-shift guard: with pid=null the log path must still land in log= (empty fields collapse under IFS=tab).
+if ! grep -q "log=$completed_file.log\$" "$tmp_root/wait.out"; then
+  record_failure
+fi
 
 run_wait "$completed_file" 'completed-job' --interval 1 --max-minutes 0
 if [ "$last_status" -eq 1 ]; then

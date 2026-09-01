@@ -78,7 +78,7 @@ try {
   if (!job || typeof job !== "object" || typeof job.status !== "string") process.exit(4);
   const values = [job.id, job.status, job.phase, job.pid, job.logFile, job.createdAt]
     .map((value) => String(value ?? "").replace(/[\r\n]/g, " "));
-  console.log(values.map((value) => Buffer.from(value, "utf8").toString("base64")).join("\t"));
+  console.log(values.map((value) => `x${Buffer.from(value, "utf8").toString("base64")}`).join("\t"));
 } catch {
   process.exit(4);
 }
@@ -86,7 +86,7 @@ try {
 }
 
 decode_field() {
-  node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64").toString("utf8"));' "$1"
+  node -e 'process.stdout.write(Buffer.from(process.argv[1].slice(1), "base64").toString("utf8"));' "$1"
 }
 
 epoch_from_iso() {
