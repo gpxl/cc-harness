@@ -278,3 +278,33 @@ Measured pass rates that motivated the required-elements list:
 |--------|-----------|
 | No docs / Skills | 53% |
 | **AGENTS.md index** | **100%** |
+
+---
+
+## codex-dispatch-protocol
+
+Externally supplied advice (2026-09-01, from a long-running collaboration-heavy session on the
+same plugin), each item checked against plugin 1.0.6 source before it became a rule:
+
+- **Wrapper ≠ job.** `enqueueBackgroundTask` spawns `task-worker` with `detached: true` +
+  `unref()`; `runForegroundCommand` runs `runTrackedJob` in the calling process, so a harness
+  timeout on the Bash call kills the worker while the app-server turn (under the detached broker)
+  keeps running. Record then reads `running` with a dead pid → `unknown/orphaned` on next status.
+- **Status is per-session/per-workspace.** `resolveStateDir` keys on the git root of `--cwd`;
+  `filterJobsForCurrentSession` drops jobs whose `sessionId` ≠ `CODEX_COMPANION_SESSION_ID`.
+  Measured: the stemlab store held eight completed jobs from session `5f8ebb39…`, all invisible
+  to session `90ccab88…` in the same checkout.
+- **`queued` never reconciles.** `reconcileJobLiveness` returns early unless `status === "running"`.
+- **Stale brokers.** 30 `app-server-broker.mjs serve --cwd $TMPDIR/codex-plugin-test-*` pairs
+  (plugin selftest residue) had been alive for 28 h. Killed by explicit PID.
+- **Config key.** `strings` on codex-cli 0.147.0 finds `writable_roots` (31×), never
+  `writeable_roots` — the advice's spelling would have been silently ignored.
+- First live use of the protocol was the delegation that wrote its own helper scripts
+  (job `task-mtj313h3-8xmdqg`, cc-harness): placement verified via `status --json --cwd`,
+  waited via a background PID loop. First attempt of that loop died on zsh's read-only `status`
+  variable — hence the scripts, so the loop is written once.
+- **Sandbox probe.** After adding `writable_roots` + `network_access`, a task touched
+  `~/Library/Caches/org.swift.swiftpm/...` and got `HTTP/2 200` from api.github.com on the *next*
+  thread with no broker restart — config is read per thread. `swift build` still fails inside the
+  sandbox: swiftc's macro plugin server needs nested `sandbox-exec` (`sandbox_apply: Operation not
+  permitted`), independent of the module cache. Builds stay with the orchestrator.

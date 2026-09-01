@@ -14,6 +14,7 @@ Always consult documentation index and project files rather than relying on trai
 |testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
 |codex-job-status-integrity.md: `unknown`/`orphaned` on a backgrounded Codex job is an integrity incident, not a pending result — inspect log/git diff/threadId before claiming completion or rerunning
+|codex-dispatch-protocol.md: The wrapper is not the job — liveness = worker PID + log under the per-workspace state dir; status is per-session/per-`--cwd`; verify placement at dispatch; wait via `codex-wait.sh` PID bridge (one wake, never polling); written cancellation criteria; prompt-side completion contracts; broker housekeeping
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
 |Path-scoped (load only on a matching file; Read directly if needed elsewhere):
 |claude-md-project-templates.md: NEVER lists + autonomy tiers templates — CLAUDE.md, .claude/rules
@@ -28,6 +29,9 @@ Always consult documentation index and project files rather than relying on trai
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
 |routing-report: Measures Codex-first delegation from transcript occurrence counts; run `bash scripts/routing-report.sh [--days N|--since YYYY-MM-DD] [--json]`
+|codex-wait.sh <job-id> [--cwd <ws>]: PID bridge for a background Codex job — run via Bash `run_in_background`; exits 0 done / 1 failed / 2 orphaned / 3 wall cap
+|codex-jobs.sh [--cwd <ws>] [--all-workspaces] [--active]: Codex jobs across sessions/worktrees (bypasses the companion's session filter)
+|codex-brokers.sh [--reap-stale] [--restart-idle]: list/kill Codex app-server brokers by explicit PID — after a config.toml edit or when brokers point at dead cwds
 
 [Hooks]|root: ~/.claude/hooks/ → symlinked from ~/projects/cc-harness/hooks/ (Model Routing enforcement; run `bash hooks/selftest.sh` after changes)
 
@@ -151,7 +155,8 @@ context small).
 | Check readiness | `~/.claude/scripts/codex.sh setup --json` → `"ready": true`; `~/.claude/scripts` is symlinked from this repo's `scripts/`. User-facing: `/codex:setup` |
 | Delegate | `/codex:rescue [--model <slug>] [--effort <e>] <task>` — routes to the `codex:codex-rescue` subagent, which forwards exactly one `codex-companion.mjs task` call and returns its stdout verbatim |
 | Long / open-ended | add `--background`; small and bounded → `--wait` (foreground) |
-| Poll a background job | `/codex:status <job-id>`; treat `unknown`/`orphaned` as an integrity incident, not a pending result — see `codex-job-status-integrity.md` before claiming completion or rerunning |
+| Wait for a background job | **Not by polling.** `~/.claude/scripts/codex-wait.sh <job-id> --cwd <ws>` via Bash `run_in_background` — one wake when it exits. `/codex:status <job-id>` only on that wake; `unknown`/`orphaned` is an integrity incident (`codex-job-status-integrity.md`). Full protocol: `codex-dispatch-protocol.md` |
+| Verify placement at dispatch | `codex.sh status --json --cwd <ws>` right after launch: `workspaceRoot` must be the intended dir and the pid alive; status is per-session and per-`--cwd`, so an empty table is not "done" |
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
 | Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
 | Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
