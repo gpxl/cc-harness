@@ -35,7 +35,10 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-if ! ps -axww -o pid=,ppid=,etime=,command= > "$snapshot" 2>/dev/null; then
+if [ -n "${CODEX_BROKERS_PS_SNAPSHOT:-}" ]; then
+  # Selftest hook: a pre-captured `ps -axww -o pid=,ppid=,etime=,command=` listing.
+  cp "$CODEX_BROKERS_PS_SNAPSHOT" "$snapshot"
+elif ! ps -axww -o pid=,ppid=,etime=,command= > "$snapshot" 2>/dev/null; then
   printf '%s\n' 'CODEX BROKERS: unavailable (process listing denied)'
   exit 0
 fi
@@ -84,14 +87,21 @@ function isUnderTmp(cwd) {
 }
 for (const row of rows) {
   if (!/(?:^|\s)\S*app-server-broker\.mjs\s+serve(?:\s|$)/.test(row.command)) continue;
-  const cwd = readArgument(row.command, "--cwd");
+  // The cwd may contain spaces ("Local Sites"): take everything up to the next --flag.
+  const cwdMatch = row.command.match(/(?:^|\s)--cwd\s+(.+?)(?=\s+--[a-z-]+(?:\s|$)|$)/);
+  const cwd = cwdMatch ? cwdMatch[1] : readArgument(row.command, "--cwd");
   const children = rows.filter((candidate) => candidate.ppid === row.pid).map((candidate) => candidate.pid);
+  // Active wins: a broker serving a queued/running job is LIVE wherever its cwd is (a temp or
+  // scratch workspace is still a workspace). Only an inactive broker can be STALE or IDLE.
+  const registered = brokerStateByPid.get(row.pid);
   let verdict = "STALE";
-  if (cwd && fs.existsSync(cwd) && !isUnderTmp(cwd) && brokerStateByPid.has(row.pid)) {
-    verdict = brokerStateByPid.get(row.pid).active ? "LIVE" : "IDLE";
+  if (registered?.active) {
+    verdict = "LIVE";
+  } else if (cwd && fs.existsSync(cwd) && !isUnderTmp(cwd) && registered) {
+    verdict = "IDLE";
   }
   const values = [row.pid, row.etime, children.join(","), cwd, verdict];
-  console.log(values.map((value) => Buffer.from(String(value), "utf8").toString("base64")).join("\t"));
+  console.log(values.map((value) => `x${Buffer.from(String(value), "utf8").toString("base64")}`).join("\t"));
 }
 ' "$snapshot" "${TMPDIR:-/tmp}" "${broker_files[@]}") || {
   printf '%s\n' 'CODEX BROKERS: unavailable (process inspection failed)'
@@ -99,7 +109,7 @@ for (const row of rows) {
 }
 
 decode_field() {
-  node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64").toString("utf8"));' "$1"
+  node -e 'process.stdout.write(Buffer.from(process.argv[1].slice(1), "base64").toString("utf8"));' "$1"
 }
 
 is_alive() {
