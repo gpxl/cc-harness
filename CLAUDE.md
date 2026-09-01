@@ -70,5 +70,6 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-path-selftest.sh`
 - `scripts/routing-report-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
+- `scripts/codex-wait-selftest.sh`
 
-Merge only when all four report PASS at the PR's HEAD.
+Merge only when all five report PASS at the PR's HEAD.
