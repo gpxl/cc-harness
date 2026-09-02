@@ -31,6 +31,12 @@ Two blind spots in the companion's own `status`, both measured:
   bounded run whose value *is* its stdout (reviews). `--wait` belongs to the `/codex:rescue`
   command, not to `codex-companion.mjs task` — passing it there is a usage error and no job is
   ever recorded (stderr says so; capture it).
+- **No extra `setsid` wrapper.** `--background` workers and brokers are spawned `detached: true`
+  (own session, ppid 1) and survive a harness kill of the Bash call — measured 2026-09-02: the
+  timeout SIGKILLs the call's process group; a plain child died, the detached one lived. The only
+  path a harness kill reaches is a *foreground* task, and wrapping that in `setsid` would be worse
+  (a detached worker whose completion nobody records). Long work → `--background`; the PID + log
+  rule is what makes that safe.
 - **Check it isn't already running** (`codex-jobs.sh --active`) before launching; never a second copy.
 - **Verify placement immediately**: `codex.sh status --json --cwd <ws>` must list the job as
   `queued`/`running` with `workspaceRoot` == the intended directory and a live pid. Anything
