@@ -42,6 +42,7 @@ Two blind spots in the companion's own `status`, both measured:
   `queued`/`running` with `workspaceRoot` == the intended directory and a live pid. Anything
   rooted elsewhere: `codex.sh cancel <id> --cwd <that root>`, then re-dispatch. Half of
   "Claude can't find the job" is "the job is running somewhere else".
+| Dispatch wrapper | `scripts/codex-dispatch.sh` performs the duplicate check, background launch, placement verification, and prints the PID-bridge wait command. |
 
 ## 3. Wait: a PID bridge, never polling
 
