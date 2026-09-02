@@ -121,6 +121,26 @@ my-project/.claude/agents/commit.md   ← overrides the global commit agent
 
 This is useful for projects with unique workflows (e.g., student-facing agents that avoid git terminology).
 
+## Trusted PR merge wrapper
+
+`scripts/trusted-pr-merge.sh` is a host-side merge wrapper: keep it outside the PR checkout and
+invoke it with the checkout only as the gate target. Before it executes that gate, it fetches PR
+author metadata, labels, and all changed paths from GitHub. It holds `human/hold` labels and
+unknown author metadata, and also holds external contributors that change workflows, repository
+or workflow settings, or merge-gate/policy surfaces. An ordinary unlabelled PR can proceed.
+
+The default is a validated dry run. Use `--merge` only when a real merge is intended; the wrapper
+re-fetches all metadata after the candidate gate and sends a GraphQL squash merge with
+`expectedHeadOid` set to the revalidated PR head.
+
+```bash
+scripts/trusted-pr-merge.sh \
+  --repo OWNER/REPO --pr 42 \
+  --checkout /trusted/path/to/candidate-checkout \
+  --gate scripts/verify.sh \
+  --merge
+```
+
 ## Rules included
 
 Rules with a `paths:` frontmatter block load only when a matching file is read; the rest load

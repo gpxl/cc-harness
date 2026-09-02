@@ -39,7 +39,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | deploy_model | discrete |
 | pr_merge_strategy | squash |
 | auto_merge_labels | `agent/auto` (default), `agent/review` — both merged by an agent via `gh pr merge <PR> --squash --delete-branch`. **Never `--auto`** (no required status check to wait on) |
-| human_merge_labels | `human/hold` — never auto-merges. Repo settings, branch protection, `.github/`, or anything needing a person. An **unlabelled PR is treated as this** |
+| human_merge_labels | `human/hold` — never auto-merges. Repo settings, branch protection, `.github/`, or anything needing a person. The legacy pr-monitor treats an **unlabelled PR as this**; `scripts/trusted-pr-merge.sh` can allow an ordinary unlabelled PR only after host-side author/path classification and revalidation. |
 | pr_review_gate | (none) |
 | ci | none — no server-side CI; the gate is the repo's selftests run locally |
 | release_merge_strategy | squash |
@@ -54,7 +54,7 @@ Every agent-authored PR carries **EXACTLY ONE** merge label, chosen by the commi
 - `agent/auto` is the default for harness work: rules, hooks, scripts, docs, agents, and templates. `agent/auto` and `agent/review` are both merged by an agent via `gh pr merge <PR> --squash --delete-branch`; **never use `--auto`**.
 - `human/hold` is required for changes to `.github/`, branch protection or repo settings, anything touching credentials, and `install.sh` or `uninstall.sh` changes that alter what is linked into `~/.claude`, because they mutate the user's live environment on next install.
 - Use `agent/review` for anything in between that warrants a glance but no human gate.
-- Treat an unlabelled PR as `human/hold`.
+- Treat an unlabelled PR as `human/hold` in the legacy monitor. The trusted host wrapper may classify an ordinary unlabelled PR as `agent/auto`, but only after it has held unknown authors and external high-risk paths, run the candidate gate, revalidated the metadata, and bound the merge to the verified head SHA.
 
 If a label is missing from the repo, recreate it:
 
@@ -74,5 +74,6 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-brokers-selftest.sh`
 - `scripts/codex-jobs-selftest.sh`
 - `scripts/codex-dispatch-selftest.sh`
+- `scripts/trusted-pr-merge-selftest.sh`
 
-Merge only when all eight report PASS at the PR's HEAD.
+Merge only when every listed selftest reports PASS at the PR's HEAD.
