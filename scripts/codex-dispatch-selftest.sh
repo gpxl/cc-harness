@@ -27,12 +27,16 @@ assert_contains() {
   esac
 }
 
+# grep, not rg: `rg` is a shell function in this machine's zsh profile, so it does not exist for a
+# bash script. That made assert_file_omits pass VACUOUSLY — a missing binary means the `if` is
+# false, which reads as "the unwanted argv is absent". A gate whose green survives its own tooling
+# going missing is not a gate (rules/verification-integrity.md).
 assert_file_contains() {
-  rg -Fqx -- "$2" "$1" || { fail "missing argv [$2]"; return 1; }
+  grep -Fqx -- "$2" "$1" || { fail "missing argv [$2]"; return 1; }
 }
 
 assert_file_omits() {
-  if rg -Fqx -- "$2" "$1"; then
+  if grep -Fqx -- "$2" "$1"; then
     fail "unexpected argv [$2]"
     return 1
   fi
