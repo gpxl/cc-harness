@@ -66,6 +66,23 @@ Check the code index before writing. **REUSE** > **EXTEND** > **CREATE** — and
 
 Write tests BEFORE implementing; test user behavior, not implementation; co-locate tests next to source files. Full patterns: `testing-guidelines.md`.
 
+## Git commit identity
+
+Every commit created, amended, or rewritten by Codex or ChatGPT must preserve the originating user's configured Git author and committer identity. The current originator is `gpxl`. Do not change that identity without the user's explicit instruction.
+
+Never add Codex, ChatGPT, OpenAI, a model name, or any other agent/vendor identity as an author, committer, or `Co-authored-by` trailer. Commit messages and pull-request titles/bodies must likewise not attribute work to an agent or vendor unless the user explicitly asks for that attribution.
+
+## Repository branch and PR conventions
+
+Before creating, renaming, pushing, or opening a pull request in **every** project, inspect the project's instructions, its PR template/configuration, current remote branch names, and recent merged commits on the intended integration branch. Those are the project's source of truth; do not impose generic agent conventions that conflict with them.
+
+- Branch names must not contain a user, agent, vendor, or model namespace unless the user explicitly requests it. Follow the repository's current type, ticket, and concise kebab-case subject pattern. For example, use `feat/MAR-2823-lookout-page-updates` when that is the nearest current precedent. Prefer the nearest current precedent when history is mixed.
+- Use the normal integration branch as the PR base unless the user specifies another. Fetch first and review `origin/<base>...HEAD`, never a potentially stale local base branch.
+- Match the title convention established by recent merged PRs. Where the project uses Conventional Commits, use `type(scope): subject` (under 70 characters unless the project specifies otherwise). Include a ticket only when local precedent or the user's linked work item calls for it.
+- Use the repository's PR template exactly: retain its headings, replace every applicable placeholder, remove empty placeholder bullets, and select the correct type checkbox or equivalent field. Do not add generic agent attribution, boilerplate checklists, or invented test results.
+- Make the body reviewable from the diff: **What** states the delivered outcome, **Why** identifies the user/problem context, and **Changes** separates material or breaking behavior from supporting fixes, refactors, or cleanup. Describe externally meaningful behavior and scope, not just filenames. Include verification only when it is non-obvious or required by the repository.
+- Before push, self-review the actual diff against the resolved base and the project's review instructions. Ask the user only when project precedent and the user's requested naming or PR content materially conflict.
+
 ## Workflow
 
 | Phase | Action |
@@ -73,7 +90,7 @@ Write tests BEFORE implementing; test user behavior, not implementation; co-loca
 | Session start | Run `bd prime` if `.beads/` exists in project |
 | Plan | `bd create` issue BEFORE writing code |
 | Claim | `bd update <id> --status=in_progress` when starting |
-| **Branch** | **If on `main`/`master`/`trunk`/`develop`, create feature branch off `origin/<integration>` BEFORE first edit (`git checkout -b claude/<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
+| **Branch** | **If on `main`/`master`/`trunk`/`develop`, create a feature branch that follows the repository's current naming convention off `origin/<integration>` BEFORE first edit (for example, `git checkout -b feat/MAR-2823-<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
 | **Delegate** | **Codex-first**: hand implementation, debugging, and design work to OpenAI models via `/codex:rescue` unless it is orchestration, a gate, or tool-bound work. See `## Model Routing`. |
 | TDD | Write tests, then implement |
 | Test | All tests pass |
@@ -160,7 +177,7 @@ context small).
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
 | Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
 | Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
-| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently (currently **off**) |
+| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently. **Currently ON in every main checkout** (measured 2026-09-02; worktrees inherit the `false` default, so their state dirs read off). It fires a Codex turn per Claude stop — real spend, and it did catch a live reap-while-running bug — so leave it on where reviews earn their keep and `--disable-review-gate` per repo where they don't. It is per **workspace**, not global. |
 
 `$CODEX_PLUGIN` is **not exported by default**; `scripts/codex-plugin-root.sh` resolves
 `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is `${CLAUDE_PLUGIN_ROOT}`
