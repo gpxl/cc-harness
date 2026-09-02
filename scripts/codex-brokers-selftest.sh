@@ -23,6 +23,7 @@ sleep 30 & active_pid=$!; pids+=("$active_pid")
 sleep 30 & idle_pid=$!;   pids+=("$idle_pid")
 sleep 30 & stale_pid=$!;  pids+=("$stale_pid")
 sleep 30 & spaced_pid=$!; pids+=("$spaced_pid")
+sleep 30 & alias_pid=$!;  pids+=("$alias_pid")
 
 write_state() {
   local dir="$1" pid="$2" status="$3"
@@ -34,6 +35,8 @@ write_state "$data/state/active-ws-1111" "$active_pid" running
 write_state "$data/state/idle-ws-2222" "$idle_pid" completed
 write_state "$data/state/dead-ws-3333" "$stale_pid" completed
 write_state "$data/state/ws-4444" "$spaced_pid" completed
+mkdir -p "$data/state/alias-ws-5555" "$fake_tmp/alias-ws"
+write_state "$data/state/alias-ws-5555" "$alias_pid" completed
 rmdir "$fake_tmp/dead-ws"
 
 # A pre-captured `ps -axww -o pid=,ppid=,etime=,command=` listing (see CODEX_BROKERS_PS_SNAPSHOT).
@@ -44,6 +47,7 @@ broker_line() { printf '%s 1 01:00 node /x/scripts/app-server-broker.mjs serve -
   broker_line "$idle_pid" "$tmp_root/idle-ws"
   broker_line "$stale_pid" "$fake_tmp/dead-ws"
   broker_line "$spaced_pid" "$tmp_root/Local Sites/ws"
+  broker_line "$alias_pid" "$fake_tmp/alias-ws"
   printf '4242 1 01:00 node /x/scripts/codex-companion.mjs task-worker --cwd %s\n' "$tmp_root/idle-ws"
 } > "$snapshot"
 
@@ -62,6 +66,18 @@ expect "$active_pid" LIVE     # under $TMPDIR but serving a running job: never S
 expect "$idle_pid" IDLE       # registered, cwd exists, no active job
 expect "$stale_pid" STALE     # cwd gone
 expect "$spaced_pid" IDLE     # a cwd containing a space must not be truncated into a missing path
+expect "$alias_pid" STALE     # under $TMPDIR with no active job
+
+# macOS: TMPDIR is /var/... while ps reports /private/var/...; a symlinked TMPDIR must still classify
+# a broker whose cwd is the real path as under tmp.
+ln -s "$fake_tmp" "$tmp_root/tmplink"
+out2="$tmp_root/out2.txt"
+CODEX_BROKERS_PS_SNAPSHOT="$snapshot" CLAUDE_PLUGIN_DATA="$data" TMPDIR="$tmp_root/tmplink" bash "$tool" > "$out2" 2>&1 || {
+  printf '%s\n' 'CODEX BROKERS SELFTEST: FAIL (tool exited non-zero under symlinked TMPDIR)'; exit 1; }
+if ! grep -q "^CODEX BROKER $alias_pid .* verdict=STALE " "$out2"; then
+  printf 'symlinked TMPDIR: expected broker %s STALE; got: %s\n' "$alias_pid" "$(grep "^CODEX BROKER $alias_pid " "$out2" || echo '<missing>')" >&2
+  failures=$((failures + 1))
+fi
 if grep -q '^CODEX BROKER 4242 ' "$out"; then
   printf '%s\n' 'non-broker process listed as a broker' >&2; failures=$((failures + 1))
 fi

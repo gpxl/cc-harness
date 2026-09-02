@@ -44,8 +44,9 @@ elif ! ps -axww -o pid=,ppid=,etime=,command= > "$snapshot" 2>/dev/null; then
 fi
 
 broker_files=()
+# Sibling data roots too: another plugin install's session may own a broker with an active job.
 if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-  for broker_file in "$CLAUDE_PLUGIN_DATA"/state/*/broker.json; do
+  for broker_file in "$(dirname "$CLAUDE_PLUGIN_DATA")"/*/state/*/broker.json; do
     [ -f "$broker_file" ] && broker_files+=("$broker_file")
   done
 fi
@@ -80,9 +81,13 @@ function readArgument(command, name) {
   const match = command.match(expression);
   return match ? match[1] : "";
 }
+function realpathOr(value) {
+  // macOS: TMPDIR is /var/... but ps reports /private/var/...; compare real paths.
+  try { return fs.realpathSync.native(value); } catch { return path.resolve(value); }
+}
 function isUnderTmp(cwd) {
-  const resolvedCwd = path.resolve(cwd);
-  const resolvedTmp = path.resolve(tmpRoot);
+  const resolvedCwd = realpathOr(cwd);
+  const resolvedTmp = realpathOr(tmpRoot);
   return resolvedCwd === resolvedTmp || resolvedCwd.startsWith(`${resolvedTmp}${path.sep}`);
 }
 for (const row of rows) {

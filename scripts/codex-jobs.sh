@@ -44,8 +44,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$all_workspaces" = true ]; then
+  # Every plugin install keeps its own data root (codex-inline, codex-openai-codex, ...) next to
+  # this session's; a job dispatched under another install is invisible unless the siblings are read.
   if [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-    for state_file in "$CLAUDE_PLUGIN_DATA"/state/*/state.json; do
+    for state_file in "$(dirname "$CLAUDE_PLUGIN_DATA")"/*/state/*/state.json; do
       [ -f "$state_file" ] && state_files+=("$state_file")
     done
   fi
@@ -55,11 +57,14 @@ if [ "$all_workspaces" = true ]; then
     [ -f "$state_file" ] && state_files+=("$state_file")
   done
 else
-  plugin_root=$(bash "$script_dir/codex-plugin-root.sh" 2>/dev/null) || exit 0
+  # A store we cannot read must never look like "no jobs" (verification-integrity.md).
+  plugin_root=$(bash "$script_dir/codex-plugin-root.sh" 2>/dev/null) || {
+    printf '%s\n' 'CODEX JOBS: unavailable (Codex plugin root could not be resolved)' >&2; exit 1; }
   state_dir=$(CODEX_STATE_MODULE="$plugin_root/scripts/lib/state.mjs" node --input-type=module -e '
 const { resolveStateDir } = await import(process.env.CODEX_STATE_MODULE);
 console.log(resolveStateDir(process.argv[1]));
-' -- "$cwd" 2>/dev/null) || exit 0
+' -- "$cwd" 2>/dev/null) || {
+    printf '%s\n' 'CODEX JOBS: unavailable (state dir could not be resolved for the given --cwd)' >&2; exit 1; }
   [ -f "$state_dir/state.json" ] && state_files+=("$state_dir/state.json")
 fi
 
