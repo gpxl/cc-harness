@@ -117,4 +117,5 @@ if (outputMode === "json") {
     ].join(" "));
   }
 }
-' "$active_flag" "$output_mode" "${state_files[@]}" || exit 0
+' "$active_flag" "$output_mode" ${state_files[@]+"${state_files[@]}"} || {
+  printf '%s\n' 'CODEX JOBS: unavailable (state could not be read)' >&2; exit 1; }
