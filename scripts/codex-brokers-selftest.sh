@@ -85,6 +85,31 @@ if grep -q 'action=reaped' "$out"; then
   printf '%s\n' 'listing mode must never reap' >&2; failures=$((failures + 1))
 fi
 
+# An unregistered broker whose cwd exists is UNKNOWN, never STALE: with no discoverable state store
+# (CLAUDE_PLUGIN_DATA unset) every broker would otherwise be a reap candidate, live ones included.
+mkdir -p "$tmp_root/isolated"   # parent exists but holds no */state/*/broker.json
+out3="$tmp_root/out3.txt"
+CODEX_BROKERS_PS_SNAPSHOT="$snapshot" CLAUDE_PLUGIN_DATA="$tmp_root/isolated/no-such-data" TMPDIR="$fake_tmp" bash "$tool" > "$out3" 2>&1 || {
+  printf '%s\n' 'CODEX BROKERS SELFTEST: FAIL (tool exited non-zero with no state store)'; exit 1; }
+for pid in "$active_pid" "$idle_pid" "$spaced_pid"; do
+  if ! grep -q "^CODEX BROKER $pid .* verdict=UNKNOWN " "$out3"; then
+    printf 'no state store: expected broker %s UNKNOWN; got: %s\n' "$pid" "$(grep "^CODEX BROKER $pid " "$out3" || echo '<missing>')" >&2
+    failures=$((failures + 1))
+  fi
+done
+# ...except one whose cwd is genuinely gone: that verdict stands on its own evidence.
+grep -q "^CODEX BROKER $stale_pid .* verdict=STALE " "$out3" || {
+  printf 'no state store: a broker with a missing cwd must still be STALE\n' >&2; failures=$((failures + 1)); }
+
+# And with no store discovered at all, reaping is disarmed rather than performed.
+out4="$tmp_root/out4.txt"; err4="$tmp_root/err4.txt"
+CODEX_BROKERS_PS_SNAPSHOT="$snapshot" CLAUDE_PLUGIN_DATA="$tmp_root/isolated/no-such-data" TMPDIR="$fake_tmp" bash "$tool" --reap-stale > "$out4" 2> "$err4" || true
+grep -q 'reaping disarmed' "$err4" || { printf 'expected a disarm notice on stderr\n' >&2; failures=$((failures + 1)); }
+grep -q 'action=reaped' "$out4" && { printf 'reaped with no state store discovered\n' >&2; failures=$((failures + 1)); }
+for pid in "$active_pid" "$idle_pid" "$stale_pid" "$spaced_pid"; do
+  kill -0 "$pid" 2>/dev/null || { printf 'disarmed run killed pid %s\n' "$pid" >&2; failures=$((failures + 1)); }
+done
+
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX BROKERS SELFTEST: PASS'; exit 0
 fi

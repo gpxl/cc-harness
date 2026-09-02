@@ -29,7 +29,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-snapshot=$(mktemp "${TMPDIR:-/tmp}/codex-brokers-ps.XXXXXX") || exit 0
+# Every "cannot tell" path below reports and exits non-zero: a silent exit 0 is indistinguishable
+# from "no brokers running", which is the failure verification-integrity.md calls not-looking.
+snapshot=$(mktemp "${TMPDIR:-/tmp}/codex-brokers-ps.XXXXXX" 2>/dev/null) || {
+  printf '%s\n' 'CODEX BROKERS: unavailable (no writable TMPDIR for the process snapshot)' >&2; exit 1; }
 cleanup() {
   rm -f "$snapshot"
 }
@@ -39,8 +42,8 @@ if [ -n "${CODEX_BROKERS_PS_SNAPSHOT:-}" ]; then
   # Selftest hook: a pre-captured `ps -axww -o pid=,ppid=,etime=,command=` listing.
   cp "$CODEX_BROKERS_PS_SNAPSHOT" "$snapshot"
 elif ! ps -axww -o pid=,ppid=,etime=,command= > "$snapshot" 2>/dev/null; then
-  printf '%s\n' 'CODEX BROKERS: unavailable (process listing denied)'
-  exit 0
+  printf '%s\n' 'CODEX BROKERS: unavailable (process listing denied)' >&2
+  exit 1
 fi
 
 broker_files=()
@@ -99,18 +102,31 @@ for (const row of rows) {
   // Active wins: a broker serving a queued/running job is LIVE wherever its cwd is (a temp or
   // scratch workspace is still a workspace). Only an inactive broker can be STALE or IDLE.
   const registered = brokerStateByPid.get(row.pid);
-  let verdict = "STALE";
+  // STALE must be INDEPENDENTLY VERIFIABLE, never inferred from a missing registration: the state
+  // store is only discoverable via CLAUDE_PLUGIN_DATA, which the harness injects per plugin and no
+  // shell profile sets. Defaulting an unregistered broker to STALE made `--reap-stale` SIGKILL live
+  // brokers (and their app-server children) whenever that variable was absent — measured, and the
+  // reason UNKNOWN exists. Absence of evidence is not evidence of staleness.
+  const cwdGone = !cwd || !fs.existsSync(cwd);
+  let verdict;
   if (registered?.active) {
     verdict = "LIVE";
-  } else if (cwd && fs.existsSync(cwd) && !isUnderTmp(cwd) && registered) {
-    verdict = "IDLE";
+  } else if (cwdGone) {
+    // Nothing can be working in a directory that no longer exists: safe without a registration.
+    verdict = "STALE";
+  } else if (registered) {
+    // A scratch/worktree workspace under $TMPDIR is still a workspace; it is only residue once the
+    // store confirms no queued/running job (that check is what makes it safe to reap).
+    verdict = isUnderTmp(cwd) ? "STALE" : "IDLE";
+  } else {
+    verdict = "UNKNOWN";
   }
   const values = [row.pid, row.etime, children.join(","), cwd, verdict];
   console.log(values.map((value) => `x${Buffer.from(String(value), "utf8").toString("base64")}`).join("\t"));
 }
-' "$snapshot" "${TMPDIR:-/tmp}" "${broker_files[@]}") || {
-  printf '%s\n' 'CODEX BROKERS: unavailable (process inspection failed)'
-  exit 0
+' "$snapshot" "${TMPDIR:-/tmp}" ${broker_files[@]+"${broker_files[@]}"}) || {
+  printf '%s\n' 'CODEX BROKERS: unavailable (process inspection failed)' >&2
+  exit 1
 }
 
 decode_field() {
@@ -148,6 +164,16 @@ reap() {
     printf '%s' 'reaped'
   fi
 }
+
+# A run that discovered no state store at all cannot tell "idle" from "not looking", so it must not
+# destroy anything (verification-integrity.md). Listing still works; reaping is disarmed and says so.
+store_count=0
+for _broker_file in ${broker_files[@]+"${broker_files[@]}"}; do store_count=$((store_count + 1)); done
+if [ "$store_count" -eq 0 ] && { [ "$reap_stale" = true ] || [ "$restart_idle" = true ]; }; then
+  printf '%s\n' 'CODEX BROKERS: reaping disarmed — no broker state store found (is CLAUDE_PLUGIN_DATA set?)' >&2
+  reap_stale=false
+  restart_idle=false
+fi
 
 found=false
 while IFS=$'\t' read -r encoded_pid encoded_etime encoded_children encoded_cwd encoded_verdict; do
