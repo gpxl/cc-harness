@@ -308,3 +308,9 @@ same plugin), each item checked against plugin 1.0.6 source before it became a r
   thread with no broker restart — config is read per thread. `swift build` still fails inside the
   sandbox: swiftc's macro plugin server needs nested `sandbox-exec` (`sandbox_apply: Operation not
   permitted`), independent of the module cache. Builds stay with the orchestrator.
+- **setsid (2026-09-02).** Advice: wrappers should `setsid` long-running Codex sessions so a killed
+  wrapper does not take the session with it. Measured with a 5 s Bash timeout: the harness kills the
+  call's process group (`sleep 90 &` died), while a Node `detached: true` child (pgid == pid, ppid 1)
+  survived. `spawnDetachedTaskWorker` and `spawnBrokerProcess` both pass `detached: true`, so the
+  advice is already implemented for `--background`; only a foreground task is exposed, and the rule
+  routes long work to `--background` rather than adding a wrapper that would orphan a tracked worker.
