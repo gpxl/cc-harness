@@ -115,13 +115,19 @@ in front of the task. Each answer became a line in § Cost and ordering:
 - **Measured while checking (b):** `codex.sh setup --json` in that repo's main checkout reported
   `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
   `global/CLAUDE.md`. The note now says to check, not assume.
-- **(e) Same day, first branch under the rewritten rule (MAR-2800) parked at the adversary**: the
-  rule said `/codex:adversarial-review`, and that slash command is `disable-model-invocation: true` —
-  a user-typed command an agent cannot run. The routing table in `global/CLAUDE.md` had the same
-  defect since it was written. Both now name the companion subcommand
-  (`codex.sh adversarial-review --wait --base … <focus>`), with the VERDICT contract passed as focus
-  text. Lesson for rule authors: a slash command in a rule is an instruction to the *user*; check
-  the command's frontmatter before telling an agent to run it.
+- **(e) Same day, the first branch under the rewritten rule (MAR-2800) parked at the adversary**:
+  the rule said `/codex:adversarial-review`, which is `disable-model-invocation: true` — a
+  user-typed command an agent cannot run. The first fix routed around it — told agents to call
+  `codex.sh adversarial-review` through Bash — and the peer session working MAR-2800 refused,
+  correctly: the harness's refusal text says "do not replicate this skill's workflow by other
+  means", and a peer cannot lift a restriction another session was denied. Encoding the workaround
+  into rules would have been config quietly acquiring a bypass, worse than the parked task.
+  Resolution: the agent-run adversary is the Claude subagent (the default this rule had before the
+  day started, restored); Codex review is the user's to type, and either discharges the stage. The
+  cost shift the routing table wants is available only when the user is present. Two lessons for
+  rule authors: a slash command in a rule is an instruction to the *user* — read its frontmatter
+  before telling an agent to run it; and when the harness refuses something, "do it through a
+  different tool" is never the answer.
 - **(f) Merge gate false red in worktrees**: `scripts/install-symmetry-selftest.sh` failed at
   `origin/main` too, with a bare `FAIL` and no reason — `scripts/git-snapshot` is a gitignored
   machine-local symlink that a fresh worktree never has, and the test's `readlink` on it returned
