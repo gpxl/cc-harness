@@ -5,7 +5,12 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 wrapper="$script_dir/trusted-pr-merge.sh"
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/trusted-pr-merge-selftest.XXXXXX") || exit 1
-trap 'rm -rf "$tmpdir"' EXIT
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
+trap 'st=$?; rm -rf "$tmpdir"; [ "$completed" = 1 ] || st=1; exit $st' EXIT
 
 failures=0
 
@@ -200,7 +205,7 @@ assert_file_absent "$tmpdir/gate-ran" || true
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'TRUSTED PR MERGE SELFTEST: PASS'
-  exit 0
+  completed=1; completed=1; exit 0
 fi
 printf '%s\n' 'TRUSTED PR MERGE SELFTEST: FAIL' >&2
-exit 1
+completed=1; completed=1; exit 1
