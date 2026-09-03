@@ -48,7 +48,7 @@ add_task() {
 }
 
 load_task_table() {
-  local tasks_file name command
+  local tasks_file row name command
   table_names=()
   table_commands=()
   if [ -n "${CODEX_MAILBOX_TASKS:-}" ]; then
@@ -57,9 +57,15 @@ load_task_table() {
       printf 'CODEX MAILBOX: CODEX_MAILBOX_TASKS is not a file: %s\n' "$tasks_file" >&2
       return 1
     fi
-    while IFS=$'\t' read -r name command || [ -n "${name:-}" ]; do
-      [ -n "${name:-}" ] || continue
-      add_task "$name" "${command:-}" || return 1
+    while IFS= read -r row || [ -n "${row:-}" ]; do
+      if [[ "$row" = *$'\t'* ]]; then
+        name=${row%%$'\t'*}
+        command=${row#*$'\t'}
+      else
+        name="$row"
+        command=''
+      fi
+      add_task "$name" "$command" || return 1
     done < "$tasks_file"
   else
     add_task build 'swift build' || return 1
@@ -93,9 +99,44 @@ mailbox_path() {
   printf '%s/.codex-mailbox' "$1"
 }
 
+host_state_path() {
+  local workspace="$1" workspace_name workspace_hash
+  workspace_name=$(basename "$workspace")
+  workspace_hash=$(printf '%s' "$workspace" | shasum -a 256 | awk '{ print substr($1, 1, 16) }') || return 1
+  printf '%s/codex-mailbox/%s-%s' "${TMPDIR:-/tmp}" "$workspace_name" "$workspace_hash"
+}
+
+prepare_host_state() {
+  local workspace="$1" state_root state
+  state_root="${TMPDIR:-/tmp}/codex-mailbox"
+  if [ -L "$state_root" ] || { [ -e "$state_root" ] && [ ! -d "$state_root" ]; }; then
+    printf 'CODEX MAILBOX: host state root is not a directory: %s\n' "$state_root" >&2
+    return 1
+  fi
+  [ -d "$state_root" ] || mkdir -m 700 "$state_root" || return 1
+  chmod 700 "$state_root" || return 1
+  state=$(host_state_path "$workspace") || return 1
+  if [ -L "$state" ] || { [ -e "$state" ] && [ ! -d "$state" ]; }; then
+    printf 'CODEX MAILBOX: host state directory is not a directory: %s\n' "$state" >&2
+    return 1
+  fi
+  [ -d "$state" ] || mkdir -m 700 "$state" || return 1
+  chmod 700 "$state" || return 1
+  printf '%s\n' "$state"
+}
+
+validate_mailbox() {
+  local mailbox="$1"
+  if [ -L "$mailbox" ] || [ ! -d "$mailbox" ]; then
+    printf 'CODEX MAILBOX: mailbox is not a directory: %s\n' "$mailbox" >&2
+    return 1
+  fi
+}
+
 write_response() {
-  local mailbox="$1" id="$2" task="$3" exit_code="$4" log="$5" tail_text="$6" error_text="$7"
-  local response="$mailbox/resp-$id.json" temporary="$mailbox/resp-$id.json.tmp"
+  local state="$1" mailbox="$2" id="$3" task="$4" exit_code="$5" log="$6" tail_text="$7" error_text="$8"
+  local response="$mailbox/resp-$id.json" temporary
+  temporary=$(mktemp "$state/resp-$id.json.tmp.XXXXXX") || return 1
   if [ -n "$error_text" ]; then
     node -e '
 const fs = require("fs");
@@ -122,7 +163,7 @@ process.stdout.write(request.task);
 }
 
 process_request() {
-  local workspace="$1" mailbox="$2" request="$3" base id consumed task log tail_text exit_code error_text
+  local workspace="$1" mailbox="$2" state="$3" request="$4" base id consumed task staged_log final_log tail_text exit_code error_text
   base=$(basename "$request")
   id=${base#req-}
   id=${id%.json}
@@ -130,9 +171,14 @@ process_request() {
     printf 'CODEX MAILBOX: ignoring request with unsafe id: %s\n' "$base" >&2
     return 1
   fi
+  if [ ! -f "$request" ] || [ -L "$request" ]; then
+    printf 'CODEX MAILBOX: refusing non-regular request: %s\n' "$base" >&2
+    return 1
+  fi
   consumed="$mailbox/req-$id.json.done"
   mv "$request" "$consumed" || return 1
-  log="$mailbox/log-$id.txt"
+  staged_log=$(mktemp "$state/log-$id.txt.XXXXXX") || return 1
+  final_log="$mailbox/log-$id.txt"
   task=''
   if ! task=$(read_request_task "$consumed" 2>/dev/null); then
     task=''
@@ -143,62 +189,61 @@ process_request() {
   if ! is_task_name "$task" || ! lookup_task "$task"; then
     exit_code=-1
     error_text="task not allowlisted: $task"
-    printf '%s\n' "$error_text" > "$log"
+    printf '%s\n' "$error_text" > "$staged_log"
   else
     # `selected_command` originates only in the host-side table. The request's task is used above
     # solely for a quoted equality lookup; it is never interpolated into this shell invocation.
     (
       cd -- "$workspace" || exit 127
       bash -c "$selected_command"
-    ) > "$log" 2>&1
+    ) > "$staged_log" 2>&1
     exit_code=$?
   fi
-  tail_text=$(tail -n 40 "$log" 2>/dev/null || true)
-  write_response "$mailbox" "$id" "$task" "$exit_code" "$log" "$tail_text" "$error_text"
+  tail_text=$(tail -n 40 "$staged_log" 2>/dev/null || true)
+  mv -f "$staged_log" "$final_log" || return 1
+  write_response "$state" "$mailbox" "$id" "$task" "$exit_code" "$final_log" "$tail_text" "$error_text"
 }
 
 process_pending() {
-  local workspace="$1" mailbox request result=0
+  local workspace="$1" mailbox state request result=0
   mailbox=$(mailbox_path "$workspace")
-  mkdir -p "$mailbox" || return 1
+  validate_mailbox "$mailbox" || return 1
+  state=$(prepare_host_state "$workspace") || return 1
   for request in "$mailbox"/req-*.json; do
     [ -f "$request" ] || continue
-    process_request "$workspace" "$mailbox" "$request" || result=1
+    process_request "$workspace" "$mailbox" "$state" "$request" || result=1
   done
   return "$result"
 }
 
 read_runner_state() {
-  local mailbox="$1" state="$mailbox/runner.pid"
+  local state_dir="$1" state="$state_dir/runner.pid"
   [ -f "$state" ] || return 1
   IFS=$'\t' read -r runner_state_pid runner_state_started runner_state_deadline < "$state"
-  [[ "${runner_state_pid:-}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "${runner_state_pid:-}" =~ ^([2-9]|[1-9][0-9]+)$ ]] || return 1
   [[ "${runner_state_deadline:-}" =~ ^[0-9]+$ ]] || return 1
 }
 
 runner_cleanup() {
-  local mailbox="$1" current_pid
-  if read_runner_state "$mailbox"; then
+  local state="$1" current_pid
+  if read_runner_state "$state"; then
     current_pid="$runner_state_pid"
     if [ "$current_pid" = "$$" ]; then
-      rm -f "$mailbox/runner.pid"
+      rm -f "$state/runner.pid"
     fi
   fi
 }
 
 run_runner() {
-  local workspace="$1" wall="$2" mailbox now deadline
-  mailbox=$(mailbox_path "$workspace")
-  trap 'runner_cleanup "$mailbox"' EXIT HUP INT TERM
+  local workspace="$1" wall="$2" state now deadline
+  state=$(prepare_host_state "$workspace") || return 1
+  trap 'runner_cleanup "$state"' EXIT HUP INT TERM
   if ! load_task_table; then
     printf '%s\n' 'CODEX MAILBOX: runner stopped because the task table is invalid' >&2
     return 1
   fi
-  if ! read_runner_state "$mailbox"; then
-    printf '%s\n' 'CODEX MAILBOX: runner state is unavailable' >&2
-    return 1
-  fi
-  deadline="$runner_state_deadline"
+  now=$(date +%s)
+  deadline=$((now + wall * 60))
   printf 'CODEX MAILBOX: runner pid=%s workspace=%s wall=%sm\n' "$$" "$workspace" "$wall"
   while :; do
     now=$(date +%s)
@@ -212,34 +257,38 @@ run_runner() {
 start_runner() {
   local workspace="$1" wall="$2" mailbox state now deadline runner_pid workspace_b64
   mailbox=$(mailbox_path "$workspace")
-  state="$mailbox/runner.pid"
-  mkdir -p "$mailbox" || return 1
-  if read_runner_state "$mailbox" && kill -0 "$runner_state_pid" 2>/dev/null; then
+  validate_mailbox "$mailbox" || return 1
+  state=$(prepare_host_state "$workspace") || return 1
+  if read_runner_state "$state" && kill -0 "$runner_state_pid" 2>/dev/null; then
     printf 'CODEX MAILBOX: runner already running for %s (pid %s)\n' "$workspace" "$runner_state_pid" >&2
     return 1
   fi
-  rm -f "$state"
+  rm -f "$state/runner.pid"
   now=$(date +%s)
   deadline=$((now + wall * 60))
   workspace_b64=$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "utf8").toString("base64"));' -- "$workspace") || return 1
-  : > "$mailbox/runner.log" || return 1
+  : > "$state/runner.log" || return 1
   nohup bash "$script_path" __run --codex-mailbox-runner --workspace-b64 "$workspace_b64" --wall "$wall" \
-    >> "$mailbox/runner.log" 2>&1 < /dev/null &
+    >> "$state/runner.log" 2>&1 < /dev/null &
   runner_pid=$!
-  printf '%s\t%s\t%s\n' "$runner_pid" "$now" "$deadline" > "$state.tmp" || return 1
-  mv -f "$state.tmp" "$state" || return 1
+  printf '%s\t%s\t%s\n' "$runner_pid" "$now" "$deadline" > "$state/runner.pid.tmp" || return 1
+  mv -f "$state/runner.pid.tmp" "$state/runner.pid" || return 1
   printf '%s\n' "$mailbox"
 }
 
 stop_runner() {
-  local workspace="$1" mailbox attempts=0
-  mailbox=$(mailbox_path "$workspace")
-  if ! read_runner_state "$mailbox"; then
+  local workspace="$1" state attempts=0
+  state=$(host_state_path "$workspace") || return 1
+  if ! read_runner_state "$state"; then
     printf 'CODEX MAILBOX: no runner recorded for %s\n' "$workspace" >&2
     return 1
   fi
+  if ! [[ "$runner_state_pid" =~ ^([2-9]|[1-9][0-9]+)$ ]]; then
+    printf 'CODEX MAILBOX: refusing unsafe runner pid for %s\n' "$workspace" >&2
+    return 1
+  fi
   if ! kill -0 "$runner_state_pid" 2>/dev/null; then
-    rm -f "$mailbox/runner.pid"
+    rm -f "$state/runner.pid"
     printf 'CODEX MAILBOX: runner already dead for %s (pid %s)\n' "$workspace" "$runner_state_pid"
     return 0
   fi
@@ -250,18 +299,18 @@ stop_runner() {
   done
   if kill -0 "$runner_state_pid" 2>/dev/null; then
     # A reparented, already-exited runner can remain a zombie briefly, for which `kill -0` is
-    # still true. An explicit final signal is safe because this is the PID recorded for this
-    # mailbox; do not broaden it to a process-name search or process-group kill.
+    # still true. An explicit final signal is safe because this is the PID recorded in the
+    # host-private state directory; do not broaden it to a process-name search or process-group kill.
     kill -KILL "$runner_state_pid" 2>/dev/null || true
   fi
-  rm -f "$mailbox/runner.pid"
+  rm -f "$state/runner.pid"
   printf 'CODEX MAILBOX: stopped workspace=%s pid=%s\n' "$workspace" "$runner_state_pid"
 }
 
 status_workspace() {
-  local workspace="$1" mailbox now remaining alive
-  mailbox=$(mailbox_path "$workspace")
-  if ! read_runner_state "$mailbox"; then
+  local workspace="$1" state now remaining alive
+  state=$(host_state_path "$workspace") || return 1
+  if ! read_runner_state "$state"; then
     printf 'CODEX MAILBOX workspace=%s pid=- state=dead wall_remaining=0m\n' "$workspace"
     return 0
   fi
@@ -353,6 +402,7 @@ if [ "$subcommand" != 'status' ] || [ -n "$workspace_arg" ]; then
     printf 'CODEX MAILBOX: workspace is not a directory: %s\n' "$workspace_arg" >&2
     exit 2
   }
+  validate_mailbox "$(mailbox_path "$workspace")" || exit 1
 fi
 
 case "$subcommand" in

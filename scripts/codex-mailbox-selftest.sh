@@ -5,15 +5,23 @@ set -euo pipefail
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 tool="$script_dir/codex-mailbox.sh"
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/codex-mailbox-selftest.XXXXXX") || exit 1
+TMPDIR="$tmp_root/host-tmp"
+export TMPDIR
+mkdir -p "$TMPDIR"
 workspace="$tmp_root/workspace"
 tasks="$tmp_root/tasks.tsv"
 count_file="$tmp_root/run-count.txt"
 failures=0
 assertions=0
+sacrificial_pid=''
 
 cleanup() {
   local status=$?
-    rm -rf "$tmp_root"
+  if [ -n "${sacrificial_pid:-}" ]; then
+    kill -TERM "$sacrificial_pid" 2>/dev/null || true
+    wait "$sacrificial_pid" 2>/dev/null || true
+  fi
+  rm -rf "$tmp_root"
   [ "$completed" = 1 ] || status=1
   exit "$status"
 }
@@ -94,7 +102,79 @@ run_once() {
   assert_equal 'once exits successfully' 0 "$result"
 }
 
+symlink_request_is_refused() {
+  test "$symlink_request_result" -ne 0 &&
+    test ! -e "$workspace/.codex-mailbox/resp-symlink-request.json"
+}
+
+log_symlink_delivery_is_safe() {
+  test "$(cat "$symlink_sentinel")" = 'sentinel remains intact' &&
+    test "$(json_value "$log_symlink_response" exit)" = 0 &&
+    grep -q 'ok-output' "$workspace/.codex-mailbox/log-log-symlink.txt"
+}
+
+response_temp_symlink_delivery_is_safe() {
+  test "$(cat "$symlink_sentinel")" = 'sentinel remains intact' &&
+    test "$(json_value "$response_temp_symlink_response" exit)" = 0 &&
+    json_parses "$response_temp_symlink_response"
+}
+
+forged_pid_is_refused() {
+  test "$forged_pid_result" -ne 0 && kill -0 "$sacrificial_pid"
+}
+
+empty_name_is_refused() {
+  test "$empty_name_result" -ne 0 &&
+    grep -q 'invalid task name in task table' "$tmp_root/empty-name.out"
+}
+
 mkdir -p "$workspace/.codex-mailbox"
+
+# A symlinked request must not be accepted as a request payload.
+printf '%s\n' '{"task":"ok"}' > "$tmp_root/symlink-request.json"
+ln -s "$tmp_root/symlink-request.json" "$workspace/.codex-mailbox/req-symlink-request.json"
+set +e
+CODEX_MAILBOX_TASKS="$tasks" CODEX_MAILBOX_COUNT_FILE="$count_file" \
+  bash "$tool" once --workspace "$workspace" > "$tmp_root/symlink-request.out" 2>&1
+symlink_request_result=$?
+set -e
+assert_true 'a symlinked request is refused without a response' symlink_request_is_refused
+rm -f "$workspace/.codex-mailbox/req-symlink-request.json"
+
+# These planted destinations must be atomically replaced, never opened for writing.
+symlink_sentinel="$tmp_root/mailbox-symlink-sentinel.txt"
+printf '%s\n' 'sentinel remains intact' > "$symlink_sentinel"
+ln -s "$symlink_sentinel" "$workspace/.codex-mailbox/log-log-symlink.txt"
+write_request log-symlink ok
+run_once
+log_symlink_response="$workspace/.codex-mailbox/resp-log-symlink.json"
+assert_true 'log-destination symlink preserves its sentinel and still delivers output' log_symlink_delivery_is_safe
+
+ln -s "$symlink_sentinel" "$workspace/.codex-mailbox/resp-response-temp-symlink.json.tmp"
+write_request response-temp-symlink ok
+run_once
+response_temp_symlink_response="$workspace/.codex-mailbox/resp-response-temp-symlink.json"
+assert_true 'response-temp symlink preserves its sentinel and still delivers JSON' response_temp_symlink_delivery_is_safe
+rm -f "$workspace/.codex-mailbox/resp-response-temp-symlink.json.tmp"
+
+# Mailbox state is attacker-controlled and must never select a process to signal.
+sleep 600 &
+sacrificial_pid=$!
+printf '%s\t0\t9999999999\n' "$sacrificial_pid" > "$workspace/.codex-mailbox/runner.pid"
+set +e
+CODEX_MAILBOX_TASKS="$tasks" bash "$tool" stop --workspace "$workspace" > "$tmp_root/forged-pid.out" 2>&1
+forged_pid_result=$?
+set -e
+assert_true 'forged mailbox pid is refused and leaves the test-owned process alive' forged_pid_is_refused
+
+# An empty task-table row/name fails closed instead of being skipped.
+empty_name_tasks="$tmp_root/empty-name-tasks.tsv"
+printf 'ok\t%s\n\n' "$workspace/bin/ok" > "$empty_name_tasks"
+set +e
+CODEX_MAILBOX_TASKS="$empty_name_tasks" bash "$tool" once --workspace "$workspace" > "$tmp_root/empty-name.out" 2>&1
+empty_name_result=$?
+set -e
+assert_true 'an empty task-table name fails closed as invalid' empty_name_is_refused
 
 # Allowlisted work must preserve its actual command exit status and complete log.
 write_request ok1 ok
@@ -161,7 +241,7 @@ assert_true 'final response parses as JSON' json_parses "$ok_response"
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX MAILBOX SELFTEST: PASS'
-  completed=1; completed=1; exit 0
+  completed=1; exit 0
 fi
 printf '%s\n' 'CODEX MAILBOX SELFTEST: FAIL'
-completed=1; completed=1; exit 1
+completed=1; exit 1
