@@ -81,7 +81,48 @@ on something already finished); the wall cap hit twice. Order:
 - The verify gate stays with the orchestrator (`verification-integrity.md`); Codex's "tests pass"
   is a claim until the gate is run here.
 
-## 6. Housekeeping
+## 6. Host-side build mailbox
+
+Codex's workspace-write sandbox cannot run this repository's Swift build reliably: `swiftc` macro
+plugin hosts use `sandbox-exec`, and that nested Seatbelt execution fails. A host operator can run
+`scripts/codex-mailbox.sh start --workspace <workspace>` outside the sandbox; the runner accepts
+only build requests written to `<workspace>/.codex-mailbox/` and writes the real compiler result
+back there. It is for `swift build` and `scripts/test.sh`, not for arbitrary host commands.
+
+The harness kills one foreground shell command at roughly **28 seconds**. A mailbox build can take
+longer, so a Codex turn must request once and poll in **separate short commands**. Never use one
+long `sleep`, a foreground `wait`, or a loop intended to outlast that command limit. Use this exact
+shape (run the second block again as a new command until it prints the response):
+
+```bash
+# Request one allowlisted build. This is one short command.
+workspace=/absolute/path/to/workspace
+mailbox="$workspace/.codex-mailbox"
+id="build-$(date +%s)-$$"
+node -e 'process.stdout.write(JSON.stringify({ task: "build" }) + "\n")' \
+  > "$mailbox/req-$id.json"
+printf '%s\n' "$id" > "$mailbox/current-build-id"
+
+# Poll in a NEW short command each time (the sleep is deliberately bounded).
+workspace=/absolute/path/to/workspace
+mailbox="$workspace/.codex-mailbox"
+id=$(cat "$mailbox/current-build-id")
+response="$mailbox/resp-$id.json"
+if [ -f "$response" ]; then
+  node -e 'const fs = require("fs"); console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")))' "$response"
+else
+  sleep 5
+fi
+```
+
+The response is atomically renamed from `resp-<id>.json.tmp`, so a poller never reads a
+half-written JSON document. Its `log` field names the complete output file and `tail` is a compact
+copy for the turn. The security boundary is intentional and narrow: requests carry a **task name
+only**; the host script rejects malformed or unallowlisted names before lookup and maps accepted
+names through its fixed `build → swift build`, `test → scripts/test.sh` table. Request content is
+never evaluated as shell code. `CODEX_MAILBOX_TASKS` exists only as a hermetic selftest hook.
+
+## 7. Housekeeping
 
 - Brokers and app-servers are long-lived. Sandbox settings in `~/.codex/config.toml` are read per
   thread (measured 2026-09-01: new `writable_roots` + `network_access` took effect on the next task
