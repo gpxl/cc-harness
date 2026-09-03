@@ -10,6 +10,8 @@ paths:
   - "**/packages/**"
   - "**/lib/**"
   - "**/Sources/**"
+  - "**/scripts/**"
+  - "**/rules/**"
 ---
 # Branch Completion Review (Adversarial Go/No-Go)
 
@@ -195,7 +197,7 @@ It runs **once** per branch (plus one re-review per NO-GO loop) — not per comm
 
 | Aspect | Requirement |
 |--------|-------------|
-| Model | **The Claude subagent — Opus by default,** Fable only for architecture-class diffs (new abstractions, cross-service contracts, data-model changes) — invoked through the Agent tool. The reviewer must be at least as capable as the author, rarely more expensive than it. `/codex:adversarial-review` is the Codex equivalent and **user-typed only**: it carries `disable-model-invocation: true`, and the harness refuses the Skill route with "do not replicate this skill's workflow by other means" — so an agent does not call `codex.sh adversarial-review` through Bash either. Either route discharges this stage; the Codex one is available only when the user is present to type it. When they are not, the agent runs the Claude subagent rather than parking. (2026-09-03: for a few hours this row first named the slash command, which parked a branch, then named the companion command, which was a bypass — see rule-histories (e).) |
+| Model | **Codex, through the plugin's agent route: `/codex:rescue --wait` (`--background` beyond ~2 files), read-only, with the Stage 2 prompt rows below and the Output contract as the task text.** The plugin's own agent contract (`skills/codex-cli-runtime`) reserves the `review` / `adversarial-review` subcommands for the user-typed slash commands (`disable-model-invocation: true`) and tells its subagent to route "review, diagnosis, or research without edits" through `task` — so this is the documented path, not a way around the flagged one. An agent never calls `codex.sh review` / `codex.sh adversarial-review`; when the user is present they may type `/codex:adversarial-review` instead, and either discharges the stage. Claude fallback, only on a stated Codex `ready: false` / login failure: the Claude subagent, Opus by default, Fable for architecture-class diffs (new abstractions, cross-service contracts, data-model changes). Measured 2026-09-03: that fallback produced a three-MAJOR NO-GO on this rule's own branch, so it is a fallback on cost, not on quality. Cross-vendor parity with a Codex-authored branch is assumed, not verified. (User decision 2026-09-03, after the row went slash command → companion bypass → Claude-only in one day; rule-histories (e).) |
 | Access | Read-only: no edits, no commits. It MAY run read-only commands and write scratch scripts to the session scratchpad. |
 | Prompt: input | **Hand it the diff and the recorded gate results** (`git diff origin/<integration>...HEAD`, plus the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines per `pipeline-contract.md`) rather than making it re-explore the repo or re-run gates. Add the branch inventory (commits, features, requirements as given) and the project's known gotchas. |
 | Prompt: evidence status | Label prior verification honestly — what was gate-verified, what was browser-QA'd, and **what was never covered** (interrupted runs, env-blocked checks). Tell it to weight attention toward the gaps. Per `verification-integrity.md`: don't instruct it to trust your results; let it contradict you. |
@@ -207,7 +209,7 @@ It runs **once** per branch (plus one re-review per NO-GO loop) — not per comm
 
 1. Triage each finding: **fix in code**, or — for judgment calls the project owner controls (e.g. CMS-trust tradeoffs) — **resolve by explicit disclosure** in the PR body for sign-off. Disclosure is a legitimate resolution; silent acceptance is not.
 2. Findings needing external evidence (e.g. "scan live data for affected patterns") get that evidence gathered, not argued away.
-3. Fixes go through the normal pipeline: code-quality gate → commit agent (own `fix(...)` commit).
+3. Fixes go through the normal pipeline: code-quality gate (skipped when `quality_gate_pattern` is `(none)` — `verify_cmd` instead) → commit agent (own `fix(...)` commit).
 4. **Re-run the same adversary** (retained context) to re-trace its own original failure scenarios against the new code AND hunt for regressions the fixes introduced.
 5. Repeat until `GO`. Only then does the branch proceed to PR-body drafting.
 
@@ -230,11 +232,11 @@ preferences:
 | Redundant with code-quality / verify? | **No.** Those are lint, typecheck, tests — deterministic. This stage's one founding BLOCKER was an *omission* after every gate was green. Different defect classes; neither replaces the other. |
 | Order | **Deterministic gates → commit → adversary → PR body.** Cheap, falsifiable checks before an expensive model read is fail-fast, and a NO-GO costs the same number of adversary runs wherever the commit sits. Committing first also makes the reviewed diff exactly `origin/<integration>...HEAD`. |
 | Adversary before the task starts? | **A complement, never a substitute.** A plan-stage pass (`/grill-me`) catches scope and approach on design-decision tasks — schema changes, shared-component restyles, new abstractions. It cannot see the omission class, because there is no code yet. Author's discretion, and it does not discharge this stage. |
-| How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely, and the stop-gate also reviews stops where the tree did not change. A repo picks one and states which. Where this stage's trigger applies, the stop-gate is off in that workspace. |
+| How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely — **assessed, not measured**: the stop-gate has one recorded catch (a reap-while-running bug) and reviews at the stop that introduced a defect rather than at branch end, so the overlap is a judgment call. What is not a judgment call is precedence: **when this stage's trigger fires, Stage 2 runs and is never the pass that gets dropped.** The stop-gate is a per-workspace setting while the trigger is per-branch, so a repo whose branches can trigger Stage 2 leaves the stop-gate off permanently and states so; a repo whose branches never trigger it may keep the stop-gate as its one pass. |
 | Where does the real waste hide? | In project files that **restate** this rule instead of referencing it — they freeze the version they copied. Project files carry parameters only: which surfaces are class 1/4 *there*, the gate commands, the stated-skip line. See `claude-md-project-templates.md` § Referencing global rules. |
 
 ## Relationship to other rules
 
 - `verification-integrity.md` — Stage 1's zero-behavior proof needs negative controls; Stage 2's reviewer is the second opinion you believe first.
 - `parallel-authoring.md` — fan-out / clone-the-sibling authoring is the expected *source* of the refactor pass's findings, and is now its trigger (above) rather than a background justification for a standing stage.
-- `agent-enforcement.md` / `agent-purpose-statements.md` — NO-GO fixes go through code-quality → commit (the adversary never edits), and its prompt is a purpose statement with teeth. Project-level PR-approval rules run *after* GO.
+- `agent-enforcement.md` / `agent-purpose-statements.md` — NO-GO fixes go through code-quality (or `verify_cmd` when the pattern is `(none)`) → commit (the adversary never edits), and its prompt is a purpose statement with teeth. Project-level PR-approval rules run *after* GO.

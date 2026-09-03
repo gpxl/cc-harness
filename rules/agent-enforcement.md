@@ -18,14 +18,15 @@ The precondition is unchanged: required gates must be green first, including `CO
 
 | Trigger phrase | Action |
 |----------------|--------|
-| "commit", "push", "ship it" | Invoke code-quality agent → commit agent |
+| "commit", "push", "ship it" | Invoke code-quality agent → commit agent (**skip code-quality when `quality_gate_pattern` is `(none)`** — run `verify_cmd` and record `VERIFY RESULT:` instead) |
 | "yes" (confirming a commit) | Same pipeline — not a shortcut to manual git |
 | "save this", "check this in" | Same pipeline |
 
 ## Mandatory Pipeline
 
 ```
-code change → code-quality (evaluate) → FAIL? → test-writer → code-quality (re-verify)
+code change → code-quality (evaluate; skipped when quality_gate_pattern is (none) — verify_cmd instead)
+                                       → FAIL? → test-writer → code-quality (re-verify)
                                        → PASS  → commit agent (stage, commit, push, open PR)
                                                    → pr-monitor  [only if Agent Config ci ≠ none]
                                                        → release [only if version_strategy ≠ none]

@@ -116,18 +116,23 @@ in front of the task. Each answer became a line in § Cost and ordering:
   `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
   `global/CLAUDE.md`. The note now says to check, not assume.
 - **(e) Same day, the first branch under the rewritten rule (MAR-2800) parked at the adversary**:
-  the rule said `/codex:adversarial-review`, which is `disable-model-invocation: true` — a
-  user-typed command an agent cannot run. The first fix routed around it — told agents to call
-  `codex.sh adversarial-review` through Bash — and the peer session working MAR-2800 refused,
-  correctly: the harness's refusal text says "do not replicate this skill's workflow by other
-  means", and a peer cannot lift a restriction another session was denied. Encoding the workaround
-  into rules would have been config quietly acquiring a bypass, worse than the parked task.
-  Resolution: the agent-run adversary is the Claude subagent (the default this rule had before the
-  day started, restored); Codex review is the user's to type, and either discharges the stage. The
-  cost shift the routing table wants is available only when the user is present. Two lessons for
-  rule authors: a slash command in a rule is an instruction to the *user* — read its frontmatter
-  before telling an agent to run it; and when the harness refuses something, "do it through a
-  different tool" is never the answer.
+  the rule said `/codex:adversarial-review`, which is `disable-model-invocation: true` — user-typed
+  only. The Model row then went through three states in one day. (1) A fix told agents to call
+  `codex.sh adversarial-review` through Bash; the peer session working MAR-2800 refused, correctly —
+  the harness's refusal text says "do not replicate this skill's workflow by other means", and a peer
+  cannot lift a restriction another session was denied. Encoding the workaround would have been
+  config quietly acquiring a bypass. (2) The row was reverted to the Claude subagent, which then
+  produced a three-MAJOR NO-GO on this very branch. (3) The user asked why review should not go to
+  Codex like every other delegation, and to let the plugin decide. Its agent contract
+  (`skills/codex-cli-runtime`) settles it: the `review`/`adversarial-review` subcommands belong to
+  the user-typed commands and its subagent may not call them, while "review, diagnosis, or research
+  without edits" is named as `task` work — so `/codex:rescue` read-only with the Stage 2 contract in
+  the task text is the documented agent route, not a way around the flagged one. Also recorded:
+  `codex-companion.mjs adversarial-review --help` is not a help flag — the companion treats it as
+  focus text and runs a full review against the current checkout (it did, once, on a peer's branch).
+  Two lessons: read a command's frontmatter and the plugin's agent contract before naming it in a
+  rule; and when the harness refuses something, the answer is the plugin's sanctioned route or the
+  user, never a different tool.
 - **(f) Merge gate false red in worktrees**: `scripts/install-symmetry-selftest.sh` failed at
   `origin/main` too, with a bare `FAIL` and no reason — `scripts/git-snapshot` is a gitignored
   machine-local symlink that a fresh worktree never has, and the test's `readlink` on it returned
