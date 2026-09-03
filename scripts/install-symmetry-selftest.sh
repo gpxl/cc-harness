@@ -5,7 +5,12 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 failures=0
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-install-symmetry.XXXXXX") || exit 1
-trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
+trap 'st=$?; rm -rf "$tmp_root"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
 
 fail() {
   printf '%s\n' "$*" >&2
@@ -129,8 +134,8 @@ record negative_control_fails
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'INSTALL SYMMETRY SELFTEST: PASS'
-  exit 0
+  completed=1; completed=1; exit 0
 fi
 
 printf '%s\n' 'INSTALL SYMMETRY SELFTEST: FAIL'
-exit 1
+completed=1; completed=1; exit 1
