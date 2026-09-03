@@ -124,10 +124,13 @@ in front of the task. Each answer became a line in § Cost and ordering:
   config quietly acquiring a bypass. (2) The row was reverted to the Claude subagent, which then
   produced a three-MAJOR NO-GO on this very branch. (3) The user asked why review should not go to
   Codex like every other delegation, and to let the plugin decide. Its agent contract
-  (`skills/codex-cli-runtime`) settles it: the `review`/`adversarial-review` subcommands belong to
-  the user-typed commands and its subagent may not call them, while "review, diagnosis, or research
-  without edits" is named as `task` work — so `/codex:rescue` read-only with the Stage 2 contract in
-  the task text is the documented agent route, not a way around the flagged one. Also recorded:
+  (`skills/codex-cli-runtime`) narrows it: the `review`/`adversarial-review` subcommands belong to
+  the user-typed commands and its subagent may not call them; its `--write` rule presupposes
+  review-shaped `task` requests ("only wants review, diagnosis, or research without edits"), though
+  its routing line never lists review. So `/codex:rescue` read-only with the Stage 2 contract in the
+  task text is an inference the user chose to stand behind, not a documented instruction — the
+  re-review caught the first draft of the row quoting the flag rule as if it were routing, and the
+  rule now states the basis exactly. Also recorded:
   `codex-companion.mjs adversarial-review --help` is not a help flag — the companion treats it as
   focus text and runs a full review against the current checkout (it did, once, on a peer's branch).
   Two lessons: read a command's frontmatter and the plugin's agent contract before naming it in a

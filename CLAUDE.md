@@ -28,7 +28,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | lint_cmd | (none) |
 | lint_fix_cmd | (none) |
 | build_cmd | (none) |
-| verify_cmd | `bash scripts/verify.sh` — runs the nine selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative control) |
+| verify_cmd | `bash scripts/verify.sh` — runs the nine selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative controls live in `scripts/verify-selftest.sh`); zero resolved selftests is a FAIL |
 | test_pattern | (none) |
 | test_framework | (none) |
 | test_fixtures | (none) |
@@ -76,5 +76,6 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-jobs-selftest.sh`
 - `scripts/codex-dispatch-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
+- `scripts/verify-selftest.sh`
 
 Run them all with `bash scripts/verify.sh` (the Agent Config `verify_cmd`, redirect its output to a file and read the exit code directly). Merge only when every listed selftest reports PASS at the PR's HEAD.
