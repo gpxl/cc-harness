@@ -91,6 +91,7 @@ end_to_end_cycle() {
   printf '%s\n' 'sentinel' > "$fake_claude/scripts/sentinel.txt" || return 1
   printf '%s\n' 'nested sentinel' > "$fake_claude/scripts/nested/sentinel.txt" || return 1
   cp -R "$fake_claude/scripts" "$original_scripts" || return 1
+  [ -L "$root/scripts/git-snapshot" ] || fail "Missing $root/scripts/git-snapshot: it is a gitignored, machine-local symlink, so a fresh worktree never has it — recreate it from the main checkout (ln -s \"\$(readlink <main>/scripts/git-snapshot)\" scripts/git-snapshot) before running this selftest; if the link WAS present before the last run of this selftest, suspect install.sh/uninstall.sh instead — that is what the post-cycle check exists to catch" || return 1
   git_snapshot_target=$(readlink "$root/scripts/git-snapshot") || return 1
 
   HOME="$fake_home" CC_HARNESS_CLAUDE_DIR="$fake_claude" bash "$root/install.sh" > "$tmp_root/install.out" 2>&1 || return 1

@@ -93,6 +93,55 @@ clone-the-sibling authoring):
 Stage 1's note about self-reported line counts comes from the same branch: an implementing
 agent claimed −100 lines where the actual commit was +23.
 
+**2026-09-03 — pipeline cost review (rudderstack marketing monorepo).** The project asked whether
+code-quality and the adversary were redundant, whether to reorder them, or to move the adversary
+in front of the task. Each answer became a line in § Cost and ordering:
+
+- **Not redundant.** There, code-quality was lint + typecheck on Haiku; the adversary's founding
+  BLOCKER (above) was an omission after every gate was green. Different defect classes.
+- **Order stays.** Deterministic gates before a model read is fail-fast, and a NO-GO costs the
+  same number of adversary runs wherever the commit sits.
+- **Plan-stage review is a complement.** It catches scope/approach on schema and shared-component
+  tasks and cannot see the omission class.
+- **The spend was elsewhere**, in four places: (a) the project's `CLAUDE.local.md` had *restated*
+  this rule on 2026-08-06 and never picked up the 08-24 demotion — both stages still read
+  "mandatory" locally a month later; project files now reference and carry parameters only
+  (`claude-md-project-templates.md`). (b) Three review passes could stack per branch — the Codex
+  stop-gate, `/codex:review`, and this stage. (c) The Model row said Opus/Fable while
+  `global/CLAUDE.md` routing said `/codex:adversarial-review` — the rule contradicted the table it
+  sits under. (d) The code-quality agent was being invoked by reflex in a repo with
+  `quality_gate_pattern: (none)`, where `agents/commit.md` Step 2 already skips its gate — a Haiku
+  agent wrapping two shell commands. `verify_cmd` → `VERIFY RESULT:` is the whole gate there.
+- **Measured while checking (b):** `codex.sh setup --json` in that repo's main checkout reported
+  `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
+  `global/CLAUDE.md`. The note now says to check, not assume.
+- **(e) Same day, the first branch under the rewritten rule (MAR-2800) parked at the adversary**:
+  the rule said `/codex:adversarial-review`, which is `disable-model-invocation: true` — user-typed
+  only. The Model row then went through three states in one day. (1) A fix told agents to call
+  `codex.sh adversarial-review` through Bash; the peer session working MAR-2800 refused, correctly —
+  the harness's refusal text says "do not replicate this skill's workflow by other means", and a peer
+  cannot lift a restriction another session was denied. Encoding the workaround would have been
+  config quietly acquiring a bypass. (2) The row was reverted to the Claude subagent, which then
+  produced a three-MAJOR NO-GO on this very branch. (3) The user asked why review should not go to
+  Codex like every other delegation, and to let the plugin decide. Its agent contract
+  (`skills/codex-cli-runtime`) narrows it: the `review`/`adversarial-review` subcommands belong to
+  the user-typed commands and its subagent may not call them; its `--write` rule presupposes
+  review-shaped `task` requests ("only wants review, diagnosis, or research without edits"), though
+  its routing line never lists review. So `/codex:rescue` read-only with the Stage 2 contract in the
+  task text is an inference the user chose to stand behind, not a documented instruction — the
+  re-review caught the first draft of the row quoting the flag rule as if it were routing, and the
+  rule now states the basis exactly. Also recorded:
+  `codex-companion.mjs adversarial-review --help` is not a help flag — the companion treats it as
+  focus text and runs a full review against the current checkout (it did, once, on a peer's branch).
+  Two lessons: read a command's frontmatter and the plugin's agent contract before naming it in a
+  rule; and when the harness refuses something, the answer is the plugin's sanctioned route or the
+  user, never a different tool.
+- **(f) Merge gate false red in worktrees**: `scripts/install-symmetry-selftest.sh` failed at
+  `origin/main` too, with a bare `FAIL` and no reason — `scripts/git-snapshot` is a gitignored
+  machine-local symlink that a fresh worktree never has, and the test's `readlink` on it returned
+  1 silently. The selftest now names the missing link and how to recreate it; proven both ways
+  (FAIL-with-reason without the link, PASS with it).
+
 ---
 
 ## agent-isolation

@@ -33,6 +33,10 @@ A record is valid when the command above prints the same `tree=` **and** no file
 after it was emitted. Then don't re-run — cite the line. If the tree changed or `covered=`
 lacks the gate you need, run it once and emit a fresh line.
 
+When `quality_gate_pattern` is `(none)` there is no code-quality record to consume and none to
+wait for: `VERIFY RESULT:` from `verify_cmd` is the whole gate. Do not spawn the code-quality
+agent to produce a line the commit agent will not ask for (`agent-enforcement.md` § Exemptions).
+
 ## Size-based fast path
 
 Diff ≤50 changed lines, no logic under the project's `package_dir`, no UI: use the
