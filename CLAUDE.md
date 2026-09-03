@@ -64,7 +64,7 @@ gh label create agent/auto --color 0E8A16 --description "Merge on local green"
 
 ### The gate
 
-This repo has no server-side CI and no build/test commands. “Local green” means every selftest below passes at a real exit code, captured by redirect and never through a pipe; see `rules/verification-integrity.md`.
+This repo has no server-side CI and no build/test commands. “Local green” means every selftest below passes at a real exit code, captured by redirect and never through a pipe; see `rules/verification-integrity.md`. A suite that ABORTS partway (unset variable, typo, missing binary) also reports failure — each carries a completion sentinel, because on bash 3.2 a script killed by `set -e`/`set -u` runs its EXIT trap with `$?` already reset to 0, so every abort used to read as PASS (cch-85b).
 
 - `hooks/selftest.sh`
 - `scripts/codex-path-selftest.sh`
@@ -74,6 +74,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-brokers-selftest.sh`
 - `scripts/codex-jobs-selftest.sh`
 - `scripts/codex-dispatch-selftest.sh`
+- `scripts/codex-mailbox-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
 
 Merge only when every listed selftest reports PASS at the PR's HEAD.
