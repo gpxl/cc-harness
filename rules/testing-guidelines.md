@@ -60,7 +60,7 @@ Before saying "done" or "complete":
 [ ] 1. Tests pass, demo script runs (if the feature has one), smoke test (if major)
 [ ] 2. Verify (lint + test + build) — run ONCE, record the result; see pipeline-contract.md
 [ ] 3. git status (read-only check of what changed)
-[ ] 4. code-quality → commit agent (stages, commits, pushes, opens PR)
+[ ] 4. code-quality (skipped when quality_gate_pattern is (none)) → commit agent (stages, commits, pushes, opens PR)
 ```
 
 Never run `git add` / `commit` / `push` by hand (`agent-enforcement.md`). **Work is NOT done until pushed and the PR is open.**
