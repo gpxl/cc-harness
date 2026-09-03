@@ -10,12 +10,20 @@ failures=0
 last_status=0
 
 cleanup() {
-  if [ -n "$live_pid" ] && kill -0 "$live_pid" 2>/dev/null; then
+  local status=$?
+    if [ -n "$live_pid" ] && kill -0 "$live_pid" 2>/dev/null; then
     kill -TERM "$live_pid" 2>/dev/null || true
     wait "$live_pid" 2>/dev/null || true
   fi
   rm -rf "$tmp_root"
+  [ "$completed" = 1 ] || status=1
+  exit "$status"
 }
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
 trap cleanup EXIT HUP INT TERM
 
 record_failure() {
@@ -125,8 +133,8 @@ assert_status 4
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX WAIT SELFTEST: PASS'
-  exit 0
+  completed=1; completed=1; exit 0
 fi
 
 printf '%s\n' 'CODEX WAIT SELFTEST: FAIL'
-exit 1
+completed=1; completed=1; exit 1

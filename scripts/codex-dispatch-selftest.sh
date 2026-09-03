@@ -6,8 +6,16 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/codex-dispatch-selftest.XXXXXX") || exit 1
 
 cleanup() {
-  rm -rf -- "$tmpdir"
+  local status=$?
+    rm -rf -- "$tmpdir"
+  [ "$completed" = 1 ] || status=1
+  exit "$status"
 }
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
 trap cleanup EXIT HUP INT TERM
 
 failures=0
@@ -165,7 +173,7 @@ esac
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX DISPATCH SELFTEST: PASS'
-  exit 0
+  completed=1; completed=1; exit 0
 fi
 printf '%s\n' 'CODEX DISPATCH SELFTEST: FAIL' >&2
-exit 1
+completed=1; completed=1; exit 1
