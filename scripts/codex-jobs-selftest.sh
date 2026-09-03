@@ -6,7 +6,12 @@ set -euo pipefail
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 tool="$script_dir/codex-jobs.sh"
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/codex-jobs-selftest.XXXXXX") || exit 1
-trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
+trap 'st=$?; rm -rf "$tmp_root"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
 failures=0
 
 # Case 1: plugin root cannot be resolved -> non-zero exit and a stderr line, no stdout.
@@ -37,5 +42,5 @@ if grep -q '^job-inline ' "$active" || ! grep -q '^job-other ' "$active"; then
   printf -- '--active filter wrong: %s\n' "$(cat "$active")" >&2; failures=$((failures + 1))
 fi
 
-if [ "$failures" -eq 0 ]; then printf '%s\n' 'CODEX JOBS SELFTEST: PASS'; exit 0; fi
-printf '%s\n' 'CODEX JOBS SELFTEST: FAIL'; exit 1
+if [ "$failures" -eq 0 ]; then printf '%s\n' 'CODEX JOBS SELFTEST: PASS'; completed=1; exit 0; fi
+printf '%s\n' 'CODEX JOBS SELFTEST: FAIL'; completed=1; exit 1

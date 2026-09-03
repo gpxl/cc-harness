@@ -8,9 +8,17 @@ tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/codex-brokers-selftest.XXXXXX") || exit 1
 failures=0
 pids=()
 cleanup() {
-  for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
+  local status=$?
+    for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
   rm -rf "$tmp_root"
+  [ "$completed" = 1 ] || status=1
+  exit "$status"
 }
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
 trap cleanup EXIT HUP INT TERM
 
 fake_tmp="$tmp_root/tmp"
@@ -111,6 +119,6 @@ for pid in "$active_pid" "$idle_pid" "$stale_pid" "$spaced_pid"; do
 done
 
 if [ "$failures" -eq 0 ]; then
-  printf '%s\n' 'CODEX BROKERS SELFTEST: PASS'; exit 0
+  printf '%s\n' 'CODEX BROKERS SELFTEST: PASS'; completed=1; exit 0
 fi
-printf '%s\n' 'CODEX BROKERS SELFTEST: FAIL'; exit 1
+printf '%s\n' 'CODEX BROKERS SELFTEST: FAIL'; completed=1; exit 1

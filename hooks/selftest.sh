@@ -6,7 +6,12 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 failures=0
 output=''
 tmp_state=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-hooks.XXXXXX") || exit 1
-trap 'rm -rf "$tmp_state"' EXIT HUP INT TERM
+# A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
+# set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
+# trap is inert — measured. Only positive evidence that the suite reached its own verdict can
+# distinguish a real pass from an abort. cch-85b; rules/verification-integrity.md.
+completed=0
+trap 'st=$?; rm -rf "$tmp_state"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
 export XDG_STATE_HOME="$tmp_state"
 plugin_cache="$tmp_state/plugin-cache"
 plugin_root="$plugin_cache/1.2.3"
@@ -391,8 +396,8 @@ record 'settings remove cleans only the owned CODEX_PLUGIN env' settings_remove_
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'HOOKS SELFTEST RESULT: PASS'
-  exit 0
+  completed=1; completed=1; exit 0
 fi
 
 printf '%s\n' 'HOOKS SELFTEST RESULT: FAIL'
-exit 1
+completed=1; completed=1; exit 1
