@@ -115,6 +115,18 @@ in front of the task. Each answer became a line in § Cost and ordering:
 - **Measured while checking (b):** `codex.sh setup --json` in that repo's main checkout reported
   `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
   `global/CLAUDE.md`. The note now says to check, not assume.
+- **(e) Same day, first branch under the rewritten rule (MAR-2800) parked at the adversary**: the
+  rule said `/codex:adversarial-review`, and that slash command is `disable-model-invocation: true` —
+  a user-typed command an agent cannot run. The routing table in `global/CLAUDE.md` had the same
+  defect since it was written. Both now name the companion subcommand
+  (`codex.sh adversarial-review --wait --base … <focus>`), with the VERDICT contract passed as focus
+  text. Lesson for rule authors: a slash command in a rule is an instruction to the *user*; check
+  the command's frontmatter before telling an agent to run it.
+- **(f) Merge gate false red in worktrees**: `scripts/install-symmetry-selftest.sh` failed at
+  `origin/main` too, with a bare `FAIL` and no reason — `scripts/git-snapshot` is a gitignored
+  machine-local symlink that a fresh worktree never has, and the test's `readlink` on it returned
+  1 silently. The selftest now names the missing link and how to recreate it; proven both ways
+  (FAIL-with-reason without the link, PASS with it).
 
 ---
 
