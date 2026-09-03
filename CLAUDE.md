@@ -74,6 +74,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-brokers-selftest.sh`
 - `scripts/codex-jobs-selftest.sh`
 - `scripts/codex-dispatch-selftest.sh`
+- `scripts/codex-mailbox-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
 
 Merge only when every listed selftest reports PASS at the PR's HEAD.
