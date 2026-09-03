@@ -35,7 +35,7 @@ The lint+test+build triple runs **once** across this whole chain, recorded and t
 
 | Step | Agent | Required? |
 |------|-------|-----------|
-| 1 | code-quality | **Yes** for source files matching `quality_gate_pattern` |
+| 1 | code-quality | **Yes** for source files matching `quality_gate_pattern`; **never** when that key is `(none)` — see Exemptions |
 | 2 | test-writer | Only if code-quality reports FAIL |
 | 3 | commit | **Always** — handles staging, committing, pushing, and PR creation |
 | 4 | pr-monitor | Only when the project **has** CI. If Agent Config `ci` is `none`, skip it — it exists to poll checks that don't exist; the orchestrator merges on the recorded verify instead |
@@ -48,6 +48,12 @@ The **code-quality gate** (step 1) is exempt when changes ONLY touch:
 - Documentation (README, CLAUDE.md, rules/)
 - Config files (pyproject.toml, ruff.toml, etc.)
 - Generated output (themes/, dist/, build/)
+
+**`quality_gate_pattern: (none)` skips step 1 entirely.** Do not invoke the code-quality agent
+by reflex: with no pattern there is nothing for it to gate, the commit agent's own Step 2 already
+finds no matching files, and the agent degrades to a Haiku process wrapping two shell commands.
+The orchestrator runs `verify_cmd` (or the fallback triple) once, redirect-to-file, records
+`VERIFY RESULT: PASS|FAIL sha= tree=`, and the commit agent consumes it (`pipeline-contract.md`).
 
 The **commit agent** (step 3) is **never exempt** — even doc-only changes must use the commit agent, not manual git commands.
 

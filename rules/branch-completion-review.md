@@ -195,7 +195,7 @@ It runs **once** per branch (plus one re-review per NO-GO loop) — not per comm
 
 | Aspect | Requirement |
 |--------|-------------|
-| Model | **Opus by default.** Fable only for architecture-class diffs (new abstractions, cross-service contracts, data-model changes). The reviewer must be at least as capable as the author — rarely more expensive than it. |
+| Model | **Codex first: `/codex:adversarial-review`** (read-only, `--wait` — the review's value is its stdout). The Model Routing table in `~/.claude/CLAUDE.md` names it as the replacement for a Claude-side review pass; until 2026-09-03 this row contradicted that table. Claude fallback only on a stated `ready: false` / login failure: Opus by default, Fable for architecture-class diffs (new abstractions, cross-service contracts, data-model changes). Either way the reviewer must be at least as capable as the author — rarely more expensive than it. |
 | Access | Read-only: no edits, no commits. It MAY run read-only commands and write scratch scripts to the session scratchpad. |
 | Prompt: input | **Hand it the diff and the recorded gate results** (`git diff origin/<integration>...HEAD`, plus the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines per `pipeline-contract.md`) rather than making it re-explore the repo or re-run gates. Add the branch inventory (commits, features, requirements as given) and the project's known gotchas. |
 | Prompt: evidence status | Label prior verification honestly — what was gate-verified, what was browser-QA'd, and **what was never covered** (interrupted runs, env-blocked checks). Tell it to weight attention toward the gaps. Per `verification-integrity.md`: don't instruct it to trust your results; let it contradict you. |
@@ -217,6 +217,21 @@ It runs **once** per branch (plus one re-review per NO-GO loop) — not per comm
 skips, in one stated line. A branch touching any of them runs Stage 2, **at any diff size** — a
 four-line change to a teardown path is exactly the shape of the findings above, and the largest
 single miss in the evidence was a path that never called the writer it should have.
+
+## Cost and ordering
+
+Settled 2026-09-03 after a project asked whether this stage and the code-quality gate were
+redundant, whether to reorder them, or to move the adversary in front of the task
+(`docs/reference/rule-histories.md` §branch-completion-review). The answers are rules, not
+preferences:
+
+| Question | Answer |
+|---|---|
+| Redundant with code-quality / verify? | **No.** Those are lint, typecheck, tests — deterministic. This stage's one founding BLOCKER was an *omission* after every gate was green. Different defect classes; neither replaces the other. |
+| Order | **Deterministic gates → commit → adversary → PR body.** Cheap, falsifiable checks before an expensive model read is fail-fast, and a NO-GO costs the same number of adversary runs wherever the commit sits. Committing first also makes the reviewed diff exactly `origin/<integration>...HEAD`. |
+| Adversary before the task starts? | **A complement, never a substitute.** A plan-stage pass (`/grill-me`) catches scope and approach on design-decision tasks — schema changes, shared-component restyles, new abstractions. It cannot see the omission class, because there is no code yet. Author's discretion, and it does not discharge this stage. |
+| How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely, and the stop-gate also reviews stops where the tree did not change. A repo picks one and states which. Where this stage's trigger applies, the stop-gate is off in that workspace. |
+| Where does the real waste hide? | In project files that **restate** this rule instead of referencing it — they freeze the version they copied. Project files carry parameters only: which surfaces are class 1/4 *there*, the gate commands, the stated-skip line. See `claude-md-project-templates.md` § Referencing global rules. |
 
 ## Relationship to other rules
 

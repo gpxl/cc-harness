@@ -8,7 +8,7 @@ Always consult documentation index and project files rather than relying on trai
 ```
 [Rules]|root: ~/.claude/rules/ → symlinked from ~/projects/cc-harness/rules/ (single source of truth; edits follow cc-harness branch+commit-agent pipeline). Project rules live in each project's own .claude/rules/. Incidents behind each rule: cc-harness docs/reference/ (never loaded)
 |Always loaded:
-|agent-enforcement.md: Agent pipeline is MANDATORY — never manual git add/commit/push
+|agent-enforcement.md: Agent pipeline is MANDATORY — never manual git add/commit/push; code-quality agent is skipped when `quality_gate_pattern` is `(none)` — `verify_cmd` → `VERIFY RESULT:` is the whole gate
 |pipeline-contract.md: Gate once per working tree — `VERIFY RESULT: PASS sha= tree=` / `CODE QUALITY RESULT:` formats, consume don't re-run, small-diff fast path
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
 |testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
@@ -17,11 +17,11 @@ Always consult documentation index and project files rather than relying on trai
 |codex-dispatch-protocol.md: The wrapper is not the job — liveness = worker PID + log under the per-workspace state dir; status is per-session/per-`--cwd`; verify placement at dispatch; wait via `codex-wait.sh` PID bridge (one wake, never polling); written cancellation criteria; prompt-side completion contracts; broker housekeeping
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
 |Path-scoped (load only on a matching file; Read directly if needed elsewhere):
-|claude-md-project-templates.md: NEVER lists + autonomy tiers templates — CLAUDE.md, .claude/rules
+|claude-md-project-templates.md: NEVER lists + autonomy tiers templates; `verify_cmd`; project files reference global rules and carry parameters only — CLAUDE.md, .claude/rules
 |memory-discipline.md: Memory exclusions + recall-time verification — memory dirs, MEMORY.md
 |agent-isolation.md: Worktree isolation for parallel pipelines — .claude/{skills,agents,rules}, *worktree*
 |parallel-authoring.md: Fan out sub-agents for independent additive work; gate once — same scope
-|branch-completion-review.md: Adversarial GO/NO-GO, triggered by RISK CLASS not diff size (lifetime/cancellation · persistence/format · integrity of a check OR the policy behind it, incl. that rule itself · trusted external surface · real-time/hardware); trigger must be machine-checked where a gate exists; refactor pass demoted to optional, triggered by fan-out authoring — source trees (src/app/apps/packages/lib/Sources), .claude/{skills,rules}, .github
+|branch-completion-review.md: Adversarial GO/NO-GO, triggered by RISK CLASS not diff size (lifetime/cancellation · persistence/format · integrity of a check OR the policy behind it, incl. that rule itself · trusted external surface · real-time/hardware); trigger must be machine-checked where a gate exists; refactor pass demoted to optional, triggered by fan-out authoring; adversary runs on `/codex:adversarial-review`; ONE review pass per branch (never stop-gate + adversary); project files reference, never restate — source trees (src/app/apps/packages/lib/Sources), .claude/{skills,rules}, .github
 |peer-session-coordination.md: Message peer sessions directly, scoped by what is shared (same repo → full protocol; same machine → resource notices only; shared dependency → one collision check); notices not essays; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
@@ -177,7 +177,7 @@ context small).
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
 | Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
 | Code review | `/codex:review` (defect pass) and `/codex:adversarial-review` (challenges the approach) — use these in place of a Claude-side review pass |
-| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently. **Currently ON in every main checkout** (measured 2026-09-02; worktrees inherit the `false` default, so their state dirs read off). It fires a Codex turn per Claude stop — real spend, and it did catch a live reap-while-running bug — so leave it on where reviews earn their keep and `--disable-review-gate` per repo where they don't. It is per **workspace**, not global. |
+| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently. It is per **workspace**, not global — **check, never assume**: `~/.claude/scripts/codex.sh setup --json` → `reviewGateEnabled` (the 2026-09-02 reading "on in every main checkout" was false for rudderstack's main checkout on 2026-09-03; worktrees inherit the `false` default). It fires a Codex turn per Claude stop, including stops where the tree did not change — real spend, and it did catch a live reap-while-running bug — so leave it on where reviews earn their keep and `--disable-review-gate` where they don't. **Never stack it with the branch-completion adversary** (`branch-completion-review.md` § Cost and ordering): one review pass per branch, and the repo states which. |
 
 `$CODEX_PLUGIN` is **not exported by default**; `scripts/codex-plugin-root.sh` resolves
 `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is `${CLAUDE_PLUGIN_ROOT}`

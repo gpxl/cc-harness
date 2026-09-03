@@ -93,6 +93,29 @@ clone-the-sibling authoring):
 Stage 1's note about self-reported line counts comes from the same branch: an implementing
 agent claimed −100 lines where the actual commit was +23.
 
+**2026-09-03 — pipeline cost review (rudderstack marketing monorepo).** The project asked whether
+code-quality and the adversary were redundant, whether to reorder them, or to move the adversary
+in front of the task. Each answer became a line in § Cost and ordering:
+
+- **Not redundant.** There, code-quality was lint + typecheck on Haiku; the adversary's founding
+  BLOCKER (above) was an omission after every gate was green. Different defect classes.
+- **Order stays.** Deterministic gates before a model read is fail-fast, and a NO-GO costs the
+  same number of adversary runs wherever the commit sits.
+- **Plan-stage review is a complement.** It catches scope/approach on schema and shared-component
+  tasks and cannot see the omission class.
+- **The spend was elsewhere**, in four places: (a) the project's `CLAUDE.local.md` had *restated*
+  this rule on 2026-08-06 and never picked up the 08-24 demotion — both stages still read
+  "mandatory" locally a month later; project files now reference and carry parameters only
+  (`claude-md-project-templates.md`). (b) Three review passes could stack per branch — the Codex
+  stop-gate, `/codex:review`, and this stage. (c) The Model row said Opus/Fable while
+  `global/CLAUDE.md` routing said `/codex:adversarial-review` — the rule contradicted the table it
+  sits under. (d) The code-quality agent was being invoked by reflex in a repo with
+  `quality_gate_pattern: (none)`, where `agents/commit.md` Step 2 already skips its gate — a Haiku
+  agent wrapping two shell commands. `verify_cmd` → `VERIFY RESULT:` is the whole gate there.
+- **Measured while checking (b):** `codex.sh setup --json` in that repo's main checkout reported
+  `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
+  `global/CLAUDE.md`. The note now says to check, not assume.
+
 ---
 
 ## agent-isolation
