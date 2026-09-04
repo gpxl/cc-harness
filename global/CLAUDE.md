@@ -29,6 +29,7 @@ Always consult documentation index and project files rather than relying on trai
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
 |routing-report: Measures Codex-first delegation from transcript occurrence counts; run `bash scripts/routing-report.sh [--days N|--since YYYY-MM-DD] [--json]`
+|loop-report: Measures review rounds, gate runs, peer traffic, assistant messages, and Agent calls; run `bash scripts/loop-report.sh [--days N|--since YYYY-MM-DD] [--json] [--prs n[,n...]]`
 |codex-wait.sh <job-id> [--cwd <ws>]: PID bridge for a background Codex job — run via Bash `run_in_background`; exits 0 done / 1 failed / 2 orphaned / 3 wall cap
 |codex-jobs.sh [--cwd <ws>] [--all-workspaces] [--active]: Codex jobs across sessions/worktrees (bypasses the companion's session filter)
 |codex-brokers.sh [--reap-stale] [--restart-idle]: list/kill Codex app-server brokers by explicit PID — after a config.toml edit or when brokers point at dead cwds
@@ -223,6 +224,7 @@ prompt. Everything else has a Codex route:
 | `Explore` / `general-purpose` / `Plan` subagents for a survey or investigation | one read-only `/codex:rescue` run; ask for a written findings file, not a narrative |
 | A `Workflow` / ultracode fan-out of Claude subagents | several `--background` Codex tasks — parallelism does not have to be Claude parallelism |
 | `/code-review`, `/security-review`, a branch-completion review pass | `/codex:rescue` read-only with the review contract as the task text (the `/codex:review` slash commands are user-typed only — see § Codex-first); Claude subagent only on stated Codex unavailability |
+| Reproducing a review finding, writing its negative control, hand-verifying the reviewer's claim | one Codex verification/fix task per round; the orchestrator's output per finding is ONE triage line (fix / bead / unverified) |
 | `test-writer`, and code-quality's *analysis* half | a Codex `task`; Claude keeps only the pass/fail bookkeeping |
 | Reading files to understand before editing | don't — hand the question to Codex with the paths, and let it do the reading |
 

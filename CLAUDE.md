@@ -28,7 +28,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | lint_cmd | (none) |
 | lint_fix_cmd | (none) |
 | build_cmd | (none) |
-| verify_cmd | `bash scripts/verify.sh` — runs the nine selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative controls live in `scripts/verify-selftest.sh`); zero resolved selftests is a FAIL |
+| verify_cmd | `bash scripts/verify.sh` — runs the ten selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative controls live in `scripts/verify-selftest.sh`); zero resolved selftests is a FAIL |
 | test_pattern | (none) |
 | test_framework | (none) |
 | test_fixtures | (none) |
@@ -70,6 +70,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `hooks/selftest.sh`
 - `scripts/codex-path-selftest.sh`
 - `scripts/routing-report-selftest.sh`
+- `scripts/loop-report-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
 - `scripts/codex-wait-selftest.sh`
 - `scripts/codex-brokers-selftest.sh`
