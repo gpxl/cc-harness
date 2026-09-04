@@ -377,3 +377,4 @@ The change adds `loop-report.sh`, a hermetic counter test, a measured baseline, 
 budget with same-reviewer resume and user-only extension, per-finding fix/bead/unverified triage,
 and peer-message bounds. The rule freezes for 14 days after this lands: no rule edit unless a
 `loop-report` metric shows it is needed; a rule PR cites the metric it moves.
+On 2026-09-05, `cch-9o4` recorded that `--resume-last` can resume an intervening fix thread, so later rounds conditionally resume and otherwise receive a controlled R1 handoff.
