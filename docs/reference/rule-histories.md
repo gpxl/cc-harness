@@ -363,3 +363,18 @@ same plugin), each item checked against plugin 1.0.6 source before it became a r
   survived. `spawnDetachedTaskWorker` and `spawnBrokerProcess` both pass `detached: true`, so the
   advice is already implemented for `--background`; only a foreground task is exposed, and the rule
   routes long work to `--background` rather than adding a wrapper that would orphan a tracked worker.
+
+---
+
+## bounded-review-loops (2026-09-05)
+
+StemLab review→fix→review chains escaped any usable budget: PR #410 reached 12 rounds, 22 commits,
+and 19 `fix(` commits; PR #415 reached four rounds with BLOCKER counts 4→9→6, including one
+fabricated finding. One session (`5f8ebb39`) produced 2,360 assistant messages, 65 merge-gate
+invocations, and 60 Agent calls; peer traffic reached 29, 20, and 17 messages per session.
+
+The change adds `loop-report.sh`, a hermetic counter test, a measured baseline, a three-round Stage 2
+budget with same-reviewer resume and user-only extension, per-finding fix/bead/unverified triage,
+and peer-message bounds. The rule freezes for 14 days after this lands: no rule edit unless a
+`loop-report` metric shows it is needed; a rule PR cites the metric it moves.
+On 2026-09-05, `cch-9o4` recorded that `--resume-last` can resume an intervening fix thread, so later rounds conditionally resume and otherwise receive a controlled R1 handoff.

@@ -35,6 +35,13 @@ are in **before** composing the message; the rows only narrow.
 | **A dependency every session loads** — `cc-harness`, global skills, anything symlinked into `~/.claude/` | One collision check before you land a change there, and the answers reported to the user | Anything not about that change |
 | **Nothing** | Nothing, over this channel | — |
 
+## Bounds
+
+- At most **3 messages per peer per session** beyond resource notices (`taking` / `free` / `hold`); no engineering discussion.
+- A peer is **never** a reviewer or worker: “resume the run and report your findings” is a Codex task, not a peer message.
+- Anything over five lines goes in a bead.
+- Measured 2026-09-01→04: 29, 20 and 17 peer messages per session; `scripts/loop-report.sh` counts them.
+
 Two bounds apply in every row:
 
 - **A message is a notice or a question.** If it needs more than a few lines, it belongs in a bead, a
