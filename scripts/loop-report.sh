@@ -75,13 +75,25 @@ case "$prs" in
   *[!0-9,]*|,*|*,) usage; exit 64 ;;
 esac
 
+if [ ! -d "$report_root" ]; then
+  printf 'Transcript root does not exist or is not a directory: %s\n' "$report_root" >&2
+  exit 2
+fi
+
 file_list=$(mktemp "${TMPDIR:-/tmp}/loop-report-files.XXXXXX") || exit 1
-if [ -d "$report_root" ]; then
-  if [ -n "$since" ]; then
-    find "$report_root" -type f -name '*.jsonl' -newer "$reference" -print0 > "$file_list"
-  else
-    find "$report_root" -type f -name '*.jsonl' -mtime "-$days" -print0 > "$file_list"
-  fi
+if [ -n "$since" ]; then
+  find "$report_root" -type f -name '*.jsonl' -newer "$reference" -print0 > "$file_list"
+else
+  find "$report_root" -type f -name '*.jsonl' -mtime "-$days" -print0 > "$file_list"
+fi
+
+files_scanned=0
+while IFS= read -r -d '' transcript; do
+  files_scanned=$((files_scanned + 1))
+done < "$file_list"
+if [ "$files_scanned" -eq 0 ]; then
+  printf 'No transcripts found in %s under: %s\n' "$window_label" "$report_root" >&2
+  exit 2
 fi
 
 report_json=$(mktemp "${TMPDIR:-/tmp}/loop-report-data.XXXXXX") || exit 1
@@ -98,12 +110,13 @@ with open(file_list, "rb") as source:
 round_pattern = re.compile(r"\b[Rr]ound (\d+)\b")
 rows = []
 for path in paths:
-    rounds = gate_runs = merge_gate_invocations = peer_messages = assistant_messages = subagent_calls = 0
+    rounds = gate_runs = merge_gate_invocations = peer_messages = assistant_messages = subagent_calls = malformed = 0
     with open(path, encoding="utf-8", errors="replace") as transcript:
         for line in transcript:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
+                malformed += 1
                 continue
             if record.get("type") != "assistant":
                 continue
@@ -141,6 +154,7 @@ for path in paths:
         "peer_messages": peer_messages,
         "assistant_messages": assistant_messages,
         "subagent_calls": subagent_calls,
+        "malformed": malformed,
     })
 
 print(json.dumps({"window": window, "files_scanned": len(paths), "transcripts": rows}, separators=(",", ":")))
@@ -208,9 +222,9 @@ print("Files scanned: {}".format(payload["files_scanned"]))
 if not payload["transcripts"]:
     print("NO DATA")
 else:
-    print("Transcript\tRounds\tGate runs\tMerge-gate invocations\tPeer msgs\tAssistant msgs\tAgent calls")
+    print("Transcript\tRounds\tGate runs\tMerge-gate invocations\tPeer msgs\tAssistant msgs\tAgent calls\tMalformed")
     for row in payload["transcripts"]:
-        print("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(os.path.basename(row["transcript"]), row["review_rounds"], row["gate_runs"], row["merge_gate_invocations"], row["peer_messages"], row["assistant_messages"], row["subagent_calls"]))
+        print("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(os.path.basename(row["transcript"]), row["review_rounds"], row["gate_runs"], row["merge_gate_invocations"], row["peer_messages"], row["assistant_messages"], row["subagent_calls"], row["malformed"]))
 
 pr_rows = []
 numbers = sys.argv[3].split(",") if sys.argv[3] else []
@@ -224,4 +238,16 @@ if pr_rows:
     for row in pr_rows:
         print("#{}\t{}\t{}\t{}".format(row[0], row[1], row[2], "unknown" if row[3] is None else row[3]))
 PY
+fi
+
+if ! python3 - "$report_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    payload = json.load(source)
+sys.exit(1 if any(row["malformed"] for row in payload["transcripts"]) else 0)
+PY
+then
+  exit 2
 fi
