@@ -193,25 +193,32 @@ exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 
 ### Setting it up
 
-It runs **once** per branch (plus one re-review per NO-GO loop) — not per commit, not per fix.
+It runs under a **three-round budget** per branch — not per commit, not per fix.
 
 | Aspect | Requirement |
 |--------|-------------|
 | Model | **Codex, via `/codex:rescue` read-only, with the Stage 2 prompt rows below and the Output contract as the task text.** Foreground (`--wait`) for a small, bounded diff; otherwise `--background`, and the verdict comes back through the harness's own bridge — `codex-wait.sh` plus the job's `logFile` (`codex-dispatch-protocol.md`) — because `/codex:status` and `/codex:result` are user-typed only. **What this route rests on, stated exactly:** (i) the plugin's agent contract (`skills/codex-cli-runtime`, line 24) says to omit `--write` when the user "only wants review, diagnosis, or research without edits" — a flag rule that presupposes review-shaped `task` requests, not a routing instruction; its routing line (18: "diagnosis, planning, research, and explicit fix requests") does not list review; (ii) `task` is not one of the subcommands the contract bars (`review`, `adversarial-review`, `status`, `result`, `cancel`), and it runs the caller's own prompt rather than re-entering the flagged review template; (iii) a user decision on 2026-09-03. An inference the user chose to stand behind, not a documented instruction — and the rule says so because a citation that survives being checked is the only kind worth loading. `/codex:adversarial-review` stays user-typed only (`disable-model-invocation: true`) and an agent never calls `codex.sh review` / `codex.sh adversarial-review`; when the user is present they may type the slash command, and either route discharges the stage. Claude fallback, only on a stated Codex `ready: false` / login failure: the Claude subagent, Opus by default, Fable for architecture-class diffs (new abstractions, cross-service contracts, data-model changes). Measured 2026-09-03: that fallback produced two NO-GOs with real MAJORs on this rule's own branch, so it is a fallback on cost, not on quality. Cross-vendor parity with a Codex-authored branch is assumed, not verified. |
 | Access | Read-only: no edits, no commits. It MAY run read-only commands and write scratch scripts to the session scratchpad. |
-| Prompt: input | **Hand it the diff and the recorded gate results** (`git diff origin/<integration>...HEAD`, plus the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines per `pipeline-contract.md`) rather than making it re-explore the repo or re-run gates. Add the branch inventory (commits, features, requirements as given) and the project's known gotchas. |
+| Prompt: input | **Hand it the diff and the recorded gate results** (`git diff origin/<integration>...HEAD`, plus the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines per `pipeline-contract.md`) rather than making it re-explore the repo or re-run gates. Add the bead's acceptance criteria, branch inventory (commits, features, requirements as given), and the project's known gotchas; the reviewer labels out-of-scope findings itself. |
 | Prompt: evidence status | Label prior verification honestly — what was gate-verified, what was browser-QA'd, and **what was never covered** (interrupted runs, env-blocked checks). Tell it to weight attention toward the gaps. Per `verification-integrity.md`: don't instruct it to trust your results; let it contradict you. |
 | Prompt: attack surface | Seed a minimum checklist **that names the same surfaces the trigger does** — the reviewer must not be sent hunting for classes the trigger guarantees it is never summoned for. Per class: **1** listener/observer lifetimes across client navigations, state that outlives rendering, SSR/hydration, teardown order, cancellation inheritance; **2** what is written vs read back, versioning and migration, and paths that *should* persist but don't; **3** whether each check could actually go red; **4** invariants that hold only while CMS/config/content behaves, third-party gating, flags; **5** render-thread and device-I/O hazards. Plus, always: refactor behavior-drift, a11y, perf, tracking shapes, and "anything that contradicts the commit messages" — and invite angles beyond the list. |
 | Prompt: honesty | A clean branch gets `GO` with a short confirmed-checks list — manufactured findings are as much a failure as missed ones. |
+| Prompt: R2+ calibration | From R2 omit the prompting skill's `dig_deeper_nudge`. Classify each finding **DECISION-CHANGING** or **POLISH**; report DECISION-CHANGING first. **"If you believe this branch is good enough to ship, say so plainly and early. Do not manufacture severity to seem rigorous."** |
 | Output | Findings ranked BLOCKER/MAJOR/MINOR/NIT, each with file:line, concrete failure scenario, and required fix. |
 
 ### The NO-GO loop
 
-1. Triage each finding: **fix in code**, or — for judgment calls the project owner controls (e.g. CMS-trust tradeoffs) — **resolve by explicit disclosure** in the PR body for sign-off. Disclosure is a legitimate resolution; silent acceptance is not.
-2. Findings needing external evidence (e.g. "scan live data for affected patterns") get that evidence gathered, not argued away.
-3. Fixes go through the normal pipeline: code-quality gate (skipped when `quality_gate_pattern` is `(none)` — `verify_cmd` instead) → commit agent (own `fix(...)` commit).
-4. **Re-run the same adversary** (retained context) to re-trace its own original failure scenarios against the new code AND hunt for regressions the fixes introduced.
-5. Repeat until `GO`. Only then does the branch proceed to PR-body drafting.
+**Round budget: 3.** R1 is review; R2 is re-review by the **same reviewer**, retaining context through Codex `--resume`; R3 is final. Print every round: `GOAL: <acceptance> | ROUND n/3 | OPEN BLOCKERS k | NEXT: <one action>`.
+
+After R3 with open BLOCKERs, the orchestrator **STOPS** and escalates one paragraph to the user: merge with disclosure, authorize more budget, or shelve. R4 exists only after the user's explicit words in chat, quoted in the ack note.
+
+| Triage line — one per finding | Action |
+|---|---|
+| **FIX** | On this branch only for a BLOCKER/MAJOR inside the bead's acceptance criteria with a reproduced failure — by the reviewer or by one Codex verification task, never by hand. |
+| **BEAD** | Everything else: MINOR, NIT, forward-looking, test-hardening, out-of-scope MAJOR, or pre-existing. Never make a fix commit for these on the branch. |
+| **UNVERIFIED** | A claimed red the reviewer could have executed and did not: one Codex verification attempt, then drop or bead. The fabricated BLOCKER on StemLab PR #415 (2026-09-04) is the standing counterexample. |
+
+Fixes are **one Codex task per round** carrying the full finding list; negative controls are part of that task's contract, not orchestrator work. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
 
 ### Skip conditions
 
@@ -232,6 +239,7 @@ preferences:
 | Redundant with code-quality / verify? | **No.** Those are lint, typecheck, tests — deterministic. This stage's one founding BLOCKER was an *omission* after every gate was green. Different defect classes; neither replaces the other. |
 | Order | **Deterministic gates → commit → adversary → PR body.** Cheap, falsifiable checks before an expensive model read is fail-fast, and a NO-GO costs the same number of adversary runs wherever the commit sits. Committing first also makes the reviewed diff exactly `origin/<integration>...HEAD`. |
 | Adversary before the task starts? | **A complement, never a substitute.** A plan-stage pass (`/grill-me`) catches scope and approach on design-decision tasks — schema changes, shared-component restyles, new abstractions. It cannot see the omission class, because there is no code yet. Author's discretion, and it does not discharge this stage. |
+| How many rounds? | **Three, then the user decides** — measured 2026-09-04: 12-round and 4-round chains, blockers diverging 4→9→6. See `docs/reference/loop-baseline-2026-09.md`. |
 | How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely — **assessed, not measured**: the stop-gate has one recorded catch (a reap-while-running bug) and reviews at the stop that introduced a defect rather than at branch end, so the overlap is a judgment call. What is not a judgment call is precedence: **when this stage's trigger fires, Stage 2 runs and is never the pass that gets dropped.** The stop-gate is a per-workspace setting while the trigger is per-branch, so a repo whose branches can trigger Stage 2 leaves the stop-gate off permanently and states so; a repo whose branches never trigger it may keep the stop-gate as its one pass. |
 | Where does the real waste hide? | In project files that **restate** this rule instead of referencing it — they freeze the version they copied. Project files carry parameters only: which surfaces are class 1/4 *there*, the gate commands, the stated-skip line. See `claude-md-project-templates.md` § Referencing global rules. |
 
