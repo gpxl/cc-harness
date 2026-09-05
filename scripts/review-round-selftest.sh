@@ -27,27 +27,32 @@ common=$(git -C "$repo" rev-parse --git-common-dir)
 case "$common" in /*) ;; *) common="$repo/$common" ;; esac
 slug=$(git -C "$repo" symbolic-ref --short HEAD | sed 's/[^[:alnum:]._-]/-/g')
 state="$common/review-rounds/$slug"
+job_dir="$tmp/codex-state/workspace/jobs"
+job_log="$job_dir/review-job.log"
+job_record="$job_dir/review-job.json"
+mkdir -p "$job_dir"
+
+write_job_record() {
+  printf '%s\n' '{"id":"review-job","threadId":"reviewer-thread"}' > "$job_record"
+}
 
 cat > "$tmp/bin/codex-dispatch.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" > "$RR_TMP/dispatch-argv"
-printf '%s\n' '{"jobId":"review-job","logFile":"/tmp/review-job.log","waitCommand":"scripts/codex-wait.sh review-job --cwd /repo","threadId":"reviewer-thread"}'
+printf '{"jobId":"review-job","logFile":"%s","waitCommand":"scripts/codex-wait.sh review-job --cwd /repo"}\n' "$RR_JOB_LOG"
 EOF
 cat > "$tmp/bin/codex-jobs.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [ -n "${RR_NEWEST_THREAD:-}" ]; then
-  printf '[{"threadId":"%s","updatedAt":"2026-01-01T00:00:00Z"}]\n' "$RR_NEWEST_THREAD"
-else
-  printf '%s\n' '[]'
-fi
+printf '[{"id":"review-job","threadId":"%s","logFile":"%s","updatedAt":"2026-01-01T00:00:00Z"}]\n' \
+  "${RR_NEWEST_THREAD:-}" "$RR_JOB_LOG"
 EOF
 chmod +x "$tmp/bin/codex-dispatch.sh" "$tmp/bin/codex-jobs.sh"
 
 run() {
   set +e
-  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" bash "$runner" "$base" "$@") > "$tmp/out" 2> "$tmp/err"
+  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" REVIEW_ROUND_THREAD_WAIT_SECONDS="${RR_THREAD_WAIT_SECONDS:-30}" bash "$runner" "$base" "$@") > "$tmp/out" 2> "$tmp/err"
   rc=$?
   set -e
   output=$(<"$tmp/out")
@@ -56,6 +61,7 @@ run() {
 reset_state() {
   rm -rf "$(dirname "$state")"
   rm -f "$tmp/dispatch-argv"
+  write_job_record
 }
 
 make_mutant() {
@@ -65,6 +71,7 @@ make_mutant() {
   sed -i '' "$1" "$runner"
 }
 
+write_job_record
 run --dry-run
 if [ "$rc" -eq 0 ] && [ ! -e "$state" ]; then
   run
@@ -101,7 +108,7 @@ reset_state
 mkdir -p "$(dirname "$state")"
 printf '3\n' > "$state"
 RR_NEWEST_THREAD='other-thread' run --user-approved 'I approve round four'
-if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 4 ] && [ "$(<"$state.thread")" = reviewer-thread ]; then pass 'round 4 accepted and thread persisted from job JSON'; else fail 'round 4 accepted and thread persisted from job JSON' "rc=$rc"; fi
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 4 ] && [ "$(<"$state.thread")" = reviewer-thread ]; then pass 'round 4 accepted and thread persisted from job record'; else fail 'round 4 accepted and thread persisted from job record' "rc=$rc"; fi
 
 reset_state
 mkdir -p "$(dirname "$state")"
@@ -109,6 +116,57 @@ printf '3\n' > "$state"
 make_mutant 's|> "$thread_file"|> /dev/null|'
 RR_NEWEST_THREAD='other-thread' run --user-approved 'I approve round four'
 if [ "$rc" -eq 0 ] && [ ! -e "$state.thread" ]; then pass 'thread-persistence source mutation goes red'; else fail 'thread-persistence source mutation goes red' "rc=$rc thread=$(<"$state.thread" 2>/dev/null || true)"; fi
+runner="$tool"
+
+reset_state
+RR_NEWEST_THREAD='reviewer-thread' run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ] && [ "$(<"$state.job")" = review-job ] && [ "$(<"$state.thread")" = reviewer-thread ]; then
+  pass 'late threadId is resolved from the job record'
+else
+  fail 'late threadId is resolved from the job record' "rc=$rc counter=$(<"$state" 2>/dev/null || true) job=$(<"$state.job" 2>/dev/null || true) thread=$(<"$state.thread" 2>/dev/null || true)"
+fi
+
+reset_state
+make_mutant 's/wait_for_thread_id "$job_record"/true/'
+RR_NEWEST_THREAD='reviewer-thread' run
+if [ "$rc" -eq 0 ] && [ ! -e "$state.thread" ]; then
+  pass 'late threadId record-lookup source mutation goes red'
+else
+  fail 'late threadId record-lookup source mutation goes red' "rc=$rc thread=$(<"$state.thread" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf 'previous-reviewer-thread\n' > "$state.thread"
+printf 'previous-review-job\n' > "$state.job"
+rm -f "$job_record"
+RR_NEWEST_THREAD='other-thread' RR_THREAD_WAIT_SECONDS=0 run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 2 ] && [ "$(<"$state.job")" = review-job ] && [ ! -e "$state.thread" ]; then
+  pass 'unresolved replacement job leaves no stale reviewer thread'
+else
+  fail 'unresolved replacement job leaves no stale reviewer thread' "rc=$rc thread=$(<"$state.thread" 2>/dev/null || true)"
+fi
+
+reset_state
+rm -f "$job_record"
+RR_THREAD_WAIT_SECONDS=0 run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ] && [ "$(<"$state.job")" = review-job ] && [ ! -e "$state.thread" ]; then
+  pass 'a launched job is always counted'
+else
+  fail 'a launched job is always counted' "rc=$rc counter=$(<"$state" 2>/dev/null || true) job=$(<"$state.job" 2>/dev/null || true)"
+fi
+
+reset_state
+rm -f "$job_record"
+make_mutant 's|# Persist launch state before resolving asynchronous reviewer metadata.|exit 1 # mutation skips counted launch|'
+RR_THREAD_WAIT_SECONDS=0 run
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && [ ! -e "$state.job" ]; then
+  pass 'launched-job counting source mutation goes red'
+else
+  fail 'launched-job counting source mutation goes red' "rc=$rc counter=$(<"$state" 2>/dev/null || true) job=$(<"$state.job" 2>/dev/null || true)"
+fi
 runner="$tool"
 
 reset_state

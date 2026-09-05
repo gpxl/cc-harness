@@ -38,6 +38,12 @@ slug=$(printf '%s' "$branch" | sed 's/[^[:alnum:]._-]/-/g')
 state_dir="$common_dir/review-rounds"
 counter="$state_dir/$slug"
 thread_file="$counter.thread"
+job_file="$counter.job"
+thread_wait_seconds=${REVIEW_ROUND_THREAD_WAIT_SECONDS:-30}
+case "$thread_wait_seconds" in
+  ''|*[!0-9]*) printf '%s\n' 'review-round: REVIEW_ROUND_THREAD_WAIT_SECONDS must be an integer from 0 to 30' >&2; exit 2 ;;
+esac
+[ "$thread_wait_seconds" -le 30 ] || { printf '%s\n' 'review-round: REVIEW_ROUND_THREAD_WAIT_SECONDS must be at most 30' >&2; exit 2; }
 
 dispatcher=${REVIEW_ROUND_DISPATCH:-}
 if [ -z "$dispatcher" ]; then
@@ -56,6 +62,38 @@ read_round() {
   else
     printf '0'
   fi
+}
+
+job_record_from_log() {
+  local log_file=$1 job_id=$2
+  [ -n "$log_file" ] || return 0
+  printf '%s/%s.json' "$(dirname -- "$log_file")" "$job_id"
+}
+
+thread_from_job_record() {
+  local record=$1
+  [ -f "$record" ] || return 0
+  node -e '
+const fs = require("fs");
+try {
+  const job = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const threadId = typeof job.threadId === "string" ? job.threadId.trim() : "";
+  process.stdout.write(threadId);
+} catch {
+  process.exit(1);
+}
+' "$record" 2>/dev/null || true
+}
+
+wait_for_thread_id() {
+  local record=$1 thread_id='' attempt=0
+  while :; do
+    thread_id=$(thread_from_job_record "$record")
+    [ -z "$thread_id" ] || { printf '%s' "$thread_id"; return 0; }
+    [ "$attempt" -ge "$thread_wait_seconds" ] && return 0
+    attempt=$((attempt + 1))
+    sleep 1
+  done
 }
 
 lock=''
@@ -134,10 +172,32 @@ End with exactly: VERDICT: GO or VERDICT: NO-GO, and list OPEN BLOCKERS: <number
 EOF
 
 resume=false
+jobs_json=''
+if jobs_json=$("$jobs_tool" --cwd "$repo_root" --json 2>/dev/null); then
+  :
+else
+  jobs_json=''
+fi
+
+if [ ! -f "$thread_file" ] && [ -f "$job_file" ] && [ -n "$jobs_json" ]; then
+  recorded_job_id=$(tr -d '[:space:]' < "$job_file")
+  if [ -n "$recorded_job_id" ]; then
+    recorded_log_file=$(node -e '
+const jobs = JSON.parse(process.argv[1]);
+const id = process.argv[2];
+const job = Array.isArray(jobs) ? jobs.find((item) => item && String(item.id) === id) : null;
+process.stdout.write(job && job.logFile ? String(job.logFile) : "");
+' "$jobs_json" "$recorded_job_id" 2>/dev/null || true)
+    delayed_job_record=$(job_record_from_log "$recorded_log_file" "$recorded_job_id")
+    delayed_thread_id=$(wait_for_thread_id "$delayed_job_record")
+    [ -z "$delayed_thread_id" ] || printf '%s\n' "$delayed_thread_id" > "$thread_file"
+  fi
+fi
+
 if [ -f "$thread_file" ]; then
   reviewer_thread=$(tr -d '[:space:]' < "$thread_file")
   newest_thread=''
-  if jobs_json=$("$jobs_tool" --cwd "$repo_root" --json 2>/dev/null); then
+  if [ -n "$jobs_json" ]; then
     newest_thread=$(node -e '
 const jobs = JSON.parse(process.argv[1]);
 const first = Array.isArray(jobs) ? jobs[0] : null;
@@ -152,21 +212,25 @@ dispatch_args=(--read-only --json --prompt-file "$prompt_file")
 job_json=$("$dispatcher" "${dispatch_args[@]}") || exit $?
 job_fields=$(node -e '
 const value = JSON.parse(process.argv[1]);
-for (const field of ["jobId", "logFile", "waitCommand", "threadId"]) {
+for (const field of ["jobId", "logFile", "waitCommand"]) {
   const text = String(value[field] ?? "");
   process.stdout.write(Buffer.from(text, "utf8").toString("base64") + "\t");
 }
 ' "$job_json") || { printf '%s\n' 'review-round: dispatch returned invalid JSON' >&2; exit 1; }
-IFS=$'\t' read -r job_id_b64 log_file_b64 wait_command_b64 thread_b64 _ <<< "$job_fields"
+IFS=$'\t' read -r job_id_b64 log_file_b64 wait_command_b64 _ <<< "$job_fields"
 decode() { node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64").toString("utf8"));' "$1"; }
 job_id=$(decode "$job_id_b64")
 log_file=$(decode "$log_file_b64")
 wait_command=$(decode "$wait_command_b64")
-thread_id=$(decode "$thread_b64")
-[ -n "$job_id" ] && [ -n "$thread_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId or reviewer threadId' >&2; exit 1; }
+[ -n "$job_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId' >&2; exit 1; }
 
+# Persist launch state before resolving asynchronous reviewer metadata.
 printf '%s\n' "$round" > "$counter"
-printf '%s\n' "$thread_id" > "$thread_file"
+printf '%s\n' "$job_id" > "$job_file"
+rm -f "$thread_file"
+job_record=$(job_record_from_log "$log_file" "$job_id")
+thread_id=$(wait_for_thread_id "$job_record")
+[ -z "$thread_id" ] || printf '%s\n' "$thread_id" > "$thread_file"
 printf 'REVIEW ROUND: job %s\n' "$job_id"
 printf 'REVIEW ROUND: log %s\n' "$log_file"
 printf 'REVIEW ROUND: wait with %s\n' "$wait_command"

@@ -167,6 +167,7 @@ IFS=$'\t' read -r encoded_job_id encoded_log_file _ <<< "$launch_fields"
 job_id=$(decode_field "$encoded_job_id")
 log_file=$(decode_field "$encoded_log_file")
 [ -n "$job_id" ] || fail 'launch returned no jobId' 4
+[ -n "$log_file" ] || fail 'launch returned no logFile' 4
 
 placement_status='not-visible'
 placement_workspace='-'

@@ -20,6 +20,9 @@ expect() {
 }
 
 expect 'GO/0 without user decision passes' 0 'rounds=3 verdict=GO open_blockers=0 classes=1-lifetime'
+expect 'unknown verdict fails' 1 'rounds=3 verdict=MAYBE open_blockers=0 classes=1' 'invalid verdict='
+expect 'duplicate rounds fail' 1 'rounds=3 rounds=3 verdict=GO open_blockers=0 classes=1' 'duplicate rounds='
+expect 'non-numeric rounds fail' 1 'rounds=three verdict=GO open_blockers=0 classes=1' 'invalid rounds='
 expect 'round 4 without decision fails' 1 'rounds=4 verdict=GO open_blockers=0 classes=1'
 expect 'round 4 with quoted user decision passes' 0 'rounds=4 verdict=GO open_blockers=0 classes=3 user_decision="2 (authorize one more round)"' 'user_decision="2 (authorize one more round)"'
 expect 'NO-GO without decision fails' 1 'rounds=3 verdict=NO-GO open_blockers=0 classes=1'

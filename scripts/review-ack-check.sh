@@ -50,6 +50,18 @@ field() {
   return 0
 }
 
+field_count() {
+  local key=$1 rest=$note pattern count=0 matched before
+  pattern="(^|[[:space:]])${key}=(\"[^\"]*\"|[^[:space:]]+)"
+  while [[ "$rest" =~ $pattern ]]; do
+    matched=${BASH_REMATCH[0]}
+    count=$((count + 1))
+    before=${rest%%"$matched"*}
+    rest=${rest:$(( ${#before} + ${#matched} ))}
+  done
+  printf '%s' "$count"
+}
+
 rounds=$(field rounds)
 verdict=$(field verdict)
 open_blockers=$(field open_blockers)
@@ -61,12 +73,17 @@ fail() {
   exit 1
 }
 
+for required_field in rounds verdict open_blockers classes; do
+  [ "$(field_count "$required_field")" -le 1 ] || fail "duplicate $required_field="
+done
+
 [ -n "$rounds" ] || fail 'missing rounds='
 [ -n "$verdict" ] || fail 'missing verdict='
 [ -n "$open_blockers" ] || fail 'missing open_blockers='
 [ -n "$classes" ] || fail 'missing classes='
 case "$rounds" in *[!0-9]*) fail 'invalid rounds=' ;; esac
 case "$open_blockers" in *[!0-9]*) fail 'invalid open_blockers=' ;; esac
+case "$verdict" in GO|NO-GO) ;; *) fail 'invalid verdict=' ;; esac
 
 if [ "$rounds" -gt "$max_rounds" ] && [ -z "$user_decision" ]; then
   fail "rounds=$rounds exceeds max_rounds=$max_rounds"
