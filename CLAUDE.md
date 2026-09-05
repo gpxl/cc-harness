@@ -12,6 +12,10 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 - `.beads/.gitignore` excludes the Dolt store (`embeddeddolt/`, `dolt/`, and lock/socket/daemon files); track only `issues.jsonl`, `config.yaml`, `metadata.json`, and `README.md`.
 - Run `git config beads.role maintainer` once per clone; `bd` warns when it is unset.
 
+[Scripts]|root: scripts/
+|review-round.sh: Dispatches bounded read-only branch-review rounds with repository-local counter and reviewer-thread state; run `bash scripts/review-round.sh <base> [--bead <id>] [--user-approved "<words>"] [--dry-run]`|
+|review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
+
 ## Agent Config
 
 | Key | Value |
@@ -28,7 +32,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | lint_cmd | (none) |
 | lint_fix_cmd | (none) |
 | build_cmd | (none) |
-| verify_cmd | `bash scripts/verify.sh` — runs the ten selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative controls live in `scripts/verify-selftest.sh`); zero resolved selftests is a FAIL |
+| verify_cmd | `bash scripts/verify.sh` — runs the selftests under "The gate" below, one log per test, real exit codes; `CC_HARNESS_SELFTESTS` overrides the list (negative controls live in `scripts/verify-selftest.sh`); zero resolved selftests is a FAIL |
 | test_pattern | (none) |
 | test_framework | (none) |
 | test_fixtures | (none) |
@@ -71,6 +75,8 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-path-selftest.sh`
 - `scripts/routing-report-selftest.sh`
 - `scripts/loop-report-selftest.sh`
+- `scripts/review-round-selftest.sh`
+- `scripts/review-ack-check-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
 - `scripts/codex-wait-selftest.sh`
 - `scripts/codex-brokers-selftest.sh`
