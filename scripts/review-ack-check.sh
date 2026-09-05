@@ -6,6 +6,40 @@ usage() {
   printf '%s\n' "Usage: scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]" >&2
 }
 
+review_ack_field() {
+  # Values are ordinary tokens except user_decision, which may be quoted user words.
+  local note=$1 key=$2 pattern
+  pattern="(^|[[:space:]])${key}=\\\"([^\\\"]*)\\\""
+  if [[ "$note" =~ $pattern ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  pattern="(^|[[:space:]])${key}=([^[:space:]]+)"
+  if [[ "$note" =~ $pattern ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  return 0
+}
+
+review_ack_field_count() {
+  local note=$1 key=$2 rest pattern count=0 matched before
+  rest=$note
+  pattern="(^|[[:space:]])${key}=(\"[^\"]*\"|[^[:space:]]+)"
+  while [[ "$rest" =~ $pattern ]]; do
+    matched=${BASH_REMATCH[0]}
+    count=$((count + 1))
+    before=${rest%%"$matched"*}
+    rest=${rest:$(( ${#before} + ${#matched} ))}
+  done
+  printf '%s' "$count"
+}
+
+# Other measurement scripts source these parsing helpers so field syntax has one definition.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
+
 if [ "$#" -lt 1 ]; then
   usage
   exit 2
@@ -34,39 +68,11 @@ done
 
 case "$max_rounds" in ''|*[!0-9]*|0) usage; exit 2 ;; esac
 
-field() {
-  # Values are ordinary tokens except user_decision, which may be quoted user words.
-  local key=$1 pattern
-  pattern="(^|[[:space:]])${key}=\\\"([^\\\"]*)\\\""
-  if [[ "$note" =~ $pattern ]]; then
-    printf '%s' "${BASH_REMATCH[2]}"
-    return 0
-  fi
-  pattern="(^|[[:space:]])${key}=([^[:space:]]+)"
-  if [[ "$note" =~ $pattern ]]; then
-    printf '%s' "${BASH_REMATCH[2]}"
-    return 0
-  fi
-  return 0
-}
-
-field_count() {
-  local key=$1 rest=$note pattern count=0 matched before
-  pattern="(^|[[:space:]])${key}=(\"[^\"]*\"|[^[:space:]]+)"
-  while [[ "$rest" =~ $pattern ]]; do
-    matched=${BASH_REMATCH[0]}
-    count=$((count + 1))
-    before=${rest%%"$matched"*}
-    rest=${rest:$(( ${#before} + ${#matched} ))}
-  done
-  printf '%s' "$count"
-}
-
-rounds=$(field rounds)
-verdict=$(field verdict)
-open_blockers=$(field open_blockers)
-user_decision=$(field user_decision)
-classes=$(field classes)
+rounds=$(review_ack_field "$note" rounds)
+verdict=$(review_ack_field "$note" verdict)
+open_blockers=$(review_ack_field "$note" open_blockers)
+user_decision=$(review_ack_field "$note" user_decision)
+classes=$(review_ack_field "$note" classes)
 
 fail() {
   printf 'REVIEW ACK: FAIL %s\n' "$1"
@@ -74,7 +80,7 @@ fail() {
 }
 
 for required_field in rounds verdict open_blockers classes; do
-  [ "$(field_count "$required_field")" -le 1 ] || fail "duplicate $required_field="
+  [ "$(review_ack_field_count "$note" "$required_field")" -le 1 ] || fail "duplicate $required_field="
 done
 
 [ -n "$rounds" ] || fail 'missing rounds='

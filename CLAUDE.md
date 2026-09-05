@@ -11,10 +11,12 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 - Use the committed Beads workspace for cc-harness work: run `bd prime` at session start, `bd ready` for next work, `bd create` before non-trivial changes, and `bd close` when done.
 - `.beads/.gitignore` excludes the Dolt store (`embeddeddolt/`, `dolt/`, and lock/socket/daemon files); track only `issues.jsonl`, `config.yaml`, `metadata.json`, and `README.md`.
 - Run `git config beads.role maintainer` once per clone; `bd` warns when it is unset.
+- Engineering retrospectives are a standing series in `docs/retrospectives/`. Its `README.md` is authoritative for cadence, section structure and the honesty rules; `TEMPLATE.md` is the skeleton, and every entry opens with follow-through on the previous one. Assemble the measured half with `bash scripts/retro-evidence.sh` before writing.
 
 [Scripts]|root: scripts/
 |review-round.sh: Dispatches bounded read-only branch-review rounds with repository-local counter and reviewer-thread state; run `bash scripts/review-round.sh <base> [--bead <id>] [--user-approved "<words>"] [--dry-run]`|
 |review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
+|retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
 
 ## Agent Config
 
@@ -75,6 +77,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-path-selftest.sh`
 - `scripts/routing-report-selftest.sh`
 - `scripts/loop-report-selftest.sh`
+- `scripts/retro-evidence-selftest.sh`
 - `scripts/review-round-selftest.sh`
 - `scripts/review-ack-check-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
