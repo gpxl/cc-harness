@@ -179,17 +179,18 @@ const id = process.argv[1];
 try {
   const state = JSON.parse(process.argv[2]);
   const job = Array.isArray(state.running) ? state.running.find((item) => item && String(item.id) === id) : null;
-  const values = job ? ["visible", job.status, job.workspaceRoot, job.pid] : ["absent", "", "", ""];
+  const values = job ? ["visible", job.status, job.workspaceRoot, job.pid, job.threadId] : ["absent", "", "", "", ""];
   console.log(values.map((value) => `x${Buffer.from(String(value ?? ""), "utf8").toString("base64")}`).join("\t"));
 } catch {
   process.exit(1);
 }
 ' "$job_id" "$status_json" 2>/dev/null); then
-      IFS=$'\t' read -r encoded_visible encoded_status encoded_workspace encoded_pid <<< "$placement_fields"
+      IFS=$'\t' read -r encoded_visible encoded_status encoded_workspace encoded_pid encoded_thread_id <<< "$placement_fields"
       visible=$(decode_field "$encoded_visible")
       placement_status=$(decode_field "$encoded_status")
       placement_workspace=$(decode_field "$encoded_workspace")
       placement_pid=$(decode_field "$encoded_pid")
+      placement_thread_id=$(decode_field "$encoded_thread_id")
       if [ "$visible" = 'visible' ]; then
         if placement_workspace_real=$(real_path "$placement_workspace" 2>/dev/null); then
           if { [ "$placement_status" = 'queued' ] || [ "$placement_status" = 'running' ]; } &&
@@ -221,9 +222,10 @@ console.log(JSON.stringify({
   status: process.argv[2],
   workspaceRoot: process.argv[3],
   logFile: process.argv[4],
-  waitCommand: process.argv[5]
+  waitCommand: process.argv[5],
+  threadId: process.argv[6]
 }));
-' "$job_id" "$placement_status" "$workspace" "$log_file" "$wait_command"
+' "$job_id" "$placement_status" "$workspace" "$log_file" "$wait_command" "${placement_thread_id:-}"
 else
   printf 'CODEX DISPATCH: %s queued in %s\n' "$job_id" "$workspace"
   if [ "$no_wait" = false ]; then
