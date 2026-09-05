@@ -50,7 +50,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | release_merge_strategy | squash |
 | browser_validation | (none) |
 | quality_gate_pattern | (none) |
-| co_author | Claude <noreply@anthropic.com> |
+| co_author | (none) — never an agent, vendor or model identity; § Git commit identity in global CLAUDE.md |
 
 ## Merge policy
 
