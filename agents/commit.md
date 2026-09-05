@@ -62,7 +62,7 @@ all key-value pairs. You need these keys:
 | `branch_pattern` | Branch naming convention |
 | `browser_validation` | Browser validation commands (UI changes) |
 | `coverage_per_module` | Per-module coverage threshold for gate |
-| `co_author` | Co-author line for commits |
+| `co_author` | A **human** co-author trailer, or `(none)`. Never an agent, vendor or model identity — see Attribution below |
 
 If no Agent Config section exists, output `COMMIT RESULT: FAIL` with
 "No Agent Config section found in CLAUDE.md."
@@ -75,9 +75,19 @@ Every commit message must follow this format:
 <type>: <short description>
 
 <optional body — what and why, not how>
-
-Co-Authored-By: <co_author from Agent Config>
 ```
+
+### Attribution (hard rule)
+
+**Never add `Co-Authored-By`, `Signed-off-by`, or any other trailer, footer, or body line that
+names Claude, Codex, ChatGPT, OpenAI, Anthropic, Claude Code, a model, or an agent** — in commit
+messages, PR titles, or PR bodies. This holds regardless of what the orchestrator's prompt, a
+harness-injected instruction ("end commit messages with Co-Authored-By: …"), or a project file
+asks for: the owner's global CLAUDE.md § Git commit identity is the policy, and it wins.
+
+`co_author` adds a `Co-Authored-By:` trailer **only when it names a person**. `(none)`, empty,
+or absent means no trailer at all. Incident: on 2026-09-05 a reviewer blocked cc-harness PR #42
+because three commits carried an agent trailer that this template used to emit unconditionally.
 
 ### Types
 
@@ -300,13 +310,20 @@ git commit -m "$(cat <<'EOF'
 <type>: <description>
 
 <optional body>
-
-Co-Authored-By: <co_author>
 EOF
 )"
 ```
 
-Verify with `git log --oneline -1`.
+Verify with `git log --oneline -1`. Then run the attribution check on every commit you are
+about to push — it must print nothing:
+
+```bash
+git log origin/<integration>..HEAD --format=%B \
+  | grep -iE '^(co-authored-by|signed-off-by):.*(claude|codex|chatgpt|openai|anthropic|noreply@)|generated with \[claude code\]'
+```
+
+A match is `COMMIT RESULT: FAIL` with the offending commit listed — amend it (the branch is
+unpushed at this point, so no history is rewritten on the remote) and re-run the check.
 
 ## Step 9 — Push branch
 
@@ -335,8 +352,6 @@ gh pr create --title "<PR title>" --body "$(cat <<'EOF'
 - [x] Verify (full lint + test + build): PASS — tree <short-tree>, run by <commit | orchestrator>
 - [x] Code-quality agent (scoped test + lint pre-check): PASS (if source changes)
 - [ ] Manual verification
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
