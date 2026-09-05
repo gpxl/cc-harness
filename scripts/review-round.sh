@@ -4,26 +4,58 @@ set -euo pipefail
 
 usage() {
   printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
+  printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-base=${1:-}
-[ -n "$base" ] || { usage; exit 2; }
-shift
+mode='review'
+base=''
 bead=''
 user_approved=''
 dry_run=false
 selftest=false
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --bead) [ "$#" -ge 2 ] || { usage; exit 2; }; bead=$2; shift 2 ;;
-    --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
-    --dry-run) dry_run=true; shift ;;
-    --selftest) selftest=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) usage; exit 2 ;;
-  esac
-done
+collect_job=''
+collect_round=''
+adopt_round=''
+adopt_job=''
+
+[ "$#" -gt 0 ] || { usage; exit 2; }
+case "$1" in
+  --collect)
+    mode='collect'
+    [ "$#" -ge 2 ] || { usage; exit 2; }
+    collect_job=$2
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --round) [ "$#" -ge 2 ] || { usage; exit 2; }; collect_round=$2; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 2 ;;
+      esac
+    done
+    ;;
+  --adopt)
+    mode='adopt'
+    [ "$#" -eq 3 ] || { usage; exit 2; }
+    adopt_round=$2
+    adopt_job=$3
+    ;;
+  *)
+    base=$1
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --bead) [ "$#" -ge 2 ] || { usage; exit 2; }; bead=$2; shift 2 ;;
+        --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
+        --dry-run) dry_run=true; shift ;;
+        --selftest) selftest=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage; exit 2 ;;
+      esac
+    done
+    ;;
+esac
 
 if [ "$selftest" = true ]; then
   exec bash "$script_dir/review-round-selftest.sh"
@@ -84,6 +116,102 @@ try {
 }
 ' "$record" 2>/dev/null || true
 }
+
+job_record_for_workspace() {
+  local job_id=$1 plugin_root
+  if [ -n "${REVIEW_ROUND_JOB_RECORD:-}" ]; then
+    printf '%s' "$REVIEW_ROUND_JOB_RECORD"
+    return 0
+  fi
+  plugin_root=$(bash "$script_dir/codex-plugin-root.sh" 2>/dev/null) || return 1
+  CODEX_STATE_MODULE="$plugin_root/scripts/lib/state.mjs" node --input-type=module -e '
+const { resolveJobFile } = await import(process.env.CODEX_STATE_MODULE);
+console.log(resolveJobFile(process.argv[1], process.argv[2]));
+' -- "$repo_root" "$job_id" 2>/dev/null
+}
+
+log_from_job_record() {
+  local record=$1
+  node -e '
+const fs = require("fs");
+try {
+  const job = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const logFile = typeof job.logFile === "string" ? job.logFile.trim() : "";
+  if (!logFile) process.exit(1);
+  process.stdout.write(logFile);
+} catch {
+  process.exit(1);
+}
+' "$record" 2>/dev/null
+}
+
+final_findings_from_log() {
+  local log_file=$1
+  awk '
+  /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[^]]+\][[:space:]]+Final output:?[[:space:]]*$/ { in_final = 1; saw_final = 1; next }
+  in_final && /^\[[^]]+\][[:space:]]/ { exit }
+  in_final && (/^### (BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ || /^(BLOCKER|MAJOR|MINOR|NIT|VERDICT|OPEN BLOCKERS):/) {
+    sub(/[[:space:]]+$/, "")
+    print
+  }
+END { exit saw_final ? 0 : 1 }
+' "$log_file"
+}
+
+collect_findings() {
+  local job_id=$1 requested_round=$2 round record log_file findings temp findings_lines
+  if [ -n "$requested_round" ]; then
+    round=$requested_round
+  else
+    round=$(read_round)
+  fi
+  case "$round" in ''|*[!0-9]*|0) printf '%s\n' 'review-round: --collect needs a positive --round or an existing round counter' >&2; exit 2 ;; esac
+  record=$(job_record_for_workspace "$job_id") || { printf '%s\n' "review-round: could not resolve job record for $job_id" >&2; exit 1; }
+  [ -f "$record" ] || { printf '%s\n' "review-round: job record not found for $job_id" >&2; exit 1; }
+  log_file=$(log_from_job_record "$record") || { printf '%s\n' "review-round: job record has no logFile for $job_id" >&2; exit 1; }
+  [ -f "$log_file" ] || { printf '%s\n' "review-round: job log not found for $job_id" >&2; exit 1; }
+  mkdir -p "$state_dir"
+  findings="$state_dir/$slug-r$round-findings.md"
+  if [ -e "$findings" ]; then
+    printf '%s\n' "$findings"
+    return 0
+  fi
+  findings_lines=$(final_findings_from_log "$log_file") || { printf '%s\n' "review-round: Final output section not found in $log_file" >&2; exit 1; }
+  temp=$(mktemp "$state_dir/.${slug}-r${round}-findings.XXXXXX") || exit 1
+  if [ -n "$findings_lines" ]; then
+    printf '%s\n' "$findings_lines" > "$temp"
+  else
+    : > "$temp"
+  fi
+  printf '%s\n' 'Dispositions:' >> "$temp"
+  mv "$temp" "$findings"
+  printf '%s\n' "$findings"
+}
+
+adopt_round() {
+  local round=$1 job_id=$2 current record thread_id
+  case "$round" in ''|*[!0-9]*|0) printf '%s\n' 'review-round: --adopt round must be a positive integer' >&2; exit 2 ;; esac
+  current=$(read_round)
+  if [ "$round" -lt "$current" ]; then
+    printf 'review-round: refusing to lower round counter from %s to %s\n' "$current" "$round" >&2
+    exit 1
+  fi
+  record=$(job_record_for_workspace "$job_id") || { printf '%s\n' "review-round: could not resolve job record for $job_id" >&2; exit 1; }
+  [ -f "$record" ] || { printf '%s\n' "review-round: job record not found for $job_id" >&2; exit 1; }
+  thread_id=$(thread_from_job_record "$record")
+  [ -n "$thread_id" ] || { printf '%s\n' "review-round: job record has no threadId for $job_id" >&2; exit 1; }
+  mkdir -p "$state_dir"
+  # Persist recovered reviewer state.
+  printf '%s\n' "$round" > "$counter"
+  printf '%s\n' "$job_id" > "$job_file"
+  printf '%s\n' "$thread_id" > "$thread_file"
+  printf 'REVIEW ROUND: adopted round %s job %s\n' "$round" "$job_id"
+}
+
+case "$mode" in
+  collect) collect_findings "$collect_job" "$collect_round"; exit 0 ;;
+  adopt) adopt_round "$adopt_round" "$adopt_job"; exit 0 ;;
+esac
 
 wait_for_thread_id() {
   local record=$1 thread_id='' attempt=0
