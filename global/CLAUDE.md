@@ -120,7 +120,7 @@ Before creating, renaming, pushing, or opening a pull request in **every** proje
 | **TRIGGER** | Any user request to "commit", "push", "save", "ship it", "yes" (to commit prompt) |
 | **EXCEPTION** | Projects without Agent Config in CLAUDE.md use standard git workflow |
 | **GATE ONCE** | lint+test+build runs once per working tree; later steps consume the recorded `VERIFY RESULT:` / `CODE QUALITY RESULT:` line instead of re-running (`pipeline-contract.md`) |
-| **pr-monitor** | Skipped when Agent Config `ci` is `none` — it polls CI checks that don't exist; merge on the recorded verify instead. `release` likewise skipped when `version_strategy` is `(none)` |
+| **pr-monitor** | Skipped when Agent Config `ci` is `none` — it polls CI checks that don't exist; merge on the recorded verify instead, and delete the merged branch yourself since pr-monitor isn't there to do it (`agent-enforcement.md` § Branch cleanup on merge). `release` likewise skipped when `version_strategy` is `(none)` |
 
 ### Parallel Agent Runs (CRITICAL)
 

@@ -39,7 +39,7 @@ The lint+test+build triple runs **once** across this whole chain, recorded and t
 | 1 | code-quality | **Yes** for source files matching `quality_gate_pattern`; **never** when that key is `(none)` — see Exemptions |
 | 2 | test-writer | Only if code-quality reports FAIL |
 | 3 | commit | **Always** — handles staging, committing, pushing, and PR creation |
-| 4 | pr-monitor | Only when the project **has** CI. If Agent Config `ci` is `none`, skip it — it exists to poll checks that don't exist; the orchestrator merges on the recorded verify instead |
+| 4 | pr-monitor | Only when the project **has** CI. If Agent Config `ci` is `none`, skip it — it exists to poll checks that don't exist; the orchestrator merges on the recorded verify instead, **and takes over pr-monitor's branch-cleanup half of the job too** — see Branch cleanup below |
 | 5 | release | After merge to main, and only if `version_strategy` is not `(none)` |
 
 ### Exemptions
@@ -59,6 +59,28 @@ The orchestrator runs `verify_cmd` (or the fallback triple) once, redirect-to-fi
 The **commit agent** (step 3) is **never exempt** — even doc-only changes must use the commit agent, not manual git commands.
 
 Manual `git commit` bypasses quality gates (coverage, lint, test quality Q1-Q8) that the agent pipeline enforces.
+
+### Branch cleanup on merge
+
+Every merge deletes the merged feature branch — whether `pr-monitor` performs the merge or the
+orchestrator does. This applies globally, in every project, regardless of whether that project's
+own rules say anything about it: a merged branch left lying around is dead weight the next session
+has to work around (`agent-isolation.md`'s collision preflight spends a step checking for exactly
+this kind of stale branch).
+
+`pr-monitor`'s own contract already deletes the branch it merges (`gh pr merge <PR> --squash
+--delete-branch`). When step 4 is skipped (`ci: none`) and the orchestrator merges directly instead,
+that half of pr-monitor's job does not disappear along with it — it falls to the orchestrator:
+
+| After merging | Do |
+|---|---|
+| Remote branch | `gh pr merge <PR> --squash --delete-branch` when merging directly; `git push origin --delete <branch>` if it was merged some other way and the remote branch still exists |
+| Local branch (main checkout, not a worktree) | Switch off it first if it's checked out (`git checkout <integration-branch> && git merge --ff-only origin/<integration-branch>`), then `git branch -d <branch>`. A **squash** merge leaves the branch tip unreachable from the new integration-branch commit, so `-d` correctly refuses with "not fully merged" — verify the content actually landed (e.g. `grep` for something the branch added, or diff the touched paths against the integration branch) before overriding with `git branch -D <branch>`. Don't force-delete on faith. |
+| Worktree, if the pipeline used one | Already handled by `agent-isolation.md`'s lifecycle (`trap ... EXIT` removes it on every exit path, and the orphan reaper catches anything a crash left behind) — nothing extra to do here |
+
+Leave alone: branches other sessions still have checked out (`git worktree list` shows a `+`
+against them — that is someone else's in-progress work, not yours to clean up), and any branch
+whose PR has not actually merged yet.
 
 ## Project-Specific Rules
 
