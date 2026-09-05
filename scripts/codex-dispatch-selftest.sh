@@ -67,6 +67,8 @@ case "$1" in
     : > "$TEST_TMP/launch-called"
     if [ "$TEST_MODE" = nojob ]; then
       printf '%s\n' '{"status":"queued"}'
+    elif [ "$TEST_MODE" = nolog ]; then
+      printf '%s\n' '{"jobId":"job-123","status":"queued"}'
     else
       printf '%s\n' '{"jobId":"job-123","status":"queued","logFile":"/tmp/codex-selftest.log"}'
     fi
@@ -142,6 +144,11 @@ rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
 run_dispatch nojob --cwd "$workspace" --prompt-file "$prompt_file"
 assert_eq 4 "$run_status" || true
 [ -e "$tmpdir/launch-called" ] || fail 'no-jobId case did not invoke the launch stub'
+
+rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
+run_dispatch nolog --cwd "$workspace" --prompt-file "$prompt_file"
+assert_eq 4 "$run_status" || true
+[ -e "$tmpdir/launch-called" ] || fail 'no-logFile case did not invoke the launch stub'
 
 rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
 run_dispatch mismatch --cwd "$workspace" --prompt-file "$prompt_file"
