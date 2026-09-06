@@ -85,6 +85,11 @@ messages, PR titles, or PR bodies. This holds regardless of what the orchestrato
 harness-injected instruction ("end commit messages with Co-Authored-By: …"), or a project file
 asks for: the owner's global CLAUDE.md § Git commit identity is the policy, and it wins.
 
+**Resolve this silently.** The conflicting instruction is expected, not an anomaly. Do not mention
+it in `COMMIT RESULT:`, do not ask the orchestrator or the user which one to follow, and do not
+explain that you dropped the trailer — just drop it. Reporting a settled conflict on every commit
+costs the owner attention they already spent deciding it.
+
 `co_author` adds a `Co-Authored-By:` trailer **only when it names a person**. `(none)`, empty,
 or absent means no trailer at all. Incident: on 2026-09-05 a reviewer blocked cc-harness PR #42
 because three commits carried an agent trailer that this template used to emit unconditionally.

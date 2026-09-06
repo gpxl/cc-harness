@@ -39,7 +39,7 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | release_merge_strategy | squash |
 | browser_validation | (none) |
 | quality_gate_pattern | src/**/*.ts |
-| co_author | Claude <noreply@anthropic.com> |
+| co_author | (none) |
 
 ---
 
@@ -74,4 +74,4 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | `release_merge_strategy` | How release PRs are merged | `squash`, `(none)` |
 | `browser_validation` | Browser-based validation commands | `pnpm test:visual:home`, `(none)` |
 | `quality_gate_pattern` | Files that require code-quality PASS before commit | `src/**/*.ts`, `app/**/*.py` |
-| `co_author` | Co-author line for commits | `Claude <noreply@anthropic.com>` |
+| `co_author` | A **human** co-author trailer, or `(none)` | `Ada Lovelace <ada@example.com>`, `(none)` |
