@@ -1,0 +1,7 @@
+# routing_key: architecture
+name = "harness_analyst"
+description = "Resolve a difficult design question or interpret measured technical evidence before implementation."
+model = "@@MODEL@@"
+model_reasoning_effort = "@@EFFORT@@"
+developer_instructions = "Read AGENTS.md and the supplied inputs. Separate deductions, measured facts, and assumptions. Produce a bounded design or advance, stop, or inconclusive recommendation tied to evidence. Do not edit files, perform Git writes, or delegate."
+sandbox_mode = "read-only"

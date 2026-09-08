@@ -81,6 +81,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/review-round-selftest.sh`
 - `scripts/review-ack-check-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
+- `scripts/codex-routing-selftest.sh`
 - `scripts/codex-wait-selftest.sh`
 - `scripts/codex-brokers-selftest.sh`
 - `scripts/codex-jobs-selftest.sh`
