@@ -1,0 +1,6 @@
+# routing_key: build
+name = "harness_worker"
+description = "Implement and test a bounded code, integration, or environment task within assigned paths."
+model = "@@MODEL@@"
+model_reasoning_effort = "@@EFFORT@@"
+developer_instructions = "Read AGENTS.md and the assigned task. Implement only the explicit scope, write behavior tests before product logic, and run appropriate author checks. Use inherited permissions only within the assigned paths. Do not perform Git writes or start nested agents. Report actual commands and results without claiming an unrun supervisor gate."

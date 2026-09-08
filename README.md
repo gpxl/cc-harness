@@ -1,6 +1,6 @@
 # cc-harness
 
-A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Six global agents that handle code quality, testing, commits, releases, PR monitoring, and verification — all config-driven from your project's `CLAUDE.md`.
+A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and native Codex. Six global Claude agents handle code quality, testing, commits, releases, PR monitoring, and verification; five native Codex roles provide shared bounded delegation without changing personal Codex settings.
 
 ## What you get
 
@@ -23,9 +23,18 @@ cd cc-harness
 ./install.sh
 ```
 
-This symlinks `agents/`, `rules/`, `hooks/`, and `scripts/` into `~/.claude/`, and `global/CLAUDE.md` to `~/.claude/CLAUDE.md`, making them available in every project. Set `CC_HARNESS_CLAUDE_DIR=/path/to/.claude` to install or uninstall against a non-default Claude directory (for testing or an isolated setup).
+This symlinks `agents/`, `rules/`, `hooks/`, and `scripts/` into `~/.claude/`, and
+`global/CLAUDE.md` to both `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. It also links the
+generated `harness_explorer`, `harness_runner`, `harness_worker`, `harness_analyst`, and
+`harness_reviewer` role files individually into `~/.codex/agents/`. Set
+`CC_HARNESS_CLAUDE_DIR=/path/to/.claude` or `CC_HARNESS_CODEX_DIR=/path/to/.codex` for a
+non-default or hermetic target.
 
-Existing state is never destroyed: a real directory or file at the target is backed up first (`<name>.backup.<timestamp>`), and `./uninstall.sh` restores the most recent backup. A target that is already a *symlink* is repointed rather than backed up — the file it pointed at is left untouched, so nothing is lost, but note that `uninstall.sh` restores a backup rather than the previous symlink.
+Existing state is never destroyed: a real directory or file at the Claude target is backed up
+first (`<name>.backup.<timestamp>`), and `./uninstall.sh` restores the most recent backup. A
+preexisting Codex `AGENTS.md` file or symlink is also backed up and restored. A personal file,
+directory, or foreign symlink using a managed `harness_*.toml` role name causes installation to
+abort before Codex changes; unrelated roles and all of `~/.codex/config.toml` remain untouched.
 
 Keeping the global `CLAUDE.md` here means edits to it are versioned and reviewable like everything else. It is the file Claude Code loads into *every* session, so an unversioned edit to it is an unversioned change to how every project behaves.
 
@@ -58,6 +67,14 @@ Use `(none)` to skip any capability your project doesn't need.
 
 See [`templates/agent-config.md`](templates/agent-config.md) for the full schema with descriptions.
 
+Native Codex projects inherit the shared `harness_*` roles. Keep project-specific constraints in
+`AGENTS.md` and avoid local copies of the generic prompts or model defaults. After installation,
+run `scripts/codex-routing-check.sh --project /path/to/project` to report missing installed links,
+local role shadows, and copied routing defaults without changing files. The role catalog is
+generated from the shared routing table; after updating it, run `scripts/sync-codex-agents.sh` and
+then `scripts/sync-codex-agents.sh --check`. Clients may need a new Codex session to refresh the
+discovered role catalog. See the [native subagent configuration guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
 ## How it works
 
 Claude Code loads agents from `~/.claude/agents/` globally. Project-level agents at `<project>/.claude/agents/` override global ones by name if you need custom behavior.
@@ -80,6 +97,21 @@ The harness agents are **config-driven**: instead of hardcoding commands and thr
     ├── memory-discipline.md
     ├── agent-purpose-statements.md
     └── agent-isolation.md
+```
+
+Native Codex receives individual role links, so personal roles can coexist:
+
+```
+~/.codex/
+├── AGENTS.md → cc-harness/global/CLAUDE.md
+├── config.toml                  (personal; never rewritten)
+└── agents/
+    ├── harness_explorer.toml → cc-harness/codex/agents/harness_explorer.toml
+    ├── harness_runner.toml → cc-harness/codex/agents/harness_runner.toml
+    ├── harness_worker.toml → cc-harness/codex/agents/harness_worker.toml
+    ├── harness_analyst.toml → cc-harness/codex/agents/harness_analyst.toml
+    ├── harness_reviewer.toml → cc-harness/codex/agents/harness_reviewer.toml
+    └── private-role.toml       (unchanged)
 ```
 
 ## Agent workflow
@@ -162,7 +194,8 @@ in every session. Maintainer-only history (incidents, measurements, setup boiler
 ./uninstall.sh
 ```
 
-Removes the symlinks and restores any backed-up directories.
+Removes only harness-owned symlinks and restores any backed-up Claude directories or Codex
+`AGENTS.md`; it keeps personal Codex roles, directories, and configuration.
 
 ## Customization
 

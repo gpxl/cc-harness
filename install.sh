@@ -8,12 +8,80 @@ set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Set CC_HARNESS_CLAUDE_DIR to install into a non-default Claude directory.
 CLAUDE_DIR="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
+# Set CC_HARNESS_CODEX_DIR to install native Codex roles into a non-default directory.
+# Deliberately do not read CODEX_HOME: fake-HOME tests must never reach a live Codex home.
+CODEX_DIR="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
+CODEX_ROLES=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
 
 echo "cc-harness installer"
 echo "========================"
 echo "Source:  ${HARNESS_DIR}"
 echo "Target:  ${CLAUDE_DIR}"
+echo "Codex:   ${CODEX_DIR}"
 echo ""
+
+codex_conflict() {
+  printf 'Codex managed target conflict: %s\n' "$1" >&2
+  return 1
+}
+
+# Check every native Codex destination before changing either user configuration.
+# Role names are reserved by this harness only; a personal role with the same name is
+# never overwritten.  The global AGENTS.md may be safely backed up and restored.
+preflight_codex_targets() {
+  local role target source
+  if [ -e "${CODEX_DIR}/agents" ] || [ -L "${CODEX_DIR}/agents" ]; then
+    [ -d "${CODEX_DIR}/agents" ] && [ ! -L "${CODEX_DIR}/agents" ] || { codex_conflict "${CODEX_DIR}/agents (expected directory)"; return 1; }
+  fi
+  if [ -d "${CODEX_DIR}/AGENTS.md" ]; then
+    codex_conflict "${CODEX_DIR}/AGENTS.md (unsupported directory)"
+    return 1
+  fi
+  for role in "${CODEX_ROLES[@]}"; do
+    target="${CODEX_DIR}/agents/${role}.toml"
+    source="${HARNESS_DIR}/codex/agents/${role}.toml"
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+        continue
+      fi
+      codex_conflict "$target"
+      return 1
+    fi
+  done
+}
+
+link_codex_global() {
+  local source="${HARNESS_DIR}/global/CLAUDE.md"
+  local target="${CODEX_DIR}/AGENTS.md"
+  if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+    echo "  AGENTS.md   already linked (no change)"
+    return
+  fi
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    local backup="${target}.backup.$(date +%Y%m%d%H%M%S)"
+    echo "  AGENTS.md   existing target backed up to ${backup}"
+    mv "$target" "$backup"
+  fi
+  ln -s "$source" "$target"
+  echo "  AGENTS.md   linked ✓"
+}
+
+link_codex_role() {
+  local role="$1"
+  local source="${HARNESS_DIR}/codex/agents/${role}.toml"
+  local target="${CODEX_DIR}/agents/${role}.toml"
+  if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+    echo "  ${role}.toml   already linked (no change)"
+    return
+  fi
+  ln -s "$source" "$target"
+  echo "  ${role}.toml   linked ✓"
+}
+
+# Generated files are tracked: fail before touching home directories when a routing-table
+# change was not rendered into the native Codex role catalog.
+bash "${HARNESS_DIR}/scripts/sync-codex-agents.sh" --check
+preflight_codex_targets
 
 # Ensure ~/.claude/ exists
 mkdir -p "${CLAUDE_DIR}"
@@ -92,7 +160,15 @@ echo "Linking global CLAUDE.md..."
 link_file "global/CLAUDE.md" "CLAUDE.md"
 
 echo ""
-echo "Done. Global agents, rules, hooks, scripts, hook registrations, and CLAUDE.md are now active."
+echo "Linking native Codex instructions and roles..."
+mkdir -p "${CODEX_DIR}/agents"
+link_codex_global
+for role in "${CODEX_ROLES[@]}"; do
+  link_codex_role "$role"
+done
+
+echo ""
+echo "Done. Global agents, rules, hooks, scripts, hook registrations, CLAUDE.md, and native Codex roles are now active."
 echo ""
 echo "Next steps:"
 echo "  1. Add an '## Agent Config' table to each project's CLAUDE.md"

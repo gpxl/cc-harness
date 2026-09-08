@@ -8,6 +8,8 @@ set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Set CC_HARNESS_CLAUDE_DIR to uninstall from a non-default Claude directory.
 CLAUDE_DIR="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
+CODEX_DIR="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
+CODEX_ROLES=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
 
 echo "cc-harness uninstaller"
 echo "========================="
@@ -73,6 +75,47 @@ unlink_file() {
   fi
 }
 
+unlink_codex_global() {
+  local source="${HARNESS_DIR}/global/CLAUDE.md"
+  local target="${CODEX_DIR}/AGENTS.md"
+  if [ -L "$target" ]; then
+    if [ "$(readlink "$target")" != "$source" ]; then
+      echo "  AGENTS.md   symlink points elsewhere ($(readlink "$target")), skipping"
+      return
+    fi
+    rm "$target"
+    echo "  AGENTS.md   unlinked ✓"
+    local latest_backup
+    latest_backup="$(ls "${target}".backup.* 2>/dev/null | sort | tail -1 || true)"
+    if [ -n "$latest_backup" ]; then
+      mv "$latest_backup" "$target"
+      echo "  AGENTS.md   restored from backup"
+    fi
+  elif [ -e "$target" ]; then
+    echo "  AGENTS.md   is not a harness symlink, skipping"
+  else
+    echo "  AGENTS.md   not found — nothing to do"
+  fi
+}
+
+unlink_codex_role() {
+  local role="$1"
+  local source="${HARNESS_DIR}/codex/agents/${role}.toml"
+  local target="${CODEX_DIR}/agents/${role}.toml"
+  if [ -L "$target" ]; then
+    if [ "$(readlink "$target")" = "$source" ]; then
+      rm "$target"
+      echo "  ${role}.toml   unlinked ✓"
+    else
+      echo "  ${role}.toml   symlink points elsewhere ($(readlink "$target")), skipping"
+    fi
+  elif [ -e "$target" ]; then
+    echo "  ${role}.toml   is not a harness symlink, skipping"
+  else
+    echo "  ${role}.toml   not found — nothing to do"
+  fi
+}
+
 echo "Removing symlinks..."
 unlink_dir "agents"
 unlink_dir "rules"
@@ -84,4 +127,11 @@ unlink_dir "hooks"
 unlink_file "global/CLAUDE.md" "CLAUDE.md"
 
 echo ""
-echo "Done. Global agents, rules, hooks, scripts, hook registrations, and CLAUDE.md have been removed."
+echo "Removing native Codex instructions and roles..."
+unlink_codex_global
+for role in "${CODEX_ROLES[@]}"; do
+  unlink_codex_role "$role"
+done
+
+echo ""
+echo "Done. Global agents, rules, hooks, scripts, hook registrations, CLAUDE.md, and native Codex roles have been removed."
