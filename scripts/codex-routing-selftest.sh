@@ -157,7 +157,10 @@ semantic_toml_collisions_and_defaults_are_rejected() {
   if "$checker" --codex-dir "$codex" --project "$project" >"$tmp_root/invalid-config.out" 2>&1; then
     return 1
   fi
-  grep -F 'unable to inspect project configuration' "$tmp_root/invalid-config.out" >/dev/null
+  grep -F 'unable to inspect project configuration' "$tmp_root/invalid-config.out" >/dev/null || return 1
+  rm "$project/.codex/config.toml" || return 1
+  printf '%s\n' 'name = "project_private"' 'developer_instructions = "Project-private role."' > "$project/.codex/agents/custom.toml" || return 1
+  "$checker" --codex-dir "$codex" --project "$project" >"$tmp_root/unrelated-project-role.out" 2>&1
 }
 
 nonempty_instruction_overrides_are_reported() {

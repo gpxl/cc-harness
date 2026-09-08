@@ -57,6 +57,7 @@ inspect_agent_identities() {
       done
     fi
   done < <(find -L "$agents_dir" -type f -name '*.toml' -print)
+  return 0
 }
 
 global_target="$codex_dir/AGENTS.md"
