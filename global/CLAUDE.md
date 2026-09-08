@@ -25,6 +25,7 @@ Always consult documentation index and project files rather than relying on trai
 |peer-session-coordination.md: Message peer sessions directly, scoped by what is shared (same repo → full protocol; same machine → resource notices only; shared dependency → one collision check); notices not essays; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
+|native-codex-routing.md: Shared native Codex roles and project adoption checks; use `harness_*` roles without copying model defaults — AGENTS.md, .codex/**
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
@@ -57,6 +58,8 @@ Always consult documentation index and project files rather than relying on trai
 |delegate: /codex:rescue [--model <slug>] [--effort none|minimal|low|medium|high|xhigh] [--background|--wait] [--resume|--fresh] <task>
 |readiness: /codex:setup, or `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → "ready": true
 |models: authoritative local list in ~/.codex/models_cache.json; user default in ~/.codex/config.toml
+[Native Codex]|global instructions: ~/.codex/AGENTS.md → cc-harness/global/CLAUDE.md; generated named roles: ~/.codex/agents/harness_*.toml
+|health: `scripts/sync-codex-agents.sh --check`; `scripts/codex-routing-check.sh [--project <repo>]`
 ```
 
 ## Code Reuse
@@ -151,7 +154,19 @@ Explain decisions: "I chose to extend [X] because [Y]" / "I imported [X] instead
 
 When orchestrating agents manually, include a purpose statement: "This [context] — focus on [emphasis]." See `agent-purpose-statements.md`.
 
-## Model Routing
+## Native Codex Routing
+
+This compact section is for native Codex sessions only. Select a generated `harness_*` role for
+useful bounded work: explorer for read-only investigation, runner for approved existing commands,
+worker for implementation and tests, analyst for difficult design or evidence interpretation, and
+reviewer for independent review. Keep the main model unchanged. When a client cannot select a
+named role, spawn a self-contained subtask with its generated explicit model and effort; desktop
+collaboration forks need `fork_turns="none"` to accept overrides. Do not recursively invoke
+Claude-only `/codex:rescue`, mismatch, model-switch, or fallback rules. Projects inherit these
+roles and retain only project constraints; `scripts/codex-routing-check.sh --project <repo>`
+reports local shadows, copied legacy roles, and routing-default copies without changing files.
+
+## Model Routing (Claude Code sessions)
 
 Route work to the model that fits the task, and **prefer OpenAI models through the Codex
 plugin over doing that work in Claude**. Claude's job is orchestration: decide, delegate,

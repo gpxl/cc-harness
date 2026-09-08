@@ -56,6 +56,16 @@ What belongs in the project file, per rule:
 If a sentence in the project file would still be true with the project name removed, it belongs
 in the global rule, not here.
 
+## Native Codex project adoption
+
+Native Codex projects inherit the shared `harness_*` catalog from `~/.codex/agents/` and the
+global routing rule from `~/.codex/AGENTS.md`. Keep only project constraints, authority limits,
+and intentional execution settings in the project `AGENTS.md` and `.codex/`. Do not copy the
+generic role prompts or model/effort defaults. Before removing a legacy local role, inspect it for
+project-specific constraints and move those constraints into the project instructions or task
+prompt. `scripts/codex-routing-check.sh --project <repo>` reports copies and shadows without
+changing the project.
+
 ## Project-Specific NEVER Rules
 
 Add this section to a project's CLAUDE.md. The value is in entries only the project owner knows — do NOT duplicate built-in system prompt rules (e.g., "never force-push" is already built-in).
