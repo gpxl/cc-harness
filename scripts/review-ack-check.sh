@@ -99,6 +99,12 @@ done
 [ -n "$verdict" ] || fail 'missing verdict='
 [ -n "$open_blockers" ] || fail 'missing open_blockers='
 [ -n "$classes" ] || fail 'missing classes='
+# Validate the original record before using the lenient historical extractor above.
+# Otherwise quoted values and trailing text can be stripped into valid-looking fields.
+[[ "$note" =~ (^|[[:space:]])rounds=([1-9][0-9]*)([[:space:]]|$) ]] || fail 'invalid rounds='
+[[ "$note" =~ (^|[[:space:]])verdict=(GO|NO-GO)([[:space:]]|$) ]] || fail 'invalid verdict='
+[[ "$note" =~ (^|[[:space:]])open_blockers=([0-9]+)([[:space:]]|$) ]] || fail 'invalid open_blockers='
+[[ "$note" =~ (^|[[:space:]])classes=([1-5])(,[1-5])*([[:space:]]|$) ]] || fail 'invalid classes='
 [[ "$rounds" =~ ^[1-9][0-9]*$ ]] || fail 'invalid rounds='
 case "$open_blockers" in *[!0-9]*) fail 'invalid open_blockers=' ;; esac
 case "$verdict" in GO|NO-GO) ;; *) fail 'invalid verdict=' ;; esac
