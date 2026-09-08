@@ -57,7 +57,7 @@ Always consult documentation index and project files rather than relying on trai
 |root: ~/.claude/plugins/cache/openai-codex/codex/<version>/ (= ${CLAUDE_PLUGIN_ROOT} inside the plugin)
 |delegate: /codex:rescue [--model <slug>] [--effort none|minimal|low|medium|high|xhigh] [--background|--wait] [--resume|--fresh] <task>
 |readiness: /codex:setup, or `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → "ready": true
-|models: authoritative local list in ~/.codex/models_cache.json; user default in ~/.codex/config.toml
+|models: `~/.codex/models_cache.json` LAGS — check its `client_version` against `codex --version`; the host's live roster wins (see § Model Routing). User default in ~/.codex/config.toml
 [Native Codex]|global instructions: ~/.codex/AGENTS.md → cc-harness/global/CLAUDE.md; generated named roles: ~/.codex/agents/harness_*.toml
 |health: `scripts/sync-codex-agents.sh --check`; `scripts/codex-routing-check.sh [--project <repo>]`
 ```
