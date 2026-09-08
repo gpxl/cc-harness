@@ -197,22 +197,34 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 
 | Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
 |-----------|------------------------|-----------------------------------|--------|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-5.6-sol` — frontier agentic model, highest ceiling | `claude-fable-5` → `claude-opus-5` | `xhigh` |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder; the local Codex default | `claude-opus-5` | `high` |
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work; **the local Codex default** | `claude-fable-5-1` → `claude-opus-5` | `xhigh` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder (`gpt-5.6-sol` is its same-tier sibling, a reliable everyday workhorse) | `claude-opus-5` | `high` |
 | **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-5.6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
 | **Mechanical** — trivial rewrites, formatting-scale edits, ultra-fast passes | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
 
 - **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
   to move a tier deliberately. Same for `--effort` — set it when the row above disagrees
-  with the local default, not by reflex.
+  with the local default, not by reflex. The current local default is `gpt-6-astra` at
+  `high`, so an unset `--model` already lands on the architecture row's model, not the
+  build row's — pass `--model` explicitly to step *down* a tier for routine work.
 - The companion's `--effort` accepts `none|minimal|low|medium|high|xhigh` only. `max` and
-  `ultra` exist on some raw Codex models but are not reachable through this path.
-- `gpt-5.4` / `gpt-5.4-mini` are deprecated; Codex upgrades them to `gpt-5.6-terra` /
-  `gpt-5.6-luna`. Never pin them. **Older Opus generations** (`claude-opus-4-8`,
-  `claude-opus-4-7`) are likewise superseded for every Claude-column row.
-- Model slugs move. The authoritative local list is `~/.codex/models_cache.json`
-  (`slug`, `description`, `visibility`, `upgrade`) — read it before pinning a slug this
-  table doesn't name.
+  `ultra` exist on the raw models (astra / sol / terra reach `ultra`, luna reaches `max`)
+  but are not reachable through this path.
+- Retired or superseded, never pin: `gpt-5.4` is gone from the roster entirely and
+  `gpt-5.4-mini` carries an upgrade pointer to `gpt-5.6-luna`; `gpt-5.5` is the
+  previous generation. On the Claude side `claude-fable-5` is superseded by
+  `claude-fable-5-1`, and **older Opus generations** (`claude-opus-4-8`, `claude-opus-4-7`)
+  are superseded for every Claude-column row.
+- Model slugs move, and **`~/.codex/models_cache.json` is not reliably authoritative** — it
+  carries its own `client_version`/`fetched_at` and can lag the installed `codex` CLI by
+  several releases; on 2026-09-08 it was written by 0.147.0 against an installed 0.153.4 and
+  omitted `gpt-6-astra` altogether, including as the user's own configured default. Read it
+  for `slug` / `description` / `visibility` / `upgrade` detail, but **check its
+  `client_version` against `codex --version` first**, and treat the host's live roster as
+  the source of truth when they disagree (the Codex app's own tool schemas enumerate it:
+  `~/.codex/.codex-global-state.json` →
+  `electron-persisted-atom-state.mcp-extension-sidebar-catalog`, whose `model` parameter
+  description lists every slug and its supported reasoning efforts).
 
 ### What stays in Claude — and it is a short list
 
@@ -239,7 +251,7 @@ is expensive to move.
 **Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
 by default.** Opus 5 is for a session where the *orchestration itself* is the hard part
 (multi-repo state, a delicate migration). If the hard part is the engineering, that is a
-`gpt-5.6-sol` handoff, not an Opus session. `claude-haiku-4-5-20251001` is enough for a
+`gpt-6-astra` handoff, not an Opus session. `claude-haiku-4-5-20251001` is enough for a
 forward-and-report loop.
 
 ### Keeping Claude's context small
