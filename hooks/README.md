@@ -1,6 +1,6 @@
 # Model-routing hooks
 
-These hooks are the enforcement layer for the Codex-first Model Routing policy in `global/CLAUDE.md`; update them whenever that policy changes.
+These hooks are the enforcement layer for the Codex-first Model Routing policy in `global/CLAUDE.md`. Their single source of truth is `model-routing-table.sh`; the markdown table is checked against it by `hooks/selftest.sh`.
 
 `$CODEX_PLUGIN` is not exported by default; use `scripts/codex.sh` (installed as `~/.claude/scripts/codex.sh`) as the supported Codex companion entry point.
 

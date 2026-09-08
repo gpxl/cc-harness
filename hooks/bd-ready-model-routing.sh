@@ -9,6 +9,9 @@
 # is the source of truth for when the reminder appears.
 set -euo pipefail
 
+root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+data_file="$root/model-routing-table.sh"
+
 input=$(cat 2>/dev/null || printf '')
 
 # Extract tool_input.command (first quoted value; a `bd ready` command has no
@@ -22,6 +25,23 @@ if ! printf '%s' "$cmd" | grep -Eq '(^|[;&|]|[[:space:]])bd[[:space:]]+ready([[:
   exit 0
 fi
 
-cat <<'EOF'
-{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Model Routing (~/.claude/CLAUDE.md): /codex:rescue is the default delegation route. For each issue listed by `bd ready`, suggest a Codex model by its type/title: architecture/design (ADRs, system design, novel abstractions, hard trade-offs) -> gpt-6-astra at xhigh; build/implementation (coding, refactors, tests, eval scenarios, debugging) -> gpt-5.6-terra at high; probe/exploration (codebase surveys, read-only investigation, light passes) -> gpt-5.6-luna at medium; mechanical (trivial rewrites, formatting-scale edits) -> gpt-5.3-codex-spark at low. The Claude column is fallback only when Codex is genuinely unavailable: architecture/design claude-fable-5-1 then claude-opus-5, build claude-opus-5, probe/mechanical claude-sonnet-5. This governs the dev-driving model, not any repo's EVAL_MODEL."}}
-EOF
+if [ ! -r "$data_file" ] || ! . "$data_file" || ! model_routing_table_valid; then
+  exit 0
+fi
+
+context='Model Routing (~/.claude/CLAUDE.md): /codex:rescue is the default delegation route. For each issue listed by `bd ready`, suggest a Codex model by its type/title: '
+for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
+  context="$context${MODEL_ROUTING_LABELS[$index]} (${MODEL_ROUTING_DESCRIPTIONS[$index]}) -> ${MODEL_ROUTING_CODEX[$index]} at ${MODEL_ROUTING_EFFORT[$index]}"
+  if [ "$index" -lt $((${#MODEL_ROUTING_KEYS[@]} - 1)) ]; then
+    context="$context; "
+  fi
+done
+architecture_index=$(model_routing_index_for_key architecture) || exit 0
+build_index=$(model_routing_index_for_key build) || exit 0
+probe_index=$(model_routing_index_for_key probe) || exit 0
+mechanical_index=$(model_routing_index_for_key mechanical) || exit 0
+context="$context. The Claude column is fallback only when Codex is genuinely unavailable: ${MODEL_ROUTING_LABELS[$architecture_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$architecture_index]%% *} then ${MODEL_ROUTING_CLAUDE_FALLBACKS[$architecture_index]#* }, ${MODEL_ROUTING_KEYS[$build_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}, ${MODEL_ROUTING_KEYS[$probe_index]}/${MODEL_ROUTING_KEYS[$mechanical_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$probe_index]}. This governs the dev-driving model, not any repo's EVAL_MODEL."
+case "$context" in
+  *\"*|*\\*|*"$MODEL_ROUTING_NEWLINE"*) exit 0 ;;
+esac
+printf '%s\n' "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"$context\"}}"

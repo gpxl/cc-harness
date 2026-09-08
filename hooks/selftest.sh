@@ -53,8 +53,20 @@ invoke_bd() {
   output=$(printf '{"tool_input":{"command":"%s"}}' "$command" | bash "$root/bd-ready-model-routing.sh" 2>/dev/null) || return 1
 }
 
+load_model_routing_table() {
+  local data_file="$root/model-routing-table.sh"
+  [ -r "$data_file" ] || return 1
+  if ! . "$data_file"; then
+    return 1
+  fi
+  model_routing_table_valid
+}
+
 bd_fires() {
-  invoke_bd "$1" && [ -n "$output" ] && check_json "$output"
+  local build_index
+  load_model_routing_table || return 1
+  build_index=$(model_routing_index_for_key build) || return 1
+  invoke_bd "$1" && [ -n "$output" ] && check_json "$output" && printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CODEX[$build_index]}"
 }
 
 bd_silent() {
@@ -62,12 +74,55 @@ bd_silent() {
 }
 
 exitplan_valid() {
-  local retired_opus retired_sonnet retired_gpt
+  local build_index retired_opus retired_sonnet retired_gpt
+  load_model_routing_table || return 1
   retired_opus=$(printf '%s%s' 'claude-opus-' '4-8')
   retired_sonnet=$(printf '%s%s' 'claude-sonnet-' '4-6')
   retired_gpt=$(printf '%s%s' 'gpt-5' '.4')
+  build_index=$(model_routing_index_for_key build) || return 1
   output=$(bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
-  [ -n "$output" ] && check_json "$output" && printf '%s' "$output" | grep -qi 'codex' && ! printf '%s' "$output" | grep -Fq "$retired_opus" && ! printf '%s' "$output" | grep -Fq "$retired_sonnet" && ! printf '%s' "$output" | grep -Fq "$retired_gpt"
+  [ -n "$output" ] && check_json "$output" && printf '%s' "$output" | grep -Fqi 'codex' && printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CODEX[$build_index]}" && ! printf '%s' "$output" | grep -Fq "$retired_opus" && ! printf '%s' "$output" | grep -Fq "$retired_sonnet" && ! printf '%s' "$output" | grep -Fq "$retired_gpt"
+}
+
+model_routing_table_matches_claude() {
+  local data_file values_file index fallback
+  data_file="$root/model-routing-table.sh"
+  values_file="$tmp_state/model-routing-values"
+  load_model_routing_table || return 1
+  : > "$values_file" || return 1
+  for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
+    printf 'C|%s\n' "${MODEL_ROUTING_CODEX[$index]}" >> "$values_file" || return 1
+    for fallback in ${MODEL_ROUTING_CLAUDE_FALLBACKS[$index]}; do
+      printf 'L|%s\n' "$fallback" >> "$values_file" || return 1
+    done
+  done
+  for fallback in "${MODEL_ROUTING_TABLE_REFERENCED_CODEX[@]}"; do
+    printf 'C|%s\n' "$fallback" >> "$values_file" || return 1
+  done
+  python3 - "$root/../global/CLAUDE.md" "$values_file" <<'PY'
+import re
+import sys
+
+claude_path, values_path = sys.argv[1:]
+lines = open(claude_path).read().splitlines()
+heading = lines.index("### Equivalence table")
+table_lines = []
+started = False
+for line in lines[heading + 1:]:
+    if line.startswith("|"):
+        started = True
+        table_lines.append(line)
+    elif started:
+        break
+table = "\n".join(table_lines)
+table_slugs = set(re.findall(r"\b(?:gpt|claude)-[A-Za-z0-9.-]+\b", table))
+expected = set()
+for line in open(values_path):
+    kind, slug = line.rstrip("\n").split("|", 1)
+    assert kind in {"C", "L"}
+    expected.add(slug)
+assert table_slugs == expected, ("table-only", table_slugs - expected, "data-only", expected - table_slugs)
+PY
 }
 
 invoke_first_edit() {
@@ -374,6 +429,7 @@ record 'bd-ready silent: bd readyfoo' bd_silent 'bd readyfoo'
 record 'bd-ready silent: abd ready' bd_silent 'abd ready'
 record 'bd-ready silent: bd list' bd_silent 'bd list'
 record 'bd-ready silent: quoted phrase' bd_silent "printf 'bd ready'"
+record 'model-routing data slugs exactly match the CLAUDE equivalence table' model_routing_table_matches_claude
 record 'exitplan emits valid Codex-first JSON' exitplan_valid
 record 'first-edit fires once: fresh session' first_edit_fires 'fresh-session'
 record 'first-edit silent: repeated session' first_edit_silent 'fresh-session'
