@@ -39,7 +39,7 @@ GIT_AUTHOR_DATE='2026-09-02T12:00:00Z' GIT_COMMITTER_DATE='2026-09-02T12:00:00Z'
   git -C "$fixture_repo" commit -qm 'fixture: script change'
 
 printf '%s\n' \
-  'branch-review	1111111	2026-09-02T10:00:00Z	rounds=4 verdict=GO open_blockers=0 classes=security user_decision="authorize one extra round"' > "$ledger"
+  'branch-review	1111111	2026-09-02T10:00:00Z	rounds=4 verdict=GO open_blockers=0 classes=security user_decision=authorize one extra round' > "$ledger"
 printf '%s\n' \
   'branch-review	2222222	2026-09-03T11:00:00Z	rounds=2 verdict=NO-GO open_blockers=1 classes=integrity' \
   'branch-review	3333333	2026-09-04T12:00:00Z	rounds=not-a-number verdict=GO open_blockers=0 classes=coverage' \
