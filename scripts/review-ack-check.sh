@@ -35,6 +35,18 @@ review_ack_field_count() {
   printf '%s' "$count"
 }
 
+review_ack_has_quoted_user_decision() {
+  # New acknowledgements require a complete, non-empty quoted decision. Keep
+  # review_ack_field() lenient because retro-evidence.sh uses it for history.
+  [[ "$1" =~ (^|[[:space:]])user_decision=\"[^\"]+\"([[:space:]]|$) ]]
+}
+
+review_ack_user_decision_valid() {
+  local note=$1
+  [[ "$note" =~ (^|[[:space:]])user_decision= ]] || return 0
+  [ "$(review_ack_field_count "$note" user_decision)" -eq 1 ] && review_ack_has_quoted_user_decision "$note"
+}
+
 # Other measurement scripts source these parsing helpers so field syntax has one definition.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
@@ -87,9 +99,19 @@ done
 [ -n "$verdict" ] || fail 'missing verdict='
 [ -n "$open_blockers" ] || fail 'missing open_blockers='
 [ -n "$classes" ] || fail 'missing classes='
-case "$rounds" in *[!0-9]*) fail 'invalid rounds=' ;; esac
+# Validate the original record before using the lenient historical extractor above.
+# Otherwise quoted values and trailing text can be stripped into valid-looking fields.
+[[ "$note" =~ (^|[[:space:]])rounds=([1-9][0-9]*)([[:space:]]|$) ]] || fail 'invalid rounds='
+[[ "$note" =~ (^|[[:space:]])verdict=(GO|NO-GO)([[:space:]]|$) ]] || fail 'invalid verdict='
+[[ "$note" =~ (^|[[:space:]])open_blockers=([0-9]+)([[:space:]]|$) ]] || fail 'invalid open_blockers='
+[[ "$note" =~ (^|[[:space:]])classes=([1-5])(,[1-5])*([[:space:]]|$) ]] || fail 'invalid classes='
+[[ "$rounds" =~ ^[1-9][0-9]*$ ]] || fail 'invalid rounds='
 case "$open_blockers" in *[!0-9]*) fail 'invalid open_blockers=' ;; esac
 case "$verdict" in GO|NO-GO) ;; *) fail 'invalid verdict=' ;; esac
+[[ "$classes" =~ ^[1-5](,[1-5])*$ ]] || fail 'invalid classes='
+if ! review_ack_user_decision_valid "$note"; then
+  fail 'invalid user_decision= (must be double-quoted and non-empty)'
+fi
 
 if [ "$rounds" -gt "$max_rounds" ] && [ -z "$user_decision" ]; then
   fail "rounds=$rounds exceeds max_rounds=$max_rounds"
