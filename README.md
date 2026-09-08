@@ -169,7 +169,7 @@ Removes the symlinks and restores any backed-up directories.
 Fork this repo and modify agents/rules to match your workflow. The agents are markdown files — no build step, no dependencies.
 
 Key customization points:
-- Agent models: change `model:` in frontmatter (e.g., `claude-haiku-4-5-20251001` for cheaper quality checks)
+- Agent models: change `model:` in frontmatter (e.g., `claude-haiku-4-5` for cheaper quality checks)
 - Quality thresholds: adjust per-project via Agent Config, not by modifying the global agent
 - Additional agents: add new `.md` files to `agents/`
 - Additional rules: add new `.md` files to `rules/`

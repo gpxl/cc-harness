@@ -251,7 +251,7 @@ is expensive to move.
 **Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
 by default.** Opus 5 is for a session where the *orchestration itself* is the hard part
 (multi-repo state, a delicate migration). If the hard part is the engineering, that is a
-`gpt-6-astra` handoff, not an Opus session. `claude-haiku-4-5-20251001` is enough for a
+`gpt-6-astra` handoff, not an Opus session. `claude-haiku-4-5` is enough for a
 forward-and-report loop.
 
 ### Keeping Claude's context small
