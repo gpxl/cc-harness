@@ -23,5 +23,8 @@ The tracked catalog is generated from `hooks/model-routing-table.sh`: run
 `scripts/sync-codex-agents.sh --check` to detect a stale catalog. Run
 `scripts/codex-routing-check.sh --project <repo>` after installation to find missing installed
 links, project role shadows, copied legacy role files, and project-level routing defaults. It is
-read-only and never removes project configuration. See the [official subagent configuration
+read-only and never removes project configuration. It uses Python 3.11+'s standard-library
+`tomllib` to inspect TOML semantics and fails closed when parsing fails. A nonempty
+`AGENTS.override.md` has higher discovery precedence than `AGENTS.md`; empty or remove it before
+claiming shared routing is active. See the [official subagent configuration
 guide](https://learn.chatgpt.com/docs/agent-configuration/subagents) for client behavior.

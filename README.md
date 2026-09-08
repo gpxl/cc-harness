@@ -73,7 +73,9 @@ run `scripts/codex-routing-check.sh --project /path/to/project` to report missin
 local role shadows, and copied routing defaults without changing files. The role catalog is
 generated from the shared routing table; after updating it, run `scripts/sync-codex-agents.sh` and
 then `scripts/sync-codex-agents.sh --check`. Clients may need a new Codex session to refresh the
-discovered role catalog. See the [native subagent configuration guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+discovered role catalog. Semantic routing checks use Python 3.11+'s standard-library `tomllib`
+and fail closed when a role or project config cannot be parsed; no third-party dependency is
+installed. See the [native subagent configuration guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 
 ## How it works
 

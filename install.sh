@@ -25,11 +25,33 @@ codex_conflict() {
   return 1
 }
 
+codex_backup_path() {
+  local target="$1"
+  local base candidate suffix
+  base="${target}.backup.$(date +%Y%m%d%H%M%S)"
+  candidate="$base"
+  suffix=0
+  while [ -e "$candidate" ] || [ -L "$candidate" ]; do
+    suffix=$((suffix + 1))
+    candidate=$(printf '%s.%04d' "$base" "$suffix")
+  done
+  printf '%s\n' "$candidate"
+}
+
+codex_role_name() {
+  python3 "${HARNESS_DIR}/scripts/codex-toml-inspect.py" role-name "$1"
+}
+
 # Check every native Codex destination before changing either user configuration.
 # Role names are reserved by this harness only; a personal role with the same name is
 # never overwritten.  The global AGENTS.md may be safely backed up and restored.
 preflight_codex_targets() {
-  local role target source
+  local role target source agent name override
+  override="${CODEX_DIR}/AGENTS.override.md"
+  if [ -s "$override" ]; then
+    codex_conflict "active global instruction override: $override (empty or remove it before activating shared routing)"
+    return 1
+  fi
   if [ -e "${CODEX_DIR}/agents" ] || [ -L "${CODEX_DIR}/agents" ]; then
     [ -d "${CODEX_DIR}/agents" ] && [ ! -L "${CODEX_DIR}/agents" ] || { codex_conflict "${CODEX_DIR}/agents (expected directory)"; return 1; }
   fi
@@ -48,6 +70,24 @@ preflight_codex_targets() {
       return 1
     fi
   done
+  if [ -d "${CODEX_DIR}/agents" ]; then
+    while IFS= read -r agent; do
+      if ! name=$(codex_role_name "$agent"); then
+        codex_conflict "unable to inspect agent TOML: $agent"
+        return 1
+      fi
+      for role in "${CODEX_ROLES[@]}"; do
+        if [ "$name" = "$role" ]; then
+          target="${CODEX_DIR}/agents/${role}.toml"
+          source="${HARNESS_DIR}/codex/agents/${role}.toml"
+          if [ "$agent" != "$target" ] || [ ! -L "$target" ] || [ "$(readlink "$target")" != "$source" ]; then
+            codex_conflict "semantic role collision: $agent declares $name"
+            return 1
+          fi
+        fi
+      done
+    done < <(find -L "${CODEX_DIR}/agents" -type f -name '*.toml' -print)
+  fi
 }
 
 link_codex_global() {
@@ -58,7 +98,8 @@ link_codex_global() {
     return
   fi
   if [ -e "$target" ] || [ -L "$target" ]; then
-    local backup="${target}.backup.$(date +%Y%m%d%H%M%S)"
+    local backup
+    backup=$(codex_backup_path "$target")
     echo "  AGENTS.md   existing target backed up to ${backup}"
     mv "$target" "$backup"
   fi

@@ -11,6 +11,8 @@ failures=0
 
 usage() { printf '%s\n' 'Usage: scripts/codex-routing-check.sh [--codex-dir <path>] [--project <path>]'; }
 issue() { printf 'CODEX ROUTING CHECK: %s\n' "$1" >&2; failures=$((failures + 1)); }
+role_name() { python3 "$root/scripts/codex-toml-inspect.py" role-name "$1"; }
+routing_defaults() { python3 "$root/scripts/codex-toml-inspect.py" routing-defaults "$1"; }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -26,8 +28,42 @@ if ! "$root/scripts/sync-codex-agents.sh" --check; then
   issue 'generated role catalog is stale'
 fi
 
+inspect_agent_identities() {
+  local agents_dir="$1" scope="$2" agent name role expected
+  [ -e "$agents_dir" ] || [ -L "$agents_dir" ] || return 0
+  if [ ! -d "$agents_dir" ]; then
+    issue "unable to inspect agent directory: $agents_dir"
+    return 0
+  fi
+  while IFS= read -r agent; do
+    if ! name=$(role_name "$agent"); then
+      issue "unable to inspect agent TOML: $agent"
+      continue
+    fi
+    for role in "${roles[@]}"; do
+      [ "$name" = "$role" ] || continue
+      if [ "$scope" = global ]; then
+        expected="$codex_dir/agents/$role.toml"
+        if [ "$agent" != "$expected" ] || [ ! -L "$expected" ] || [ "$(readlink "$expected")" != "$root/codex/agents/$role.toml" ]; then
+          issue "semantic role collision: $agent declares $name"
+        fi
+      else
+        issue "semantic project role shadow: $agent declares $name"
+      fi
+    done
+    if [ "$scope" = project ]; then
+      for role in "${legacy_roles[@]}"; do
+        [ "$name" = "$role" ] && issue "legacy project role copy: $agent declares $name"
+      done
+    fi
+  done < <(find -L "$agents_dir" -type f -name '*.toml' -print)
+}
+
 global_target="$codex_dir/AGENTS.md"
 global_source="$root/global/CLAUDE.md"
+if [ -s "$codex_dir/AGENTS.override.md" ]; then
+  issue "active global instruction override: $codex_dir/AGENTS.override.md (empty or remove it to activate managed AGENTS.md)"
+fi
 if [ ! -L "$global_target" ]; then
   issue "missing managed global instruction link: $global_target"
 elif [ "$(readlink "$global_target")" != "$global_source" ]; then
@@ -35,6 +71,8 @@ elif [ "$(readlink "$global_target")" != "$global_source" ]; then
 elif [ ! -f "$global_source" ]; then
   issue "missing managed global instruction source: $global_source"
 fi
+
+inspect_agent_identities "$codex_dir/agents" global
 
 for role in "${roles[@]}"; do
   target="$codex_dir/agents/$role.toml"
@@ -50,16 +88,17 @@ done
 
 if [ -n "$project_dir" ]; then
   [ -d "$project_dir" ] || issue "project directory not found: $project_dir"
-  for role in "${roles[@]}"; do
-    target="$project_dir/.codex/agents/$role.toml"
-    if [ -e "$target" ] || [ -L "$target" ]; then issue "project role shadow: $target"; fi
-  done
-  for role in "${legacy_roles[@]}"; do
-    target="$project_dir/.codex/agents/$role.toml"
-    if [ -e "$target" ] || [ -L "$target" ]; then issue "legacy project role copy: $target"; fi
-  done
-  if [ -f "$project_dir/.codex/config.toml" ] && grep -Eq '^[[:space:]]*default_subagent_(model|reasoning_effort)[[:space:]]*=' "$project_dir/.codex/config.toml"; then
-    issue "project routing default copy: $project_dir/.codex/config.toml"
+  if [ -s "$project_dir/AGENTS.override.md" ]; then
+    issue "active project instruction override: $project_dir/AGENTS.override.md (empty or remove it to adopt shared routing)"
+  fi
+  inspect_agent_identities "$project_dir/.codex/agents" project
+  config="$project_dir/.codex/config.toml"
+  if [ -e "$config" ] || [ -L "$config" ]; then
+    if ! defaults=$(routing_defaults "$config"); then
+      issue "unable to inspect project configuration: $config"
+    elif [ -n "$defaults" ]; then
+      issue "project routing default copy: $config"
+    fi
   fi
   if [ -f "$project_dir/AGENTS.md" ] && ! grep -F 'harness_' "$project_dir/AGENTS.md" >/dev/null; then
     issue "project AGENTS.md does not reference shared harness roles: $project_dir/AGENTS.md"
