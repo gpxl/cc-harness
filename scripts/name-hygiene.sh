@@ -77,6 +77,9 @@ if not denied:
 
 # Hyphenated compounds are one token AND their parts, because hashing cannot match substrings.
 TOKEN = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*")
+# Ticket-shaped: a short alphabetic namespace, a hyphen, then a suffix that contains at least
+# one digit. The digit is what keeps ordinary hyphenated words ("audio-app") out.
+TICKET = re.compile(r"^([a-z]{2,10})-(?=[a-z0-9]{1,8}$)(?=[a-z]*\d)[a-z0-9]+$")
 
 def variants(token):
     """Every contiguous hyphen-run of the token, lowercased.
@@ -87,6 +90,12 @@ def variants(token):
     """
     low = token.lower()
     yield low
+    # A ticket id is private in its NAMESPACE, not its number: denying ABC-2823 alone lets
+    # ABC-9999 through. Emit a number-erased form so one hash covers the whole namespace, while
+    # the bare prefix on its own (an ordinary English word, often) stays un-denied.
+    ticket = TICKET.match(low)
+    if ticket:
+        yield f"{ticket.group(1)}-#"
     if "-" not in low:
         return
     parts = [p for p in low.split("-") if p]

@@ -197,6 +197,29 @@ else
   pass 'shipped denylist holds only hashes and comments'
 fi
 
+# A ticket namespace is denied across every number: denying one id alone would let the next
+# ticket in the same private namespace through (round-3 review finding).
+ticket="$workdir/ticket"
+make_repo "$ticket" || exit 1
+tk_a=$(printf 'zzc-%s' '2823'); tk_b=$(printf 'zzc-%s' '9999'); tk_c=$(printf 'zzc-%s' '8rn')
+printf '%s\n' "$tk_a" > "$ticket/a.md"
+git -C "$ticket" add -A >/dev/null 2>&1
+git -C "$ticket" commit --quiet -m 'docs: ticket a' >/dev/null 2>&1
+tk_denylist="$workdir/ticket-hashes.txt"
+printf '%s  # ZZC-<n> (synthetic ticket namespace)\n' \
+  "$(printf '%s' "$(printf 'zzc-%s' '#')" | shasum -a 256 | cut -d' ' -f1)" > "$tk_denylist"
+expect_rc 'a denied ticket namespace catches the recorded id' 1 \
+  bash "$tool" --root "$ticket" --denylist "$tk_denylist" --no-history
+printf '%s\n' "$tk_b" > "$ticket/a.md"
+expect_rc 'the same namespace with a different number also fails' 1 \
+  bash "$tool" --root "$ticket" --denylist "$tk_denylist" --no-history
+printf '%s\n' "$tk_c" > "$ticket/a.md"
+expect_rc 'the same namespace with an alphanumeric suffix also fails' 1 \
+  bash "$tool" --root "$ticket" --denylist "$tk_denylist" --no-history
+printf '%s\n' 'an ordinary hyphenated word like audio-app and a bare zzc' > "$ticket/a.md"
+expect_rc 'the bare namespace word alone does not false-positive' 0 \
+  bash "$tool" --root "$ticket" --denylist "$tk_denylist" --no-history
+
 # THE GATE ITSELF. Everything above proves the checker can go red against fixtures; this runs it
 # against THIS repository's tracked tree, which is what makes registering the selftest in
 # scripts/verify.sh actually gate anything. Without it the suite is green while the tree leaks

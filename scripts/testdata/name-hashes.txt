@@ -15,7 +15,6 @@
 7fb35d4777487797615cfa7c57724a47ba99152485600ccdb98e3871a6d05b21  # WebAppMonoRepo (client name)
 48621d3825aee2ae3599aca03adb1eaba9e9ec2ea28981f1aebb7691a8119229  # a generic asset name (client company)
 145b7026a7e6d05cfe057bf7689ae0d6f440cf5e87c7acde0aae6bb39a519cb5  # "another project" (tool name)
-1de553f1a3b77b382ef8491b315e7223285e0d75098a3da593d8a31519540fce  # WEB-2800 (ticket namespace)
-bb64328974b6a4d34cf10d2f272ba5fbeccfcfe00d1fd75306e6df1080bc906b  # WEB-2823 (ticket namespace)
-2c27738e40e0834b033ad3835bb956ec883d9e36110c5a80579895cb5f1e1c87  # web-8rn (ticket namespace)
 570fb96e91b7a4255b5b881df7b90b6ccb2622affe138341667506cff3b788b4  # NEGATIVE CONTROL: synthetic canary, never a real name
+9d988d0fabe85d0d7fdf384fe29ed451e46fa96a5dd25180e9b6d7d7e65a84e1  # WEB-<n> (ticket namespace, any number)
+94cc28e152490f7ff38ff062c43b970ff4f2a80356f1a2e9ae8fb94a10fc9af9  # web-<n> (ticket namespace, any number)
