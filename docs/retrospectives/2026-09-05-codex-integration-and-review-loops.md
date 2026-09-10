@@ -1,18 +1,17 @@
 # Codex integration and unbounded review loops
 
-**Period:** 29 August – 5 September 2026 · **Repos:** StemLab, cc-harness · **Published:** 2026-09-05
-**Shareable rendering:** <https://claude.ai/code/artifact/90a4771d-cb2d-4d73-9e7f-63ec43b1dc5d>
+**Period:** 29 August – 5 September 2026 · **Repos:** AudioApp (a native macOS/Swift audio app), cc-harness · **Published:** 2026-09-05
 
-First entry in this series, so there is no previous follow-through section. Sources: 30 StemLab
+First entry in this series, so there is no previous follow-through section. Sources: 30 AudioApp
 pull requests, the merge-gate acknowledgement ledger (277 rows), `docs/reference/rule-histories.md`,
-`docs/reference/loop-baseline-2026-09.md`, targeted transcript searches, and `loop-report.sh`
+the appendix below, targeted transcript searches, and `loop-report.sh`
 / `routing-report.sh` runs on 5 September.
 
 ## Summary
 
 | | |
 |---:|---|
-| **12** | review rounds on StemLab PR #410, 22 commits, 19 of them fixes; the last blocker was fabricated |
+| **12** | review rounds on AudioApp PR #8, 22 commits, 19 of them fixes; the last blocker was fabricated |
 | **65** | merge-gate invocations in one session, against a target of 2 per pull request |
 | **12** | commits to live, globally shared rules and scripts in six days |
 | **3** | round cap now enforced by the merge gate; a fourth round needs the owner's words in the acknowledgement |
@@ -28,7 +27,7 @@ product.
 
 The response landed in three parts: an instrument that counts rounds, gate runs and messages per
 pull request; a rule that caps review at three rounds with same-reviewer resume and
-fix/bead/unverified triage; and mechanical enforcement in StemLab's merge gate plus shared scripts
+fix/bead/unverified triage; and mechanical enforcement in AudioApp's merge gate plus shared scripts
 in cc-harness. Results are early and mixed. All three pull requests run under the cap reached it.
 One merged after the owner authorised a fourth round, one was split so the contested component
 could be rebuilt separately, one merged after a root-cause fix elsewhere. The enforcement scripts
@@ -45,43 +44,43 @@ deliberate choice, and each widened the blast radius of a mistake.
 | **cc-harness** | One repository holding the global Claude Code instructions and rules. `~/.claude/CLAUDE.md`, `~/.claude/rules` and `~/.claude/scripts` are symlinks into it. | A rule commit changes every project's behaviour at once, live. There is no staging. Incident rationale lives in `docs/reference/rule-histories.md`, which is never loaded into context. |
 | **Codex-first routing** | Claude is the orchestrator: decide, delegate, verify, gate, commit. Implementation, debugging and review go to OpenAI models through the `openai-codex` plugin (1.0.6, codex-cli 0.147.0). The budget rule: spend the OpenAI allowance first, Claude tokens are the reserve. | Every review round, fix and negative control is a Codex job with its own status model, sandbox and thread. Misreading any of those is a workflow incident, not a tooling nit. |
 | **Adversarial branch review** | A read-only reviewer is dispatched when a diff hits one of five risk classes: lifetime/cancellation, persistence, integrity of a check or the policy behind it, trusted external surface, real-time audio. It returns GO or NO-GO with BLOCKER/MAJOR/MINOR findings. | Until 4 September the rule's step 5 read "Repeat until GO". |
-| **StemLab merge gate** | No server-side CI. `scripts/merge-gate.sh` runs build, tests, a signed bundle plus launch smoke, path-triggered scanners, and checks a ledger of manual-step acknowledgements keyed by commit sha. Only `MERGE GATE RESULT: PASS` authorises a merge. | The acknowledgement ledger is the only durable record of review rounds, which is how we can count them at all. It is also where the cap is enforced. |
+| **AudioApp merge gate** | No server-side CI. `scripts/merge-gate.sh` runs build, tests, a signed bundle plus launch smoke, path-triggered scanners, and checks a ledger of manual-step acknowledgements keyed by commit sha. Only `MERGE GATE RESULT: PASS` authorises a merge. | The acknowledgement ledger is the only durable record of review rounds, which is how we can count them at all. It is also where the cap is enforced. |
 | **Worktrees and peer sessions** | Several Claude sessions run against the same repository at once, each in its own git worktree, and can message each other. | Peer messaging turned into engineering debate and delegation. Worktrees isolate git state but not machine state, window-server locks or caches. |
 | **beads (`bd`)** | A local issue tracker. Every task is an issue with acceptance criteria; the issue is meant to be the stop condition for work. | The loops happened when review findings replaced the issue's acceptance criteria as the definition of done. |
 | **Verification-integrity rules** | Exit codes never read through a pipe; every new guard proven by mutating the source and watching the test go red; instruments must distinguish healthy from not looking. | This discipline caught most of the week's defects, including defects in the fix itself. |
 
 ## Timeline
 
-- **29–30 Aug** — Normal week. StemLab ships #389–#392. The ledger already shows a four-round
+- **29–30 Aug** — Normal week. AudioApp ships PR #1–#4. The ledger already shows a four-round
   review that found two real defects, and feature pull requests taking 49–74 hours open to merge.
 - **31 Aug – 1 Sep** — Codex job-status integrity rule lands, then a second commit for the missing
   `queued` state. The dispatch, wait and broker protocol follows after a foreground timeout killed
   a worker while its app-server turn kept editing files. A session in another repository reads
   `running` as live for 25 minutes before learning no job existed.
-- **2 Sep** — PR #404 merges after six review rounds with a fresh, no-context Codex reviewer each
+- **2 Sep** — AudioApp PR #6 merges after six review rounds with a fresh, no-context Codex reviewer each
   round. A note claims the Codex stop-time review gate is on in every main checkout.
 - **3 Sep** — The review route changes three times in one day: the rule points at a user-typed-only
   slash command, a peer refuses a Bash workaround, a Claude reviewer stands in and returns three
   MAJOR NO-GOs, and the route settles on read-only `/codex:rescue`. The stop-gate claim is measured
   and found false. A selftest fix lands because bash 3.2 resets `$?` before the EXIT trap, so an
-  aborting selftest could look green. #406 merges after five rounds and six defects.
-- **4 Sep** — PR #410 opens at 06:44 and merges at 17:05 after twelve rounds and 22 commits. The
-  same session records 65 merge-gate invocations. PR #415 reaches four rounds with blockers going
+  aborting selftest could look green. AudioApp PR #7 merges after five rounds and six defects.
+- **4 Sep** — AudioApp PR #8 opens at 06:44 and merges at 17:05 after twelve rounds and 22 commits. The
+  same session records 65 merge-gate invocations. AudioApp PR #10 reaches four rounds with blockers going
   4 → 9 → 6; its round-3 headline blocker is fabricated and costs about an hour to disprove. At
-  20:43 a Codex task is cancelled by hand. At 22:37 the bounded-review plan is approved and #418
+  20:43 a Codex task is cancelled by hand. At 22:37 the bounded-review plan is approved and AudioApp PR #11
   opens.
-- **5 Sep** — #418 merges at 05:13 after four rounds. cc-harness #40 lands the bounded rules and the
+- **5 Sep** — AudioApp PR #11 merges at 05:13 after four rounds. cc-harness #40 lands the bounded rules and the
   freeze; #41 edits a frozen rule 79 minutes later. The merge-gate evaluation, the gate-slimming PR
-  #419 and the shared-scripts PR #42 run under the new rule; both reach round three and stop.
+  AudioApp PR #12 and the shared-scripts PR #42 run under the new rule; both reach round three and stop.
 
 ## What went wrong
 
 ### The unbounded review loop
 
-PR #410 (paging and search in the SetDigger Crate Dig tab) went through twelve adversarial rounds.
+AudioApp PR #8 (paging and search in a paginated browse tab) went through twelve adversarial rounds.
 Three of the branch's seven defects came from its own fixes. The session behind it produced 2,360
 assistant messages, 963 Bash calls, 60 subagent calls, 65 merge-gate runs, 156 test-suite runs and
-90 builds for roughly six pull requests. PR #415's rounds diverged (4, then 9, then 6 blockers) and
+90 builds for roughly six pull requests. AudioApp PR #10's rounds diverged (4, then 9, then 6 blockers) and
 its session wrote: *"the hook has been working since round 2 — what consumed the last several hours
 is proving it works."*
 
@@ -93,8 +92,8 @@ triage line per finding.
 
 ### Review found real defects too
 
-#396 had two rounds and four MAJORs, one found only on the recheck. #406 had five rounds, six
-defects in a one-audio-owner race, and ten deliberate negative controls. #404's six rounds found six
+AudioApp PR #5 had two rounds and four MAJORs, one found only on the recheck. AudioApp PR #7 had five rounds, six
+defects in a one-audio-owner race, and ten deliberate negative controls. AudioApp PR #6's six rounds found six
 real reporting defects, including a stage that conflated an unavailable temp directory with zero.
 
 The loop is not worthless. Independent review adds signal on cancellation, ownership and
@@ -123,7 +122,7 @@ than trusting them.
 
 ### The sandbox cannot build the product
 
-Codex tasks in StemLab cannot run `swift build` or the test runner even with the sandbox disabled
+Codex tasks in AudioApp cannot run `swift build` or the test runner even with the sandbox disabled
 and the SwiftPM cache made writable. Swift's macro plugin host runs under `sandbox-exec`, and nested
 Seatbelt inside Codex's sandbox fails with "Operation not permitted". Every `@State` and
 `@Observable` site errors out.
@@ -151,10 +150,10 @@ subcommand, and is documented as such.
 ### Verification that could not fail
 
 Bash 3.2 resets `$?` before the EXIT trap fires, so an aborting selftest could report green; fixed on
-3 September in the hook, Codex and merge selftests. A #412 session noted *"the gates were all green
-through every one of these; only the real bundle showed it."* Open StemLab bead `sl-en6e` records a
+3 September in the hook, Codex and merge selftests. An AudioApp PR #9 session noted *"the gates were all green
+through every one of these; only the real bundle showed it."* Open AudioApp bead `aa-en6e` records a
 large-diff merge gate under-firing path stages through SIGPIPE under `pipefail`. A watcher in the
-#410 session gave a false green because zsh does not word-split unquoted variables.
+AudioApp PR #8 session gave a false green because zsh does not word-split unquoted variables.
 
 Status was read through pipes and traps rather than captured at the source, and instruments
 themselves were under-tested. This class has not disappeared. It is why every new guard this week
@@ -172,8 +171,8 @@ The root cause was in the harness, not in one prompt. The commit agent's templat
 their Agent Config. Several commits already on cc-harness `main` carry the trailer. The owner chose
 to fix the root rather than rewrite history: `co_author` is now `(none)` in all four projects, the
 trailer and the "Generated with" pull-request footer are gone from the commit agent, and the agent
-greps the unpushed commits for agent trailers before pushing (cc-harness #43, SetDigger #779,
-setdigger-mixid #60, setdigger-newsletter #32). #42 squash-merged with a clean body, so its trailers
+greps the unpushed commits for agent trailers before pushing (cc-harness #43, AudioWebsite PR #1,
+and three sibling projects). #42 squash-merged with a clean body, so its trailers
 never reached `main`.
 
 ### Collateral
@@ -183,7 +182,7 @@ never reached `main`.
 | Rules | Twelve commits between 31 Aug and 5 Sep changed live global rules or scripts: 692 lines for the dispatch protocol alone, 494 for the bounded-loop instrumentation. Three of the week's sessions were about the pipeline rather than the product. |
 | Peers | Top sessions sent 29, 20, 17, 15 and 14 peer messages; 109 of 134 in one day. Content was delegation and debate, not resource notices. |
 | Gates | 65 merge-gate runs, 258 test-runner runs and 182 builds in the baseline window, against a documented target of one qualifying run plus one dev run per pull request. Six parallel UI-gate agents once opened real windows on the desktop simultaneously. |
-| Local state | A #392 verification step that reset UserDefaults deleted real local app state. Five computer-use attempts on #382 were interrupted over ten minutes. Each worktree gate re-downloads 640 MB of model weights (`sl-cepx`, open). A worktree produced a false red when a machine-local symlink was missing. |
+| Local state | An AudioApp PR #4 verification step that reset UserDefaults deleted real local app state. Five computer-use attempts on AudioApp PR #C were interrupted over ten minutes. Each worktree gate re-downloads 640 MB of model weights (`aa-cepx`, open). A worktree produced a false red when a machine-local symlink was missing. |
 
 ## Why it happened
 
@@ -193,7 +192,7 @@ never reached `main`.
   each round, repeat until convergence". It leaked into code review. A reviewer without the prior
   rounds' findings re-derives them and finds adjacent ones; blocker counts go up, not down.
 - **Every finding became a commit.** MINOR, NIT, forward-looking and test-hardening findings were
-  fixed on the branch under review. Each fix reopened a round, and fixes introduced three of #410's
+  fixed on the branch under review. Each fix reopened a round, and fixes introduced three of AudioApp PR #8's
   seven defects.
 - **The orchestrator did implementation-grade work.** Negative controls, mutation harnesses and hand
   reproductions ran inline on the most expensive model — exactly the work the budget rule says is a
@@ -211,12 +210,12 @@ stop-gate claim, the user-typed review route — and had to be corrected the nex
 
 | Phase | Change | Where | Status |
 |---|---|---|---|
-| 0 · instrument | `loop-report.sh` counts review rounds, gate runs, merge-gate invocations, peer messages, assistant messages and subagent calls per transcript, with a selftest whose counters are proven able to read non-zero. Baseline recorded in `docs/reference/loop-baseline-2026-09.md`. | cc-harness #40 | merged |
+| 0 · instrument | `loop-report.sh` counts review rounds, gate runs, merge-gate invocations, peer messages, assistant messages and subagent calls per transcript, with a selftest whose counters are proven able to read non-zero. Baseline recorded in the appendix below. | cc-harness #40 | merged |
 | 1 · bound | Round budget 3. Rounds 2 and 3 resume the same reviewer thread. After round 3 with open blockers the orchestrator stops and escalates: merge with disclosure, grant more budget, or shelve. A fourth round exists only after the owner's words in chat, quoted in the acknowledgement. Triage per finding: FIX (blocker or major, inside acceptance, reproduced), BEAD (everything else), UNVERIFIED (one Codex attempt, then dropped or beaded). Fixes are one Codex task per round. Status line every round. | cc-harness #40 | merged |
-| 2 · enforce | The `branch-review` acknowledgement must carry `rounds= verdict= open_blockers= classes=`; the gate FAILs on rounds above three or NO-GO without `user_decision=`. `review-round.sh` is the only sanctioned way to dispatch a round: it owns the counter, refuses a fourth round without `--user-approved`, and resumes the recorded reviewer thread. `runs.log` records every gate run so re-runs on an already-passed tree are visible. | StemLab #418 | merged |
+| 2 · enforce | The `branch-review` acknowledgement must carry `rounds= verdict= open_blockers= classes=`; the gate FAILs on rounds above three or NO-GO without `user_decision=`. `review-round.sh` is the only sanctioned way to dispatch a round: it owns the counter, refuses a fourth round without `--user-approved`, and resumes the recorded reviewer thread. `runs.log` records every gate run so re-runs on an already-passed tree are visible. | AudioApp PR #11 | merged |
 | 3 · collapse | One review pass per branch; `code-review-high` satisfied by a branch-review acknowledgement. Peer messages bounded at three per peer per session beyond resource notices; a peer is never a reviewer or a worker. Model-routing gains the row: finding triage stays in Claude, the fix, reproduction and negative control go to Codex. | cc-harness #40 | merged |
 | 4 · freeze | No rule edits for 14 days unless a loop-report metric shows the edit is needed. Scripts may change. A scheduled read-only review fires 19 Sep. | `rule-histories.md` | **breached same day** |
-| gate eval | The merge gate evaluated against its own ledger: keep it, slim it, do not port it whole. Acknowledgements are checked first so a missing one costs a second instead of a full build; the last-summary is sha/tree stamped; every run appends to `runs.log`. Six gate bugs triaged. | StemLab #419 | merged |
+| gate eval | The merge gate evaluated against its own ledger: keep it, slim it, do not port it whole. Acknowledgements are checked first so a missing one costs a second instead of a full build; the last-summary is sha/tree stamped; every run appends to `runs.log`. Six gate bugs triaged. | AudioApp PR #12 | merged |
 | generalise | Only the bounded-review check is lifted into cc-harness as project-agnostic scripts: `review-round.sh` with state under the git common dir, `--collect`/`--adopt`, and `review-ack-check.sh` any project's gate can call. Selftests wired into `verify.sh`. | cc-harness #42 | merged |
 | attribution | `co_author` is `(none)` in every project; the commit agent no longer emits an agent trailer or the generated-with footer, and checks unpushed commits before pushing. | cc-harness #43 + 3 project PRs | merged |
 
@@ -238,8 +237,8 @@ branch-review  rounds=4 verdict=NO-GO open_blockers=1 classes=3 user_decision="S
 
 | PR | Rounds | Outcome | What the sample shows |
 |---|---:|---|---|
-| StemLab #418 | 4 | merged, 6.6 h open | The bounded-review change itself exhausted its own budget at NO-GO. The orchestrator escalated as designed; the owner authorised a fourth round, which returned GO. The cap worked as a stop. It did not make the review converge faster. |
-| StemLab #419 | 4 | split; slimming merged, lock beaded | The UI-lock design ratcheted: four findings, then a reclaim race, then an unrecoverable guard, then a simplification to an atomic-rename election, each proven by source mutation. The owner-authorised fourth round found the simplification had reintroduced round 1's race: `mkdir` publishes the lock before its owner pid, so a contender paused in that window can be reclaimed as stale. A real finding, and a fix that undid an earlier fix. The branch was split: the slimming merged on a gate PASS, the lock returns under `sl-uqn9` with the selftest written first. |
+| AudioApp PR #11 | 4 | merged, 6.6 h open | The bounded-review change itself exhausted its own budget at NO-GO. The orchestrator escalated as designed; the owner authorised a fourth round, which returned GO. The cap worked as a stop. It did not make the review converge faster. |
+| AudioApp PR #12 | 4 | split; slimming merged, lock beaded | The UI-lock design ratcheted: four findings, then a reclaim race, then an unrecoverable guard, then a simplification to an atomic-rename election, each proven by source mutation. The owner-authorised fourth round found the simplification had reintroduced round 1's race: `mkdir` publishes the lock before its owner pid, so a contender paused in that window can be reclaimed as stale. A real finding, and a fix that undid an earlier fix. The branch was split: the slimming merged on a gate PASS, the lock returns under `aa-uqn9` with the selftest written first. |
 | cc-harness #42 | 3 | merged after a root-cause fix | Rounds 1 and 2 found real defects in the new scripts: the first version required a thread id at dispatch time, so a background job launched and ran *uncounted*, the exact failure the script exists to prevent. The `--collect` parser expected `Final output:` while real logs write `[ts] Final output`, so it never matched a real log until a captured sample replaced the hand-written fixture. Round 3 blocked on commit attribution, which was fixed at its root rather than by rewriting history. |
 
 Session counters over the two-day window, against the plan's targets:
@@ -250,7 +249,7 @@ Session counters over the two-day window, against the plan's targets:
 | Merge-gate invocations | 65 / session | 45 | ≤ 2 / PR | Most are `--selftest` runs from mutation proofs while editing the gate itself, which the counter does not separate. Qualifying runs: 16 across three pull requests. Still above target. |
 | Peer messages | 29 / session | 1 | ≤ 6 | Peer messaging was disabled for this session, so this is a floor, not evidence the bound holds under load. |
 | Assistant messages per PR | ~400 | 430 / 3 PRs | ≤ 150 | Roughly 143 each if split evenly, but the gate evaluation and this retrospective are in the count. Not a clean measurement. |
-| Feature PR open→merge | 49–74 h | 6.6 h (#418) | ≤ 12 h | One sample. |
+| Feature PR open→merge | 49–74 h | 6.6 h (AudioApp PR #11) | ≤ 12 h | One sample. |
 | Rule edits during freeze | 12 in 6 days | 1 | 0 | cc-harness #41, 24 lines in a frozen rule, merged 79 minutes after the freeze without citing a metric. |
 
 **What did not work.** The cap has not made a review converge in fewer rounds; it has made the loop
@@ -272,13 +271,13 @@ failing a merge run in one second on a missing acknowledgement before any build 
 
 | Item | Bead |
 |---|---|
-| Machine-global UI-gate lock with atomic owner publication, selftest first | `sl-uqn9` |
-| StemLab's gate still carries its own copy of the acknowledgement predicate; the `classes=` field format differs between it and the shared script | `sl-65pe` |
-| Large-diff merge gate under-fires path stages through SIGPIPE under `pipefail` | `sl-en6e` |
+| Machine-global UI-gate lock with atomic owner publication, selftest first | `aa-uqn9` |
+| AudioApp's gate still carries its own copy of the acknowledgement predicate; the `classes=` field format differs between it and the shared script | `aa-65pe` |
+| Large-diff merge gate under-fires path stages through SIGPIPE under `pipefail` | `aa-en6e` |
 | `review-round.sh`'s delayed-thread path has no negative control | `cch-g81` |
 | `--collect` does not extract bold-bullet findings | `cch-aif` |
-| Worktree prune can remove an unmerged branch | `sl-m3eb` |
-| 640 MB of model weights re-downloaded per worktree gate | `sl-cepx` |
+| Worktree prune can remove an unmerged branch | `aa-m3eb` |
+| 640 MB of model weights re-downloaded per worktree gate | `aa-cepx` |
 | Codex cannot build Swift in its sandbox | structural, no bead |
 | Gates A, B and C unmeasured: five merged pull requests, five sessions, and ten pull requests' worth of post-merge escapes before anyone widens the round budget | — |
 
@@ -320,5 +319,33 @@ No token or dollar totals: the counts here are transcript occurrence counts and 
 billing data. No causal claim that the delegation rate produced useful work. No complete mapping of
 every pull request to its review rounds — the acknowledgement ledger is sha-keyed and several rows
 cannot be joined to a PR number. Ledger claims that a reviewer was "fresh" or that a negative
-control ran are assertions cited here, not replayed. One fabricated blocker is documented on #410;
+control ran are assertions cited here, not replayed. One fabricated blocker is documented on AudioApp PR #8;
 whether others were fabricated is unknown.
+
+## Appendix — baseline and targets
+
+| Measure | Baseline |
+|---|---|
+| Review rounds per branch, AudioApp `.build/merge-gate/acks`, 08-30→09-04 | 1, 1, 2, 5, 6, 4, 2 |
+| AudioApp PR #8 | session: 12 rounds; 22 commits; 19 `fix(` |
+| AudioApp PR #10 | 4 rounds; blockers 4→9→6; one fabricated |
+| Session `5f8ebb39` | 2,360 assistant messages; 963 Bash; 60 Agent; 65 `merge-gate` invocations; 156 `test.sh`; 90 `swift build` |
+| Peer messages per session | 29, 20, 17, 15, 14 |
+| Feature PR open→merge | AudioApp PR #2: 74h; AudioApp PR #4: 59h; AudioApp PR #3: 49h |
+| Rule rewrites in this repo | 11 in 8 days |
+
+| Target | Budget |
+|---|---|
+| Rounds | ≤2 typical; hard cap 3 |
+| `fix(` after first review | ≤3 |
+| `merge-gate` runs | ≤2 per PR |
+| Peer messages | ≤6 per session |
+| Assistant messages | ≤150 per merged PR |
+| Feature PR | ≤12h |
+| Post-merge escapes | not above ≈2 per 10 PRs |
+
+| Gate | Measure | On fail |
+|---|---|---|
+| A — after the rule+gate land | Next 5 merged AudioApp PRs: rounds ≤3, `fix(` ≤3, gate runs ≤2, ack fields parse | Fix the instrument or the text; never raise the cap. |
+| B | Next 5 sessions: peer messages ≤6, assistant messages/PR ≤150 | — |
+| C | 10 PRs: escapes not above baseline | Widen the budget to 4 only on a bead proving a round ≥4 would have caught an escape. |
