@@ -103,7 +103,7 @@ advisory is the one combination that makes this change a net loss.
 
 ### Why these classes
 
-Measured over 43 PRs on one project (StemLab, 2026-08-17 → 08-24; 39 cleared the old size gate).
+Measured over 43 PRs on one project (AudioApp, a native macOS/Swift audio app, 2026-08-17 → 08-24; 39 cleared the old size gate).
 
 **Every BLOCKER, and every MAJOR the audit classified, that Stage 2 *produced* in the window came
 from one of these surfaces.** That wording is deliberate and the limit matters: Stage 2 ran on 10 of 39 eligible
@@ -131,7 +131,7 @@ touching anything else.
 
 **Classes 1 and 4 additionally carry the founding incident** — a different project and a different
 stack, which is the point: this rule is global and the 43-PR window is one Swift app. From
-`docs/reference/rule-histories.md` §branch-completion-review (2026-08-06, SetDigger
+`docs/reference/rule-histories.md` §branch-completion-review (2026-08-06, AudioWebsite, a CMS-backed marketing web app,
 `feat/slide-in-demo-cta`):
 
 | Finding | Class |
@@ -143,7 +143,7 @@ stack, which is the point: this rule is global and the 43-PR window is one Swift
 That branch read as *pure UI and copy* under any size- or path-based trigger, which is exactly how
 it reached review unclassified. Under the five classes it now triggers three ways: CMS-managed
 content (4), a root-layout listener outliving navigation (1), and a once-per-session storage token
-(2). Class 4 is the class that closes that gap — do not delete it for want of a row in the StemLab
+(2). Class 4 is the class that closes that gap — do not delete it for want of a row in the AudioApp
 table, because its evidence is here, not there.
 
 The counter-evidence, which is why the trigger is not simply "everything": roughly **40% of Stage
@@ -216,7 +216,7 @@ After R3 with open BLOCKERs, the orchestrator **STOPS** and escalates one paragr
 |---|---|
 | **FIX** | On this branch only for a BLOCKER/MAJOR inside the bead's acceptance criteria with a reproduced failure — by the reviewer or by one Codex verification task, never by hand. |
 | **BEAD** | Everything else: MINOR, NIT, forward-looking, test-hardening, out-of-scope MAJOR, or pre-existing. Never make a fix commit for these on the branch. |
-| **UNVERIFIED** | A claimed red the reviewer could have executed and did not: one Codex verification attempt, then drop or bead. The fabricated BLOCKER on StemLab PR #415 (2026-09-04) is the standing counterexample. |
+| **UNVERIFIED** | A claimed red the reviewer could have executed and did not: one Codex verification attempt, then drop or bead. The fabricated BLOCKER on AudioApp PR #10 (2026-09-04) is the standing counterexample. |
 
 Fixes are **one Codex task per round** carrying the full finding list; negative controls are part of that task's contract, not orchestrator work. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
 
@@ -239,7 +239,7 @@ preferences:
 | Redundant with code-quality / verify? | **No.** Those are lint, typecheck, tests — deterministic. This stage's one founding BLOCKER was an *omission* after every gate was green. Different defect classes; neither replaces the other. |
 | Order | **Deterministic gates → commit → adversary → PR body.** Cheap, falsifiable checks before an expensive model read is fail-fast, and a NO-GO costs the same number of adversary runs wherever the commit sits. Committing first also makes the reviewed diff exactly `origin/<integration>...HEAD`. |
 | Adversary before the task starts? | **A complement, never a substitute.** A plan-stage pass (`/grill-me`) catches scope and approach on design-decision tasks — schema changes, shared-component restyles, new abstractions. It cannot see the omission class, because there is no code yet. Author's discretion, and it does not discharge this stage. |
-| How many rounds? | **Three, then the user decides** — measured 2026-09-04: 12-round and 4-round chains, blockers diverging 4→9→6. See `docs/reference/loop-baseline-2026-09.md`. |
+| How many rounds? | **Three, then the user decides** — measured 2026-09-04: 12-round and 4-round chains, blockers diverging 4→9→6. See the retrospective appendix, `docs/retrospectives/2026-09-05-codex-integration-and-review-loops.md`. |
 | How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely — **assessed, not measured**: the stop-gate has one recorded catch (a reap-while-running bug) and reviews at the stop that introduced a defect rather than at branch end, so the overlap is a judgment call. What is not a judgment call is precedence: **when this stage's trigger fires, Stage 2 runs and is never the pass that gets dropped.** The stop-gate is a per-workspace setting while the trigger is per-branch, so a repo whose branches can trigger Stage 2 leaves the stop-gate off permanently and states so; a repo whose branches never trigger it may keep the stop-gate as its one pass. |
 | Where does the real waste hide? | In project files that **restate** this rule instead of referencing it — they freeze the version they copied. Project files carry parameters only: which surfaces are class 1/4 *there*, the gate commands, the stated-skip line. See `claude-md-project-templates.md` § Referencing global rules. |
 

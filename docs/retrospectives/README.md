@@ -13,11 +13,13 @@ and what did we do about it". Link between them rather than restating either.
 
 | Date | Entry | Period | Headline | Shareable |
 |---|---|---|---|---|
-| 2026-09-05 | [Codex integration and unbounded review loops](2026-09-05-codex-integration-and-review-loops.md) | 29 Aug – 5 Sep 2026 | A PR reached 12 adversarial review rounds; review is now capped at 3 with mechanical enforcement | [artifact](https://claude.ai/code/artifact/90a4771d-cb2d-4d73-9e7f-63ec43b1dc5d) |
+| 2026-09-05 | [Codex integration and unbounded review loops](2026-09-05-codex-integration-and-review-loops.md) | 29 Aug – 5 Sep 2026 | A PR reached 12 adversarial review rounds; review is now capped at 3 with mechanical enforcement | — |
 
-The markdown file in this directory is canonical. The artifact is a rendering of the same content
-for people who will not open the repo; when the two disagree, the file wins. Record the artifact
-URL in the index so the next author republishes to it rather than creating a second one.
+The markdown file in this directory is canonical. A shareable rendering may be published for
+people who will not open the repo; when the two disagree, the file wins. Record its URL in the
+index so the next author republishes to it rather than creating a second one — and republish it
+whenever the entry changes, because a stale rendering of a scrubbed entry is a leak the repository
+cannot see (`../../rules/public-surface-hygiene.md`).
 
 ## Cadence
 
@@ -68,5 +70,9 @@ author, who is usually also the system under review.
   say why it is not comparable, rather than omitting it.
 - **No causal claim without a mechanism.** "Rounds fell after the cap" is a coincidence until you
   can point at the round that was refused.
+- **Write it publishable the first time.** Real project, client and ticket names never go in, not
+  even in a draft — substitute the purpose-based pseudonym from the private mapping as you write
+  (`../../rules/public-surface-hygiene.md`). An entry is scrubbed at authoring time or it is
+  scrubbed by a history rewrite later.
 - **Name what the evidence cannot establish.** The dossier's "Not measured" section goes into the
   entry, edited for the period, not dropped.

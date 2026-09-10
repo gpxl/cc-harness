@@ -1,0 +1,20 @@
+# Denied name hashes — lowercase SHA-256 of tokens that must never appear in this repo.
+#
+# NO PLAINTEXT. This file is public; the comment names only the PSEUDONYM side.
+# Enforced by scripts/name-hygiene.sh (wired into scripts/verify.sh via CLAUDE.md).
+# The substitution table lives OUTSIDE this repo — see rules/public-surface-hygiene.md.
+#
+# Hashing cannot match substrings, so every casing and compound form is its own line.
+# The hashes are unsalted and a short name falls to a dictionary: they exist to stop
+# accidental recurrence, not a determined reader. Stated plainly in the rule.
+
+247be42a8460b48531c8e35c3e494a0c86dd70b65b4f234ed4bc73474b76d994  # AudioApp (repo name)
+8207d1fb02731049dc0d88dd38cba2b05cda9a28efa0069c0b6f8530d85899d7  # AudioApp (app target compound)
+6c579f212c27edeb0fba3697213374d4f4a59d10c383bd18899f6136779ed428  # AudioWebsite (repo name)
+919be6fdbe328d2cc4e3bbb0049a3e34c0857b585db31ad3f57cf722c99af790  # AudioWebsiteMedia (service name)
+7fb35d4777487797615cfa7c57724a47ba99152485600ccdb98e3871a6d05b21  # WebAppMonoRepo (client name)
+48621d3825aee2ae3599aca03adb1eaba9e9ec2ea28981f1aebb7691a8119229  # a generic asset name (client company)
+145b7026a7e6d05cfe057bf7689ae0d6f440cf5e87c7acde0aae6bb39a519cb5  # "another project" (tool name)
+570fb96e91b7a4255b5b881df7b90b6ccb2622affe138341667506cff3b788b4  # NEGATIVE CONTROL: synthetic canary, never a real name
+9d988d0fabe85d0d7fdf384fe29ed451e46fa96a5dd25180e9b6d7d7e65a84e1  # WEB-<n> (ticket namespace, any number)
+94cc28e152490f7ff38ff062c43b970ff4f2a80356f1a2e9ae8fb94a10fc9af9  # web-<n> (ticket namespace, any number)

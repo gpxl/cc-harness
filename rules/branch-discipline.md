@@ -36,7 +36,7 @@ Use the project's documented convention if it has one (`CLAUDE.md` → `Agent Co
 - `claude/<short-kebab-description>` for interactive Claude Code sessions
 - `agent/<short-kebab-description>` for scheduled / autonomous routines
 
-Tie the description to the tracker id or PR intent when possible: `claude/cms-8rn-substrate-write-hook`, `claude/fix-stale-readme-badge`.
+Tie the description to the tracker id or PR intent when possible: `claude/web-8rn-substrate-write-hook`, `claude/fix-stale-readme-badge`.
 
 ## Where this fits
 
@@ -64,4 +64,4 @@ Reversible, but not routine: if you do this more than once a week, add the branc
 
 ## Enforcement and cleanup
 
-Rules steer the model; hooks are a hard stop. When a project keeps skipping the branch step, install a `PreToolUse` guard that refuses `Edit`/`Write`/`NotebookEdit` while HEAD is on an integration branch, with a narrow allowlist (`.beads/`, `MEMORY.md`, `~/.claude/plans/`, `~/.claude/projects/*/memory/`). Script, settings snippet, and the post-merge worktree/branch reaper: `docs/reference/branch-guard-setup.md` in cc-harness (SetDigger's `scripts/branch-guard.sh` is a live example).
+Rules steer the model; hooks are a hard stop. When a project keeps skipping the branch step, install a `PreToolUse` guard that refuses `Edit`/`Write`/`NotebookEdit` while HEAD is on an integration branch, with a narrow allowlist (`.beads/`, `MEMORY.md`, `~/.claude/plans/`, `~/.claude/projects/*/memory/`). Script, settings snippet, and the post-merge worktree/branch reaper: `docs/reference/branch-guard-setup.md` in cc-harness (AudioWebsite's `scripts/branch-guard.sh` is a live example).

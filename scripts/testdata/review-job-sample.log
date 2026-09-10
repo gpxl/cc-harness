@@ -17,8 +17,8 @@ I’ll inspect the supplied branch diff as a read-only, bounded review and focus
 [2026-09-05T06:50:48.247Z] Command completed: /bin/zsh -lc "sed -n '1,140p' scripts/codex-dispatch.sh && sed -n '150,205p' \""'$HOME/.claud... (exit 0)
 [2026-09-05T06:51:19.002Z] Running command: /bin/zsh -lc 'rg -n "review-ack-check|review-round|rounds=|user_decision" scripts /Users/gerl...
 [2026-09-05T06:51:19.126Z] Command completed: /bin/zsh -lc 'rg -n "review-ack-check|review-round|rounds=|user_decision" scripts /Users/gerl... (exit 0)
-[2026-09-05T06:51:22.860Z] Running command: /bin/zsh -lc 'ls -l /Users/gerlando/projects/stemlab/scripts/{merge-gate.sh,review-round.sh} ...
-[2026-09-05T06:51:22.983Z] Command completed: /bin/zsh -lc 'ls -l /Users/gerlando/projects/stemlab/scripts/{merge-gate.sh,review-round.sh} ... (exit 0)
+[2026-09-05T06:51:22.860Z] Running command: /bin/zsh -lc 'ls -l ~/projects/audio-app/scripts/{merge-gate.sh,review-round.sh} ...
+[2026-09-05T06:51:22.983Z] Command completed: /bin/zsh -lc 'ls -l ~/projects/audio-app/scripts/{merge-gate.sh,review-round.sh} ... (exit 0)
 [2026-09-05T06:51:27.103Z] Running command: /bin/zsh -lc 'rg -n "ack_valid|branch-review.*note|rounds=|open_blockers|user_decision" /User...
 [2026-09-05T06:51:27.103Z] Command completed: /bin/zsh -lc 'rg -n "ack_valid|branch-review.*note|rounds=|open_blockers|user_decision" /User... (exit 0)
 [2026-09-05T06:51:51.874Z] Assistant message captured: ### MAJOR — Fresh R2/R3 reviewers receive no prior findings `scripts/review-round.sh:140` rea...
@@ -30,11 +30,11 @@ I’ll inspect the supplied branch diff as a read-only, bounded review and focus
 
 Required action: add a defined persisted findings/disposition mechanism and a selftest proving a fresh R2 prompt includes it.
 
-### MAJOR — Required StemLab migration is explicitly deferred
+### MAJOR — Required AudioApp migration is explicitly deferred
 
-The task requires StemLab’s merge gate to delegate its acknowledgement validation and its review-round script to become a shim or be removed. This diff does neither; [review-round-scripts.md](/Users/gerlando/projects/cc-harness/docs/reference/review-round-scripts.md:20) explicitly says the migration is not part of this work.
+The task requires AudioApp’s merge gate to delegate its acknowledgement validation and its review-round script to become a shim or be removed. This diff does neither; [review-round-scripts.md](/Users/gerlando/projects/cc-harness/docs/reference/review-round-scripts.md:20) explicitly says the migration is not part of this work.
 
-Required action: complete the StemLab integration (with regression coverage), or formally narrow/split the acceptance criteria before merge.
+Required action: complete the AudioApp integration (with regression coverage), or formally narrow/split the acceptance criteria before merge.
 
 VERDICT: NO-GO  
 OPEN BLOCKERS: 2
@@ -47,11 +47,11 @@ OPEN BLOCKERS: 2
 
 Required action: add a defined persisted findings/disposition mechanism and a selftest proving a fresh R2 prompt includes it.
 
-### MAJOR — Required StemLab migration is explicitly deferred
+### MAJOR — Required AudioApp migration is explicitly deferred
 
-The task requires StemLab’s merge gate to delegate its acknowledgement validation and its review-round script to become a shim or be removed. This diff does neither; [review-round-scripts.md](/Users/gerlando/projects/cc-harness/docs/reference/review-round-scripts.md:20) explicitly says the migration is not part of this work.
+The task requires AudioApp’s merge gate to delegate its acknowledgement validation and its review-round script to become a shim or be removed. This diff does neither; [review-round-scripts.md](/Users/gerlando/projects/cc-harness/docs/reference/review-round-scripts.md:20) explicitly says the migration is not part of this work.
 
-Required action: complete the StemLab integration (with regression coverage), or formally narrow/split the acceptance criteria before merge.
+Required action: complete the AudioApp integration (with regression coverage), or formally narrow/split the acceptance criteria before merge.
 
 VERDICT: NO-GO  
 OPEN BLOCKERS: 2

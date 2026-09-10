@@ -100,7 +100,7 @@ run_subcommand --collect review-job --round 1
 findings="$state-r1-findings.md"
 if [ "$rc" -eq 0 ] && [ "$(<"$findings")" = "$(printf '%s\n' \
   '### MAJOR — Fresh R2/R3 reviewers receive no prior findings' \
-  '### MAJOR — Required StemLab migration is explicitly deferred' \
+  '### MAJOR — Required AudioApp migration is explicitly deferred' \
   'VERDICT: NO-GO' \
   'OPEN BLOCKERS: 2' \
   'Dispositions:')" ]; then
