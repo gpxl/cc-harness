@@ -2,6 +2,21 @@
 
 A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and native Codex. Six global Claude agents handle code quality, testing, commits, releases, PR monitoring, and verification; five native Codex roles provide shared bounded delegation without changing personal Codex settings.
 
+## What this is
+
+A **personal reference archive**: the agentic-coding harness I actually work with, and a record of
+how it changed. It is published so the reasoning is legible — every rule here exists because
+something specific broke, and [`docs/`](docs/) says what.
+
+It is **not** a supported product. There is no release process, no versioning promise, and no
+server-side CI. Read it, fork it, take the parts that fit — but if you run `./install.sh`, know
+that it rewrites `~/.claude/` and `~/.codex/` and changes how *every* Claude Code and Codex session
+on your machine behaves. Read that script, and [`SECURITY.md`](SECURITY.md), first.
+
+Start with [`docs/design-rationale.md`](docs/design-rationale.md) if you are here to understand the
+system rather than to install it. Incidents are described under purpose-based pseudonyms
+(`AudioApp`, `AudioWebsite`, …); [`docs/README.md`](docs/README.md) has the key.
+
 ## What you get
 
 | Agent | Purpose |
@@ -13,12 +28,12 @@ A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/c
 | **pr-monitor** | **Skipped entirely when Agent Config `ci` is `none`** — it exists to poll CI checks. Where CI exists: watches checks and auto-merges on green only when (a) the branch matches `branch_pattern` and (b) the PR carries one of `auto_merge_labels`. PRs without a permitted label get CI watched but emit `AWAITING_HUMAN`. Unset `auto_merge_labels` skips label-gating. |
 | **verification** | Adversarial verification before reporting done. Consumes the recorded gate rather than re-running the suite, then spends its run trying to break the change. Anti-rationalization catalog. |
 
-Plus rules for test quality, memory discipline, CLAUDE.md project templates, and agent purpose statements.
+Plus eighteen rules covering verification integrity, test quality, delegation, parallel-session isolation, and public-surface hygiene — listed under [Rules included](#rules-included).
 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cc-harness.git
+git clone https://github.com/gpxl/cc-harness.git
 cd cc-harness
 ./install.sh
 ```
@@ -183,12 +198,29 @@ in every session. Maintainer-only history (incidents, measurements, setup boiler
 
 | Rule | What it provides |
 |------|-----------------|
+| **agent-enforcement** | The agent pipeline is mandatory: no manual `git add`/`commit`/`push`, which step is exempt when, and branch cleanup on merge |
 | **pipeline-contract** | The gate-once contract: who runs the verify, the result-line formats, consume-don't-re-run, and the small-diff fast path |
-| **testing-guidelines** | Test quality checklist (Q1-Q8), TDD workflow, anti-patterns, session close protocol |
-| **claude-md-project-templates** | NEVER rules template + autonomy tier template for project CLAUDE.md |
-| **memory-discipline** | Memory exclusion reinforcements + recall-time verification protocol |
-| **agent-purpose-statements** | Purpose statement pattern for manual agent orchestration |
-| **agent-isolation** | Worktree-based isolation for parallel-safe pipelines — when/how to use `git worktree` so concurrent Claude sessions don't corrupt each other's branch state |
+| **branch-discipline** | Feature-branch-first — branch *before* the first edit, never commit on an integration branch, and how to recover if you slip |
+| **testing-guidelines** | Test quality checklist (Q1–Q8), test types, anti-patterns, session close protocol |
+| **verification-integrity** | Never read an exit code through a pipe; a green must be able to be red; instruments must distinguish healthy from not-looking; a regression claim needs a baseline |
+| **codex-job-status-integrity** | `unknown`/`orphaned` on a background Codex job is an integrity incident, not a pending result |
+| **codex-dispatch-protocol** | The wrapper is not the job: liveness is PID + log, placement is verified at dispatch, waiting is a PID bridge, cancellation criteria are written down |
+| **agent-purpose-statements** | Telling an agent *why* it was invoked, so it optimizes for relevance instead of completeness |
+| **public-surface-hygiene** | No real client/project/ticket/feature name in any file, commit message, PR body or tracker text — enforced by `scripts/name-hygiene.sh` in the gate |
+
+Path-scoped — these load only when a matching file is read:
+
+| Rule | What it provides |
+|------|-----------------|
+| **agent-isolation** | Worktree-based isolation so concurrent sessions don't corrupt each other's branch state |
+| **parallel-authoring** | Fan out authoring agents for independent additive work, then gate once |
+| **branch-completion-review** | Adversarial GO/NO-GO triggered by risk class, capped at three rounds with per-finding triage |
+| **peer-session-coordination** | Sessions message each other directly, scoped by what is actually shared, bounded in size |
+| **windowed-gate-serialization** | Serialize gates that open real windows, so parallel agents don't flood the desktop |
+| **computer-control-release** | Hand back screen, simulator or browser when active use ends |
+| **claude-md-project-templates** | NEVER lists, autonomy tiers, and authoring prompts for a project `CLAUDE.md` |
+| **memory-discipline** | Memory exclusions plus a recall-time verification protocol |
+| **native-codex-routing** | Shared `harness_*` Codex roles and the project adoption checks |
 
 ## Uninstall
 
@@ -211,4 +243,4 @@ Key customization points:
 
 ## License
 
-MIT
+[MIT](LICENSE).
