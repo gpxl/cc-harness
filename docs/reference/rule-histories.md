@@ -47,13 +47,13 @@ same session, both initially looking like "my change broke it":
 | `apps/admin build` red in a fresh worktree | gitignored `.env.local` absent — env gap, not code | Copied env in → exit 0 |
 | Cloudflare Pages check red on an untouched app | CF-side internal error at asset-publish; build itself compiled | Fetched build log; retry passed the identical commit |
 
-### Why "instruments" earned a section (2026-08-10, AudioWebsite/AudioWebsiteMedia)
+### Why "instruments" earned a section (2026-08-10, AudioWebsite)
 
 In a single session four instruments were built or extended and every one had the same defect:
 
 | Instrument | Reported | Could not distinguish |
 |---|---|---|
-| Adoption RPC counters | `extid_set: 36` | "already correct" vs "no evidence present" — a three-way branch counted two outcomes, so `seen − unlinked − skipped` never reconciled against `set + conflicts` |
+| External-id linking RPC counters | `external_id_set: 36` | "already correct" vs "no evidence present" — a three-way branch counted two outcomes, so `seen − unlinked − skipped` never reconciled against `set + conflicts` |
 | Monitor stall check | `STALLED` after a restart | a stalled child vs a child two minutes old — it timed the *outage*, not the child |
 | Monitor gate detector | `0 gates` | no gates vs grepping the wrong file (the marker went to per-item logs, not the aggregate; 7 gated items sat on disk unseen) |
 | Monitor gate all-clear | `GATE CLEARED` | not gated vs **not fetching** — it fired during a backoff, when nothing could have been gated |
@@ -93,7 +93,7 @@ clone-the-sibling authoring):
 Stage 1's note about self-reported line counts comes from the same branch: an implementing
 agent claimed −100 lines where the actual commit was +23.
 
-**2026-09-03 — pipeline cost review (web-app-monorepo marketing monorepo).** The project asked whether
+**2026-09-03 — pipeline cost review (WebAppMonoRepo, a client marketing monorepo).** The project asked whether
 code-quality and the adversary were redundant, whether to reorder them, or to move the adversary
 in front of the task. Each answer became a line in § Cost and ordering:
 
@@ -115,27 +115,11 @@ in front of the task. Each answer became a line in § Cost and ordering:
 - **Measured while checking (b):** `codex.sh setup --json` in that repo's main checkout reported
   `reviewGateEnabled: false`, contradicting the 09-02 "on in every main checkout" note in
   `global/CLAUDE.md`. The note now says to check, not assume.
-- **(e) Same day, the first branch under the rewritten rule (WEB-2800) parked at the adversary**:
-  the rule said `/codex:adversarial-review`, which is `disable-model-invocation: true` — user-typed
-  only. The Model row then went through three states in one day. (1) A fix told agents to call
-  `codex.sh adversarial-review` through Bash; the peer session working WEB-2800 refused, correctly —
-  the harness's refusal text says "do not replicate this skill's workflow by other means", and a peer
-  cannot lift a restriction another session was denied. Encoding the workaround would have been
-  config quietly acquiring a bypass. (2) The row was reverted to the Claude subagent, which then
-  produced a three-MAJOR NO-GO on this very branch. (3) The user asked why review should not go to
-  Codex like every other delegation, and to let the plugin decide. Its agent contract
-  (`skills/codex-cli-runtime`) narrows it: the `review`/`adversarial-review` subcommands belong to
-  the user-typed commands and its subagent may not call them; its `--write` rule presupposes
-  review-shaped `task` requests ("only wants review, diagnosis, or research without edits"), though
-  its routing line never lists review. So `/codex:rescue` read-only with the Stage 2 contract in the
-  task text is an inference the user chose to stand behind, not a documented instruction — the
-  re-review caught the first draft of the row quoting the flag rule as if it were routing, and the
-  rule now states the basis exactly. Also recorded:
-  `codex-companion.mjs adversarial-review --help` is not a help flag — the companion treats it as
-  focus text and runs a full review against the current checkout (it did, once, on a peer's branch).
-  Two lessons: read a command's frontmatter and the plugin's agent contract before naming it in a
-  rule; and when the harness refuses something, the answer is the plugin's sanctioned route or the
-  user, never a different tool.
+- **(e) Same day, the first branch under the rewritten rule (WEB-2800) parked at the adversary.**
+  The settled route is read-only `/codex:rescue` with the Stage 2 contract: an inference from the
+  plugin contract that the user chose to stand behind, not a documented routing instruction. Read a
+  command's frontmatter and the plugin's agent contract before naming it in a rule; when the harness
+  refuses something, use the plugin's sanctioned route or ask the user, never a different tool.
 - **(f) Merge gate false red in worktrees**: `scripts/install-symmetry-selftest.sh` failed at
   `origin/main` too, with a bare `FAIL` and no reason — `scripts/git-snapshot` is a gitignored
   machine-local symlink that a fresh worktree never has, and the test's `readlink` on it returned
@@ -148,17 +132,17 @@ in front of the task. Each answer became a line in § Cost and ordering:
 
 On 2026-08-10 (AudioWebsite) collision happened twice in one day:
 
-- **Phase `tj7b.5`** — a second session had already implemented and shipped the AudioWebsite
+- **Phase `aw-tj7b.5`** — a second session had already implemented and shipped the AudioWebsite
   half (RPC + migration + admin hook) while this one was working elsewhere. Discovered only
   by reading the tracker's own notes *after* picking the phase up, and only because those
   notes happened to be thorough.
-- **Phase `tj7b.6`** — two sessions built the same design six minutes apart: the same pure
+- **Phase `aw-tj7b.6`** — two sessions built the same design six minutes apart: the same pure
   module (in two different packages) and **the same script filename**, both uncommitted.
   Discovered by accident, when a `PreToolUse` branch guard refused a write and the follow-up
   inspection showed a `+` marker in `git worktree list`.
 
 Neither was caught by a rule. Both were caught by luck. Hence the preflight, and hence
-"read the tracker item's NOTES, not just its status" — `tj7b.5` was "open" and half-shipped
+"read the tracker item's NOTES, not just its status" — `aw-tj7b.5` was "open" and half-shipped
 at the same time.
 
 ---
@@ -192,75 +176,39 @@ concurrency here risks flaky results, not just annoyance.
 
 ## peer-session-coordination
 
-On 2026-08-22 (AudioApp) two interactive sessions were driving the same repo: one finishing PR #334
-(canvas-editing interactions, in a worktree) and one running PR #336 (extracting `SharedUI` into its own
-SwiftPM target, in the main checkout). The #334 session found the collision on its own — it measured
-that all ten of its `Sources/AudioApp/` files were in #336's diff, including an `AXID.swift` that
-#336 deletes by rename — and then **offered to route the information to the peer through the user**
-("tell me which session is Lite and I'll pass it the overlap table"). The peer messaged first anyway,
-and the two settled ordering, the `package`-visibility change to the relocated hunk, and who held the
-window server in two exchanges that cost the user nothing.
+On 2026-08-22 (AudioApp), sessions for AudioApp PR #A (a canvas-editing surface) and AudioApp PR #B
+(a shared UI target) found that their `Sources/AudioApp/` diffs overlapped. The first offered to route
+the information through the user; the peer messaged first, and they settled ordering, `package`
+visibility, and window-server ownership in two exchanges. That is the failure to avoid: turning the
+user into a message bus between agents that can ask each other.
 
-Nothing broke, which is the point: the failure mode is not a corrupted tree but a user turned into a
-message bus between agents that could have asked each other. Everything the #334 session needed to
-know — that #336 was mid-`clipping` and owned the window server, that `AXID` was being raised to
-`package` and a bare `static let` would fail one file away from its cause, that #336 was closer to a
-green gate and should merge first — was known only to the peer, and none of it was in the user's head.
-
-The `package` detail is worth stating precisely, because the peer corrected the first write-up of it
-and the correction is the more useful lesson. It was not knowledge one session happened to hold and
-the other lacked. The peer had assumed a `package struct` with `package` members would synthesize a
-`package` memberwise init; it does not — the synthesized init stays `internal` — and it only found
-that out by building a throwaway package to test it, which is why its branch carries 36 hand-written
-`package init`s. So the asymmetry a peer can resolve is usually not *"they know more"* but
-**"they have already paid for the experiment"**: an hour of someone else's measurement, available for
-the cost of a message. That is a far more common condition than superior knowledge, and it is the one
-worth asking about.
-
-The exchange also produced a finding neither session would have reached alone: the #334 session
-noticed that once `SharedUI` became a sibling target, the `ui_review_gate_pattern` naming
-`Sources/AudioApp/` would stop matching it, so the ui-review/clipping/uitest stages would silently
-not fire on DS changes — a gate that cannot come back red. #336 had already closed it, and confirmed
-a related one: the palette scanner's `^[[:space:]]*static let` token grep went to "cannot resolve
-token" on all 72 pairings the moment the declarations became `package static let`.
+The peer had already tested an important detail: a `package struct` with `package` members does not
+synthesize a `package` memberwise init — the synthesized init stays `internal` — which is why its
+branch carried 36 hand-written `package init`s. The useful asymmetry is usually not *"they know more"*
+but **"they have already paid for the experiment"**: someone else's measurement is available for the
+cost of a message. The exchange also caught a gate gap: `ui_review_gate_pattern` naming
+`Sources/AudioApp/` would silently miss the new sibling target.
 
 ---
 
 ### Revision, 2026-08-22 — scope by shared resource
 
-The rule was written the same morning and the instruction behind it was "coordinate with other
-agents *in project* automatically". By evening a review of every peer `SendMessage` on the machine
-(134 peer-to-peer messages over 45 days; 109 of them that day) showed the traffic had spread well past
-one repo: 37 messages crossed project directories, all audio-app ↔ AudioWebsite/AudioWebsiteMedia. Read in
-full, they sorted into five kinds, and a "same project" restriction keyed on session directory would
-have cut the wrong four:
+The same-day rule said to coordinate automatically *in project*. A census of 134 peer messages over
+45 days (109 that day) found 37 cross-directory messages, all AudioApp ↔ AudioWebsite/AudioWebsiteMedia.
+The five kinds show why the boundary is what is shared, not a session directory:
 
-- **~22 machine-resource handoffs** between different repos — window server, CPU, the Swift
-  toolchain — which is the rule's own table being followed; the resource belongs to the Mac, not the
-  repo. Gates held this way came back green first time. Cost: host-01 held a one-minute
-  `pnpm verify` for 49 minutes because it was told "wait until I message" — a queue would have
-  released it the moment the other gate finished.
-- **7 messages of a collision check on cc-harness** (user-requested) that found a real defect in the
-  rule PR — the `global/CLAUDE.md` index line claimed a path-scoping the frontmatter did not have —
-  and the fact that `~/.claude/rules` symlinks into the working tree, so merging swaps the ruleset
-  under every live session. A peer's "go ahead and merge" was withdrawn on challenge.
-- **5 messages on a same-repo collision that only looked cross-project**: a session started in
-  `audio-website/` was working the AudioWebsiteMedia checkout and branched under a live AudioWebsiteMedia session. The repo
-  being worked, not the session's cwd, is what "same project" has to mean.
-- **2 messages landing files across repos** on the user's instruction — unanswered, defaulted to a
-  worktree, zero disruption.
-- **6 messages of open-ended engineering discussion** (mutation tests "aimed backwards", comments that
-  rot), agent-initiated while the standing instruction was "merge it once the gate passes", median
-  ~2,300 chars, never surfaced to the user. The only kind that strayed — and it would be equally
-  off-charter between two sessions in one repo.
+- **~22 machine-resource handoffs:** valid window-server, CPU, and Swift-toolchain notices; host-01
+  waited 49 minutes for a one-minute `pnpm verify` because a queue did not release it automatically.
+- **7 cc-harness collision-check messages:** a user-requested check found a real rule defect and a
+  live-ruleset symlink; a premature merge approval was withdrawn.
+- **5 same-repo collisions that looked cross-project:** an `audio-website/` session worked the
+  AudioWebsiteMedia checkout under a live AudioWebsiteMedia session; the worked repo, not cwd, matters.
+- **2 cross-repo file landings:** user-directed, unanswered, and safely defaulted to a worktree.
+- **6 open-ended engineering discussions:** off-charter debate, median ~2,300 chars, never surfaced.
 
-Hence the revision: tiers by what is shared (repo → full protocol; machine → resource notices only;
-shared dependency → one collision check), a size bound (notice or question, not an essay), and
-"prefer a mechanism to a message" — the per-project lock in `windowed-gate-serialization.md` does
-not reach another repo, which is the whole reason the machine tier exists. Noise seen on the way:
-questions fanned out to every peer because names say nothing about what a session holds; ~10
-messages of re-introduction after a restart; one ping sent 12 times for 3 recipients (`name` and
-`name [hash]` forms, two session ids); two empty messages.
+Hence tiers by what is shared (repo → full protocol; machine → resource notices only; shared dependency
+→ one collision check), a short-message bound, and "prefer a mechanism to a message." The machine tier
+exists because a per-project lock cannot reach another repo.
 
 ---
 
@@ -281,55 +229,6 @@ underlying resource.
 
 ---
 
-## agent-enforcement
-
-Even when the code-quality gate is exempt (e.g. doc changes), using the commit agent
-ensures consistent commit formatting, proper branch workflow, and PR creation.
-
----
-
-## agent-purpose-statements
-
-A code-quality agent asked to "check this module" produces a full report. The same agent
-told "this is a quick pre-merge check — just verify the happy path" focuses on what matters.
-
----
-
-## claude-md-project-templates
-
-Prompt for project owners writing a NEVER list:
-
-| Category | Think about |
-|----------|-------------|
-| Testing | What should never be mocked? What tests must never be skipped? |
-| Architecture | What boundaries exist? What import rules? What patterns are banned? |
-| Dependencies | Which libraries are forbidden? What's the approved alternative? |
-| Infrastructure | Which directories/configs are dangerous to modify? |
-| Data | What DB operations need human approval? What's irreversible? |
-| Releases | What gates exist before publish/deploy? |
-| Secrets | What project-specific secret files beyond `.env`? |
-
-Prompt for autonomy tiers:
-
-| Tier | Think about |
-|------|-------------|
-| Autonomous | Which commands are safe? Which directories are freely editable? |
-| Confirm first | What has moderate blast radius? What affects shared state? |
-| Never | What's irreversible? What affects production? What costs money? |
-
----
-
-## global CLAUDE.md — why the index format
-
-Measured pass rates that motivated the required-elements list:
-
-| Config | Pass Rate |
-|--------|-----------|
-| No docs / Skills | 53% |
-| **AGENTS.md index** | **100%** |
-
----
-
 ## codex-dispatch-protocol
 
 Externally supplied advice (2026-09-01, from a long-running collaboration-heavy session on the
@@ -341,7 +240,7 @@ same plugin), each item checked against plugin 1.0.6 source before it became a r
   keeps running. Record then reads `running` with a dead pid → `unknown/orphaned` on next status.
 - **Status is per-session/per-workspace.** `resolveStateDir` keys on the git root of `--cwd`;
   `filterJobsForCurrentSession` drops jobs whose `sessionId` ≠ `CODEX_COMPANION_SESSION_ID`.
-  Measured: the audio-app store held eight completed jobs from session `5f8ebb39…`, all invisible
+  Measured: the AudioApp store held eight completed jobs from session `5f8ebb39…`, all invisible
   to session `90ccab88…` in the same checkout.
 - **`queued` never reconciles.** `reconcileJobLiveness` returns early unless `status === "running"`.
 - **Stale brokers.** 30 `app-server-broker.mjs serve --cwd $TMPDIR/codex-plugin-test-*` pairs
@@ -368,8 +267,8 @@ same plugin), each item checked against plugin 1.0.6 source before it became a r
 
 ## bounded-review-loops (2026-09-05)
 
-AudioApp review→fix→review chains escaped any usable budget: PR #410 reached 12 rounds, 22 commits,
-and 19 `fix(` commits; PR #415 reached four rounds with BLOCKER counts 4→9→6, including one
+AudioApp review→fix→review chains escaped any usable budget: PR #8 reached 12 rounds, 22 commits,
+and 19 `fix(` commits; PR #10 reached four rounds with BLOCKER counts 4→9→6, including one
 fabricated finding. One session (`5f8ebb39`) produced 2,360 assistant messages, 65 merge-gate
 invocations, and 60 Agent calls; peer traffic reached 29, 20, and 17 messages per session.
 

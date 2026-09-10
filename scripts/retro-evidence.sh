@@ -2,7 +2,6 @@
 # Assemble measured retrospective evidence; it deliberately does not draw conclusions.
 set -u
 
-# AudioApp commit 49c8eff made acknowledgement fields mandatory on this date.
 REVIEW_ACK_FIELD_CUTOVER=2026-09-05
 
 usage() {

@@ -1,2 +1,18 @@
 .DS_Store
 scripts/git-snapshot
+
+# Beads local state that is not the tracked JSONL
+.beads/backup/
+
+# Per-machine Claude Code settings
+.claude/settings.local.json
+
+# The real<->pseudonym table never belongs in this repo (rules/public-surface-hygiene.md).
+# These patterns are a backstop, not the storage location: it lives in ~/.claude/private/.
+.private/
+*pseudonym*
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

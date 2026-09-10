@@ -68,6 +68,28 @@ changing the project.
 
 ## Project-Specific NEVER Rules
 
+## Authoring prompts
+
+Prompt for project owners writing a NEVER list:
+
+| Category | Think about |
+|----------|-------------|
+| Testing | What should never be mocked? What tests must never be skipped? |
+| Architecture | What boundaries exist? What import rules? What patterns are banned? |
+| Dependencies | Which libraries are forbidden? What's the approved alternative? |
+| Infrastructure | Which directories/configs are dangerous to modify? |
+| Data | What DB operations need human approval? What's irreversible? |
+| Releases | What gates exist before publish/deploy? |
+| Secrets | What project-specific secret files beyond `.env`? |
+
+Prompt for autonomy tiers:
+
+| Tier | Think about |
+|------|-------------|
+| Autonomous | Which commands are safe? Which directories are freely editable? |
+| Confirm first | What has moderate blast radius? What affects shared state? |
+| Never | What's irreversible? What affects production? What costs money? |
+
 Add this section to a project's CLAUDE.md. The value is in entries only the project owner knows — do NOT duplicate built-in system prompt rules (e.g., "never force-push" is already built-in).
 
 ```markdown
