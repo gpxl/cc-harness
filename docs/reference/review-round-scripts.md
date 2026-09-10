@@ -22,5 +22,5 @@ directly, for example `scripts/review-ack-check.sh "$branch_review_ack"`; a nonz
 gate fail. It rejects missing fields, more than three rounds (unless its max is explicitly raised),
 and NO-GO or open blockers without a user decision.
 
-cc-harness acceptance covers only these scripts, selftests, and docs; StemLab's separate
-`scripts/merge-gate.sh` migration is tracked by StemLab bead `sl-65pe` and is out of scope here.
+cc-harness acceptance covers only these scripts, selftests, and docs; AudioApp's separate
+`scripts/merge-gate.sh` migration is tracked by AudioApp bead `aa-65pe` and is out of scope here.

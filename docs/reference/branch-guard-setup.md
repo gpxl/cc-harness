@@ -5,7 +5,7 @@ Machine-enforced branch discipline: a `PreToolUse` hook that refuses `Edit`/`Wri
 hard stop at tool-call time. Use both.
 
 This file is **not symlinked into `~/.claude/`** — copy from here when setting a project up.
-A live example is SetDigger's `scripts/branch-guard.sh` + `.claude/rules/branching.md`.
+A live example is AudioWebsite's `scripts/branch-guard.sh` + `.claude/rules/branching.md`.
 
 ## 1. Drop in the guard script
 
