@@ -330,6 +330,17 @@ git log origin/<integration>..HEAD --format=%B \
 A match is `COMMIT RESULT: FAIL` with the offending commit listed — amend it (the branch is
 unpushed at this point, so no history is rewritten on the remote) and re-run the check.
 
+Then run the name-hygiene check on the same commits. A commit message is as public as a file, and
+a squash-merge body is published verbatim — a real client, project, ticket or feature name in one
+costs a history rewrite to remove (`rules/public-surface-hygiene.md`):
+
+```bash
+scripts/name-hygiene.sh --quiet   # if the project ships it; exit 1 names token, file and line
+```
+
+A hit is `COMMIT RESULT: FAIL`. Substitute the pseudonym and amend — never add the name to an
+allowlist to get past the check.
+
 ## Step 9 — Push branch
 
 Push the current HEAD to a remote branch of the same name. Using `HEAD`
@@ -367,7 +378,7 @@ EOF
 - **Bead id in the title (repos with `.beads/`).** Resolve the tracker issue(s) this PR
   resolves — from the branch name, the commit messages, the conversation, or
   `bd list --status=in_progress` — and append them as `(<prefix>-<id>)` to the title
-  (e.g. `fix(db): guard the tier (setdigger-a2iv)`). Post-merge close-on-merge hooks grep
+  (e.g. `fix(db): guard the tier (aw-a2iv)`). Post-merge close-on-merge hooks grep
   the title/branch/body for ids; a PR without one leaves its bead `in_progress` forever.
   If you genuinely cannot identify a bead, say so in the result (`Beads: none found`) so
   the orchestrator can supply it — do not invent an id.

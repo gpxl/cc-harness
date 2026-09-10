@@ -87,6 +87,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-jobs-selftest.sh`
 - `scripts/codex-dispatch-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
+- `scripts/name-hygiene-selftest.sh`
 - `scripts/verify-selftest.sh`
 
 Run them all with `bash scripts/verify.sh` (the Agent Config `verify_cmd`, redirect its output to a file and read the exit code directly). Merge only when every listed selftest reports PASS at the PR's HEAD.

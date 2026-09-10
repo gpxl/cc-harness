@@ -16,6 +16,7 @@ Always consult documentation index and project files rather than relying on trai
 |codex-job-status-integrity.md: `unknown`/`orphaned` on a backgrounded Codex job is an integrity incident, not a pending result — inspect log/git diff/threadId before claiming completion or rerunning
 |codex-dispatch-protocol.md: The wrapper is not the job — liveness = worker PID + log under the per-workspace state dir; status is per-session/per-`--cwd`; verify placement at dispatch; wait via `codex-wait.sh` PID bridge (one wake, never polling); written cancellation criteria; prompt-side completion contracts; broker housekeeping
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
+|public-surface-hygiene.md: Never write a real client/project/ticket/feature name on a public surface — files, commit messages, PR bodies, tracker text; substitute the purpose-based pseudonym from `~/.claude/private/project-pseudonyms.md`; enforced by `scripts/name-hygiene.sh` in the gate
 |Path-scoped (load only on a matching file; Read directly if needed elsewhere):
 |claude-md-project-templates.md: NEVER lists + autonomy tiers templates; `verify_cmd`; project files reference global rules and carry parameters only — CLAUDE.md, .claude/rules
 |memory-discipline.md: Memory exclusions + recall-time verification — memory dirs, MEMORY.md
@@ -42,7 +43,6 @@ Always consult documentation index and project files rather than relying on trai
 |persistence: bd close writes immediately — no flush at session end (`bd sync` no longer exists; bd backup for snapshots, bd export for JSONL migration)
 
 [Skills]|root: ~/.claude/skills/ (SKILL.md format; legacy commands/ migrated to skills/)
-|/optimize-video: Optimize a video file/dir for web delivery (delegates to video-optimize agent)
 |/agents-md-transform: Execute AGENTS.md pattern transformation
 |/find-skills: Discover installable agent skills
 |loadout-awareness: Proactive — suggests `loadout scan` when deps/frameworks change (not user-triggered)
@@ -82,7 +82,7 @@ Never add Codex, ChatGPT, OpenAI, a model name, or any other agent/vendor identi
 
 Before creating, renaming, pushing, or opening a pull request in **every** project, inspect the project's instructions, its PR template/configuration, current remote branch names, and recent merged commits on the intended integration branch. Those are the project's source of truth; do not impose generic agent conventions that conflict with them.
 
-- Branch names must not contain a user, agent, vendor, or model namespace unless the user explicitly requests it. Follow the repository's current type, ticket, and concise kebab-case subject pattern. For example, use `feat/MAR-2823-lookout-page-updates` when that is the nearest current precedent. Prefer the nearest current precedent when history is mixed.
+- Branch names must not contain a user, agent, vendor, or model namespace unless the user explicitly requests it. Follow the repository's current type, ticket, and concise kebab-case subject pattern. For example, use `feat/WEB-2823-lookout-page-updates` when that is the nearest current precedent. Prefer the nearest current precedent when history is mixed.
 - Use the normal integration branch as the PR base unless the user specifies another. Fetch first and review `origin/<base>...HEAD`, never a potentially stale local base branch.
 - Match the title convention established by recent merged PRs. Where the project uses Conventional Commits, use `type(scope): subject` (under 70 characters unless the project specifies otherwise). Include a ticket only when local precedent or the user's linked work item calls for it.
 - Use the repository's PR template exactly: retain its headings, replace every applicable placeholder, remove empty placeholder bullets, and select the correct type checkbox or equivalent field. Do not add generic agent attribution, boilerplate checklists, or invented test results.
@@ -96,7 +96,7 @@ Before creating, renaming, pushing, or opening a pull request in **every** proje
 | Session start | Run `bd prime` if `.beads/` exists in project |
 | Plan | `bd create` issue BEFORE writing code |
 | Claim | `bd update <id> --status=in_progress` when starting |
-| **Branch** | **If on `main`/`master`/`trunk`/`develop`, create a feature branch that follows the repository's current naming convention off `origin/<integration>` BEFORE first edit (for example, `git checkout -b feat/MAR-2823-<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
+| **Branch** | **If on `main`/`master`/`trunk`/`develop`, create a feature branch that follows the repository's current naming convention off `origin/<integration>` BEFORE first edit (for example, `git checkout -b feat/WEB-2823-<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
 | **Delegate** | **Codex-first**: hand implementation, debugging, and design work to OpenAI models via `/codex:rescue` unless it is orchestration, a gate, or tool-bound work. See `## Model Routing`. |
 | TDD | Write tests, then implement |
 | Test | All tests pass |
@@ -195,7 +195,7 @@ context small).
 | Follow-up on the same Codex thread | `--resume` — send only the delta instruction. New problem → `--fresh` |
 | Read-only work — investigation, research, planning, codebase survey | say so explicitly; the subagent defaults to `--write`. `task` covers diagnosis/planning/research, not just fixes |
 | Code review | `/codex:review` and `/codex:adversarial-review` are **user-typed only** (`disable-model-invocation: true`; the plugin's agent contract also bars its subagent from those subcommands, so an agent does not call `codex.sh review` / `codex.sh adversarial-review` via Bash). **The agent route for a review is `/codex:rescue` read-only** with the review contract in the task text (`branch-completion-review.md` Stage 2). That rests on an inference plus a user decision, not an explicit plugin instruction: the contract's `--write` rule presupposes review-shaped `task` requests, and `task` is not a barred subcommand. Background verdicts come back via `codex-wait.sh` + the job log, since `/codex:result` is user-typed only. Either route discharges the stage |
-| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently. It is per **workspace**, not global — **check, never assume**: `~/.claude/scripts/codex.sh setup --json` → `reviewGateEnabled` (the 2026-09-02 reading "on in every main checkout" was false for rudderstack's main checkout on 2026-09-03; worktrees inherit the `false` default). It fires a Codex turn per Claude stop, including stops where the tree did not change — real spend, and it did catch a live reap-while-running bug — so leave it on where reviews earn their keep and `--disable-review-gate` where they don't. **Never stack it with the branch-completion adversary** (`branch-completion-review.md` § Cost and ordering): one review pass per branch — and **when the branch-completion trigger fires, Stage 2 wins**; the stop-gate is per-workspace, so a repo whose branches can trigger Stage 2 leaves it off permanently and states so. |
+| Review on every stop | `/codex:setup --enable-review-gate` moves end-of-turn review to Codex permanently. It is per **workspace**, not global — **check, never assume**: `~/.claude/scripts/codex.sh setup --json` → `reviewGateEnabled` (the 2026-09-02 reading "on in every main checkout" was false for WebAppMonoRepo's main checkout on 2026-09-03; worktrees inherit the `false` default). It fires a Codex turn per Claude stop, including stops where the tree did not change — real spend, and it did catch a live reap-while-running bug — so leave it on where reviews earn their keep and `--disable-review-gate` where they don't. **Never stack it with the branch-completion adversary** (`branch-completion-review.md` § Cost and ordering): one review pass per branch — and **when the branch-completion trigger fires, Stage 2 wins**; the stop-gate is per-workspace, so a repo whose branches can trigger Stage 2 leaves it off permanently and states so. |
 
 `$CODEX_PLUGIN` is **not exported by default**; `scripts/codex-plugin-root.sh` resolves
 `~/.claude/plugins/cache/openai-codex/codex/<version>` (that path is `${CLAUDE_PLUGIN_ROOT}`
