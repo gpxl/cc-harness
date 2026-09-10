@@ -97,6 +97,54 @@ expect_rc_and_text 'denied token in a commit message fails' 1 'commit ' \
 expect_rc '--no-history skips commit messages' 0 \
   bash "$tool" --root "$msg" --denylist "$shipped_denylist" --no-history
 
+# --range checks only outgoing history. It takes precedence over --no-history so an accidental
+# combination cannot silently omit the surface the caller explicitly selected.
+ranged="$workdir/ranged"
+make_repo "$ranged" || exit 1
+printf 'clean body\n' > "$ranged/history.md"
+git -C "$ranged" add -A >/dev/null 2>&1
+git -C "$ranged" commit --quiet -m "docs: record $canary" >/dev/null 2>&1
+rm "$ranged/history.md"
+git -C "$ranged" add -A >/dev/null 2>&1
+git -C "$ranged" commit --quiet -m 'docs: remove historical note' >/dev/null 2>&1
+expect_rc 'outgoing clean range skips historical message' 0 \
+  bash "$tool" --root "$ranged" --denylist "$shipped_denylist" --range 'HEAD~1..HEAD'
+expect_rc 'range takes precedence over no-history' 1 \
+  bash "$tool" --root "$ranged" --denylist "$shipped_denylist" --range 'HEAD~2..HEAD~1' --no-history
+
+# A private name in a repository path is a public leak even when its contents are clean. Build
+# the filename at runtime: this selftest is scanned by the same gate it exercises.
+path_leak="$workdir/path-leak"
+make_repo "$path_leak" || exit 1
+printf 'clean contents\n' > "$path_leak/$canary.md"
+git -C "$path_leak" add -A >/dev/null 2>&1
+git -C "$path_leak" commit --quiet -m 'docs: add path fixture' >/dev/null 2>&1
+expect_rc_and_text 'denied token in a tracked path fails' 1 ':path:' \
+  bash "$tool" --root "$path_leak" --denylist "$shipped_denylist" --no-history
+
+# Large text remains covered, including a token split across the scanner's chunk boundary.
+large="$workdir/large"
+make_repo "$large" || exit 1
+{
+  head -c 65534 < /dev/zero | tr '\0' ' '
+  printf '%s ' "$canary"
+  dd if=/dev/zero bs=1m count=5 2>/dev/null | tr '\0' 'a'
+} > "$large/large.md"
+git -C "$large" add -A >/dev/null 2>&1
+git -C "$large" commit --quiet -m 'docs: add large fixture' >/dev/null 2>&1
+expect_rc_and_text 'large text file is scanned across chunk boundary' 1 'large.md:1' \
+  bash "$tool" --root "$large" --denylist "$shipped_denylist" --no-history
+
+# A git diagnostic is evidence that commit messages were not scanned, never a clean result.
+fakebin="$workdir/fakebin"
+mkdir -p "$fakebin" || exit 1
+real_git=$(command -v git)
+printf '%s\n' '#!/usr/bin/env bash' 'if [ "$3" = log ]; then printf "%s\\n" "injected git log failure" >&2; exit 128; fi' \
+  "exec \"$real_git\" \"\$@\"" > "$fakebin/git"
+chmod +x "$fakebin/git"
+expect_rc_and_text 'failed history read is a setup error, not a pass' 2 'injected git log failure' \
+  env "PATH=$fakebin:$PATH" bash "$tool" --root "$clean" --denylist "$shipped_denylist"
+
 # An instrument that cannot see must not report clean.
 expect_rc_and_text 'missing denylist is a setup error, not a pass' 2 'denylist not found' \
   bash "$tool" --root "$clean" --denylist "$workdir/absent.txt"

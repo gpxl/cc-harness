@@ -330,16 +330,23 @@ git log origin/<integration>..HEAD --format=%B \
 A match is `COMMIT RESULT: FAIL` with the offending commit listed — amend it (the branch is
 unpushed at this point, so no history is rewritten on the remote) and re-run the check.
 
-Then run the name-hygiene check on the same commits. A commit message is as public as a file, and
-a squash-merge body is published verbatim — a real client, project, ticket or feature name in one
-costs a history rewrite to remove (`rules/public-surface-hygiene.md`):
+Then run the name-hygiene check on the outgoing commits. A commit message is as public as a file,
+and a squash-merge body is published verbatim — a real client, project, ticket or feature name in
+one costs a history rewrite to remove (`rules/public-surface-hygiene.md`):
 
 ```bash
-scripts/name-hygiene.sh --quiet   # if the project ships it; exit 1 names token, file and line
+INTEGRATION_REF=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD) || {
+  printf '%s\n' 'COMMIT RESULT: FAIL — cannot resolve origin integration branch'
+  exit 1
+}
+scripts/name-hygiene.sh --quiet --range "$INTEGRATION_REF..HEAD" # if shipped; exit 1 names a hit
 ```
 
 A hit is `COMMIT RESULT: FAIL`. Substitute the pseudonym and amend — never add the name to an
 allowlist to get past the check.
+
+Run `scripts/name-hygiene.sh --quiet` only as a separate, deliberate full-history audit; outgoing
+commits cannot remediate historical hits.
 
 ## Step 9 — Push branch
 
