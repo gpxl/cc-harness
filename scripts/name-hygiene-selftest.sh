@@ -12,6 +12,7 @@ shipped_denylist="$root/scripts/testdata/name-hashes.txt"
 # file would be the allowlist the rule forbids, so the literal simply never exists.
 canary=$(printf 'zzz-%s-name' 'canary')
 canary_cased=$(printf 'ZZZ-%s-Name' 'Canary')
+canary_hash=$(awk '/synthetic canary/ { print $1; exit }' "$shipped_denylist")
 completed=0
 workdir=''
 trap 'status=$?; [ "$completed" = 1 ] || status=1; [ -z "$workdir" ] || rm -rf "$workdir"; exit "$status"' EXIT HUP INT TERM
@@ -156,6 +157,38 @@ expect_rc 'comment-only denylist is a setup error' 2 \
   bash "$tool" --root "$clean" --denylist "$workdir/comments.txt"
 expect_rc_and_text 'a non-repository is a setup error' 2 'not a git repository' \
   bash "$tool" --root "$workdir" --denylist "$shipped_denylist"
+
+# The denylist contains only hashes, but its comments are still a public surface. It must not
+# become an allowlisted path merely because the scanner reads its configuration from it.
+comment_denylist="$workdir/comment-denylist"
+make_repo "$comment_denylist" || exit 1
+mkdir -p "$comment_denylist/scripts" || exit 1
+printf '%s # comment carries %s\n' "$canary_hash" "$canary" > "$comment_denylist/scripts/denylist.txt"
+expect_rc_and_text 'denied token in a denylist comment fails' 1 'scripts/denylist.txt:1' \
+  bash "$tool" --root "$comment_denylist" --denylist "$comment_denylist/scripts/denylist.txt" --no-history
+
+# `git ls-files --cached` includes an unstaged deletion, but `git add -A` would publish no file
+# at that path. The absent file is therefore skipped, without treating it as a coverage gap.
+deleted="$workdir/deleted"
+make_repo "$deleted" || exit 1
+printf 'removed before staging\n' > "$deleted/vanished.md"
+git -C "$deleted" add -A >/dev/null 2>&1
+git -C "$deleted" commit --quiet -m 'docs: add removable fixture' >/dev/null 2>&1
+rm "$deleted/vanished.md"
+expect_rc 'unstaged tracked deletion is skipped' 0 \
+  bash "$tool" --root "$deleted" --denylist "$shipped_denylist" --no-history
+
+# A present unreadable file remains a setup error: the gate must not claim clean when coverage
+# is incomplete. Restore permissions immediately so the fixture can be cleaned up.
+unreadable="$workdir/unreadable"
+make_repo "$unreadable" || exit 1
+printf 'present but protected\n' > "$unreadable/protected.md"
+git -C "$unreadable" add -A >/dev/null 2>&1
+git -C "$unreadable" commit --quiet -m 'docs: add protected fixture' >/dev/null 2>&1
+chmod 000 "$unreadable/protected.md"
+expect_rc_and_text 'present unreadable tracked file is a setup error' 2 'cannot scan protected.md' \
+  bash "$tool" --root "$unreadable" --denylist "$shipped_denylist" --no-history
+chmod 644 "$unreadable/protected.md"
 
 # The shipped denylist must never regress into holding plaintext.
 if grep -nvE '^[[:space:]]*(#.*)?$|^[0-9a-f]{64}[[:space:]]*(#.*)?$' "$shipped_denylist" >/dev/null 2>&1; then

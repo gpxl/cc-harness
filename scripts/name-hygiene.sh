@@ -145,15 +145,19 @@ if listed.returncode != 0:
     print(f"NAME HYGIENE: FAIL (git ls-files: {listed.stderr.strip()})", file=sys.stderr)
     sys.exit(2)
 
-skip = {os.path.relpath(denylist_path, root)}
 scanned = 0
+deleted = 0
 for rel in dict.fromkeys(listed.stdout.split("\0")):
     if not rel:
         continue
+    # Account for every candidate path, including a tracked file removed in the working tree.
+    # `git add -A` will publish that removal, so it is not a gap in content coverage.
+    scanned += 1
     scan(rel, rel, hits, marker="path")
-    if rel in skip:
-        continue
     path = os.path.join(root, rel)
+    if not os.path.lexists(path):
+        deleted += 1
+        continue
     if not os.path.isfile(path):
         print(f"NAME HYGIENE: FAIL (cannot scan contents of {rel})", file=sys.stderr)
         sys.exit(2)
@@ -162,7 +166,6 @@ for rel in dict.fromkeys(listed.stdout.split("\0")):
     except (UnicodeDecodeError, OSError) as exc:
         print(f"NAME HYGIENE: FAIL (cannot scan {rel}: {exc})", file=sys.stderr)
         sys.exit(2)
-    scanned += 1
 
 if scan_history or scan_range:
     log_args = ["log"]
@@ -196,6 +199,7 @@ if not quiet:
         scope = f"tracked files and commit messages in {history_range}"
     else:
         scope = "tracked files and commit messages" if scan_history else "tracked files"
-    print(f"NAME HYGIENE: PASS ({scanned} {scope}, {len(denied)} denied hashes)")
+    deleted_label = f", {deleted} deleted and skipped" if deleted else ""
+    print(f"NAME HYGIENE: PASS ({scanned} {scope}{deleted_label}, {len(denied)} denied hashes)")
 sys.exit(0)
 PY
