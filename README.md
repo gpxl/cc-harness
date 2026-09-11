@@ -1,34 +1,44 @@
 # cc-harness
 
-A structured dev workflow for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and native Codex. Six global Claude agents handle code quality, testing, commits, releases, PR monitoring, and verification; five native Codex roles provide shared bounded delegation without changing personal Codex settings.
+This is the development harness I use with
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) and native Codex. It combines six
+Claude agents, five Codex roles, and a set of shared rules for testing, verification, git, and
+review.
 
-## What this is
+I publish it as a working reference, not a supported product. The repository records both the
+current workflow and the failures that shaped it. If you want to understand the reasoning before
+installing anything, start with the [design rationale](docs/design-rationale.md).
 
-A **personal reference archive**: the agentic-coding harness I actually work with, and a record of
-how it changed. It is published so the reasoning is legible — every rule here exists because
-something specific broke, and [`docs/`](docs/) says what.
+## Before you install
 
-It is **not** a supported product. There is no release process, no versioning promise, and no
-server-side CI. Read it, fork it, take the parts that fit — but if you run `./install.sh`, know
-that it rewrites `~/.claude/` and `~/.codex/` and changes how *every* Claude Code and Codex session
-on your machine behaves. Read that script, and [`SECURITY.md`](SECURITY.md), first.
+There is no release process, versioning promise, or server-side CI. More importantly,
+`./install.sh` changes how every Claude Code and Codex session on your machine behaves: it links
+this repository into `~/.claude/` and `~/.codex/`.
 
-Start with [`docs/design-rationale.md`](docs/design-rationale.md) if you are here to understand the
-system rather than to install it. Incidents are described under purpose-based pseudonyms
-(`AudioApp`, `AudioWebsite`, …); [`docs/README.md`](docs/README.md) has the key.
+Read [`install.sh`](install.sh) and [`SECURITY.md`](SECURITY.md) first. The installer backs up real
+files and directories before replacing them. `./uninstall.sh` restores the latest backup and
+removes the hook registrations and `CODEX_PLUGIN` setting it installed, but you should still
+understand the changes before making them.
 
-## What you get
+## What it does
 
-| Agent | Purpose |
-|-------|---------|
-| **code-quality** | A **pre-check**, not the full verify: evaluates test coverage, quality (Q1-Q8 checklist), and lint — tests scoped to changed packages where the framework allows, and never the build. Reports `CODE QUALITY RESULT: PASS\|FAIL sha=<sha> tree=<tree> covered=<gates>` and files Q3-Q8 warnings as tracker tasks in the same run (deduped, changed modules only). |
-| **test-writer** | Writes behavioral tests for gaps reported by code-quality. Never writes line-coverage tests. |
-| **commit** | Gates on code-quality PASS, consumes the recorded full verify (and runs that full lint+test+build itself, once, when no record covers this tree), creates Conventional Commits, pushes branch, opens PR. Browser validation and the coverage gate run only when nothing already covered them for this HEAD. Worktree-aware: when invoked from an orchestrator-provisioned `git worktree`, commits on the worktree's HEAD without `git checkout`. |
-| **release** | Early-exits in three lines on tags-only projects with no `feat:`/`fix:` since the last tag. Otherwise: documentation audit (FAILs if user-facing `feat:` commits aren't reflected in README/`docs/`), version bump, changelog, tag, GitHub Release. Does not re-run gates for an already-merged tree. Refuses to run inside a worktree — must be invoked from the main checkout. |
-| **pr-monitor** | **Skipped entirely when Agent Config `ci` is `none`** — it exists to poll CI checks. Where CI exists: watches checks and auto-merges on green only when (a) the branch matches `branch_pattern` and (b) the PR carries one of `auto_merge_labels`. PRs without a permitted label get CI watched but emit `AWAITING_HUMAN`. Unset `auto_merge_labels` skips label-gating. |
-| **verification** | Adversarial verification before reporting done. Consumes the recorded gate rather than re-running the suite, then spends its run trying to break the change. Anti-rationalization catalog. |
+The Claude agents form a development pipeline:
 
-Plus eighteen rules covering verification integrity, test quality, delegation, parallel-session isolation, and public-surface hygiene — listed under [Rules included](#rules-included).
+| Agent | Role |
+|---|---|
+| **code-quality** | Checks changed code for test quality, coverage, and lint problems. |
+| **test-writer** | Adds behavioral tests for gaps found by code-quality. |
+| **commit** | Consumes the recorded checks, creates the commit, pushes the branch, and opens the PR. |
+| **pr-monitor** | Watches CI where CI exists, and merges only when the project's branch and label rules allow it. |
+| **release** | Audits documentation, updates versions and changelogs, tags, and creates GitHub Releases. |
+| **verification** | Tries to break the finished change before it is reported done. |
+
+Native Codex uses five shared, bounded roles: explorer, runner, worker, analyst, and reviewer.
+Projects inherit them without replacing personal Codex settings or roles.
+
+The supporting rules cover the parts that are easy to get subtly wrong: meaningful tests, honest
+exit codes, feature-branch discipline, one gate per working tree, parallel-session isolation,
+bounded review, and keeping private project identities off public surfaces.
 
 ## Install
 
@@ -38,149 +48,94 @@ cd cc-harness
 ./install.sh
 ```
 
-This symlinks `agents/`, `rules/`, `hooks/`, and `scripts/` into `~/.claude/`, and
-`global/CLAUDE.md` to both `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. It also links the
-generated `harness_explorer`, `harness_runner`, `harness_worker`, `harness_analyst`, and
-`harness_reviewer` role files individually into `~/.codex/agents/`. Set
-`CC_HARNESS_CLAUDE_DIR=/path/to/.claude` or `CC_HARNESS_CODEX_DIR=/path/to/.codex` for a
-non-default or hermetic target.
+The installer links:
 
-Existing state is never destroyed: a real directory or file at the Claude target is backed up
-first (`<name>.backup.<timestamp>`), and `./uninstall.sh` restores the most recent backup. A
-preexisting Codex `AGENTS.md` file or symlink is also backed up and restored. A personal file,
-directory, or foreign symlink using a managed `harness_*.toml` role name causes installation to
-abort before Codex changes; unrelated roles and all of `~/.codex/config.toml` remain untouched.
+- `agents/`, `rules/`, `hooks/`, and `scripts/` into `~/.claude/`
+- `global/CLAUDE.md` to both `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`
+- the generated `harness_*` role files into `~/.codex/agents/`
 
-Keeping the global `CLAUDE.md` here means edits to it are versioned and reviewable like everything else. It is the file Claude Code loads into *every* session, so an unversioned edit to it is an unversioned change to how every project behaves.
+Use `CC_HARNESS_CLAUDE_DIR=/path/to/.claude` or
+`CC_HARNESS_CODEX_DIR=/path/to/.codex` for an isolated target.
+
+The installer leaves unrelated Codex roles and `~/.codex/config.toml` alone. It stops before
+changing Codex if a personal file, directory, or foreign symlink already uses one of the managed
+`harness_*.toml` names.
+
+Keeping the global instructions here makes changes reviewable and reversible. It also means
+`~/.claude/rules` points into the current working tree, so switching branches changes the live
+rules beneath running sessions.
 
 ## Configure a project
 
-Add an `## Agent Config` table to your project's `CLAUDE.md`. The agents read this table at runtime for project-specific commands and thresholds.
+Add an `## Agent Config` table to the project's `CLAUDE.md`:
 
 ```bash
-# Copy the template
 cat templates/agent-config.md
 ```
 
-Then edit the values for your project. Key fields:
+The table tells the shared agents which commands and policies apply: tests, lint, build, coverage,
+CI, versioning, merge strategy, browser checks, branch naming, and worktree isolation. Use `(none)`
+when a capability does not exist. See the [full template](templates/agent-config.md) for every key
+and example.
 
-| Field | Example |
-|-------|---------|
-| `test_cmd` | `pnpm test` or `python3 -m pytest tests/` |
-| `lint_cmd` | `pnpm lint` or `ruff check src/` |
-| `build_cmd` | `pnpm build` or `(none)` |
-| `verify_cmd` | optional single command running lint+test+build (e.g. `pnpm verify`); preferred over the three above when present |
-| `ci` | `github-actions`, `none`, … — `none` makes the pipeline skip pr-monitor |
-| `coverage_per_module` | `80` or `(none)` |
-| `version_strategy` | `semver`, `semver-beta`, `git-tags-only`, or `(none)` |
-| `deploy_model` | `discrete` or `auto-deploy` |
-| `auto_merge_labels` | comma-separated PR labels that permit pr-monitor to auto-merge (e.g. `agent/auto`); unset disables label-gating |
-| `worktree_root` | parent directory for orchestrator-provisioned worktrees (e.g. `../<repo>-worktrees`); enables parallel-safe pipelines |
-| `isolation_required_for` | comma-separated skill names that must run inside a worktree |
+Project files should hold local parameters and constraints, not copies of the global rules. A
+project-level agent at `<project>/.claude/agents/<name>.md` may override a global agent when the
+project genuinely needs different behavior.
 
-Use `(none)` to skip any capability your project doesn't need.
+## How the pipeline works
 
-See [`templates/agent-config.md`](templates/agent-config.md) for the full schema with descriptions.
+```text
+change
+  → code-quality → test-writer when needed
+  → full verify, once for this working tree
+  → commit → push → pull request
+  → pr-monitor when the project has CI
+  → release when the project has a version strategy
+
+non-trivial work
+  → adversarial verification before completion
+```
+
+The full lint, test, and build gate runs once per working tree. Its result is tied to the tree hash,
+so later steps can reuse it safely and any edit invalidates it. The scoped checks in code-quality
+are a pre-check, not a second full gate. The exact contract lives in
+[`rules/pipeline-contract.md`](rules/pipeline-contract.md).
+
+Agents read project configuration at runtime rather than hardcoding toolchains. The same pipeline
+can therefore work in Python, TypeScript, Swift, Go, or a documentation-only repository.
+
+## Native Codex routing
 
 Native Codex projects inherit the shared `harness_*` roles. Keep project-specific constraints in
-`AGENTS.md` and avoid local copies of the generic prompts or model defaults. After installation,
-run `scripts/codex-routing-check.sh --project /path/to/project` to report missing installed links,
-local role shadows, and copied routing defaults without changing files. The role catalog is
-generated from the shared routing table; after updating it, run `scripts/sync-codex-agents.sh` and
-then `scripts/sync-codex-agents.sh --check`. Clients may need a new Codex session to refresh the
-discovered role catalog. Semantic routing checks use Python 3.11+'s standard-library `tomllib`
-and fail closed when a role or project config cannot be parsed; no third-party dependency is
-installed. See the [native subagent configuration guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+`AGENTS.md`; do not copy the generic role prompts or model defaults into each project.
 
-## How it works
+After installation, check a project without changing it:
 
-Claude Code loads agents from `~/.claude/agents/` globally. Project-level agents at `<project>/.claude/agents/` override global ones by name if you need custom behavior.
-
-The harness agents are **config-driven**: instead of hardcoding commands and thresholds, each agent's first step reads the `## Agent Config` table from the current project's `CLAUDE.md`. This means one set of agents works across Python, TypeScript, Go, or any other stack — the project config tells the agent what to run.
-
-```
-~/.claude/
-├── CLAUDE.md →  cc-harness/global/CLAUDE.md  (symlink)
-├── agents/  →  cc-harness/agents/   (symlink)
-│   ├── code-quality.md
-│   ├── commit.md
-│   ├── release.md
-│   ├── test-writer.md
-│   ├── pr-monitor.md
-│   └── verification.md
-└── rules/   →  cc-harness/rules/    (symlink)
-    ├── testing-guidelines.md
-    ├── claude-md-project-templates.md
-    ├── memory-discipline.md
-    ├── agent-purpose-statements.md
-    └── agent-isolation.md
+```bash
+scripts/codex-routing-check.sh --project /path/to/project
 ```
 
-Native Codex receives individual role links, so personal roles can coexist:
+The check reports missing links, local role shadows, and copied routing defaults. After changing
+the shared model table, regenerate and validate the role catalog with:
 
-```
-~/.codex/
-├── AGENTS.md → cc-harness/global/CLAUDE.md
-├── config.toml                  (personal; never rewritten)
-└── agents/
-    ├── harness_explorer.toml → cc-harness/codex/agents/harness_explorer.toml
-    ├── harness_runner.toml → cc-harness/codex/agents/harness_runner.toml
-    ├── harness_worker.toml → cc-harness/codex/agents/harness_worker.toml
-    ├── harness_analyst.toml → cc-harness/codex/agents/harness_analyst.toml
-    ├── harness_reviewer.toml → cc-harness/codex/agents/harness_reviewer.toml
-    └── private-role.toml       (unchanged)
+```bash
+scripts/sync-codex-agents.sh
+scripts/sync-codex-agents.sh --check
 ```
 
-## Agent workflow
+The semantic checks require Python 3.11 or newer for the standard-library `tomllib`; they install
+no third-party packages. Some clients need a new Codex session before they rediscover the roles.
+See the [native subagent configuration guide](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+for client behavior.
 
-The agents form a pipeline:
+## Trusted PR merges
 
-```
-code change
-  → code-quality (PRE-CHECK: scoped tests + lint + coverage — never the build)
-    → FAIL? → test-writer (fix gaps) → code-quality (re-verify)
-    → PASS  → emits CODE QUALITY RESULT: PASS sha=<sha> tree=<tree> covered=test-scoped,lint,coverage
-      → the FULL verify (lint + test + build) runs ONCE for this tree — by the
-        orchestrator, or by the commit agent when no record exists — and is
-        recorded as VERIFY RESULT: PASS sha=<sha> tree=<tree>
-      → commit  — consumes that record (or produces it)
-                  → stage, push, open PR
-        → pr-monitor  [only if the project has CI — Agent Config `ci` ≠ none]
-          → release   [only if `version_strategy` ≠ none]
+`scripts/trusted-pr-merge.sh` is a host-side wrapper for repositories that need to gate pull
+requests from outside contributors. Keep the wrapper outside the checkout it evaluates. It checks
+the author, labels, and changed paths, runs the candidate gate, fetches the metadata again, and
+binds a squash merge to the revalidated head SHA.
 
-Non-trivial work:
-  → verification (consumes the recorded gate; spends its run on adversarial checks)
-```
-
-**Gate once** = **one full verify per tree.** code-quality's scoped test + lint is a
-pre-check, not that gate: it never runs the build, and its tests cover only the changed
-modules. The full lint+test+build triple runs a single time per working tree — by the
-orchestrator or the commit agent, whoever gets there first — and every later step reads
-the recorded `VERIFY RESULT:` line rather than re-running it. The contract lives in
-[`rules/pipeline-contract.md`](rules/pipeline-contract.md) — orchestrators pass that
-file by reference to subagents instead of restating gate instructions.
-
-## Per-project overrides
-
-If a project needs fundamentally different agent behavior (not just different config), create a project-level agent with the same name:
-
-```
-my-project/.claude/agents/commit.md   ← overrides the global commit agent
-```
-
-This is useful for projects with unique workflows (e.g., student-facing agents that avoid git terminology).
-
-## Trusted PR merge wrapper
-
-`scripts/trusted-pr-merge.sh` is a host-side merge wrapper: keep it outside the PR checkout and
-invoke it with the checkout only as the gate target. Before it executes that gate, it fetches PR
-author metadata, labels, and all changed paths from GitHub. It holds `human/hold` labels and
-unknown author metadata, and also holds external contributors that change workflows, repository
-or workflow settings, or merge-gate/policy surfaces. An ordinary unlabelled PR can proceed.
-
-The default is a validated dry run. Use `--merge` only when a real merge is intended; the wrapper
-re-fetches all metadata after the candidate gate and sends a GraphQL squash merge with
-`expectedHeadOid` set to the revalidated PR head.
+Its default is a dry run. Pass `--merge` only when you intend to merge:
 
 ```bash
 scripts/trusted-pr-merge.sh \
@@ -190,37 +145,16 @@ scripts/trusted-pr-merge.sh \
   --merge
 ```
 
-## Rules included
+## Where to read next
 
-Rules with a `paths:` frontmatter block load only when a matching file is read; the rest load
-in every session. Maintainer-only history (incidents, measurements, setup boilerplate) lives in
-[`docs/reference/`](docs/reference/), which is **not** symlinked into `~/.claude/`.
+- [`docs/design-rationale.md`](docs/design-rationale.md) explains the main design decisions.
+- [`docs/README.md`](docs/README.md) maps the rules, incident histories, and retrospectives.
+- [`rules/`](rules/) and [`agents/`](agents/) contain the operative text loaded into sessions.
+- [`docs/reference/`](docs/reference/) holds maintainer detail and incident evidence that should
+  not consume context in every session.
 
-| Rule | What it provides |
-|------|-----------------|
-| **agent-enforcement** | The agent pipeline is mandatory: no manual `git add`/`commit`/`push`, which step is exempt when, and branch cleanup on merge |
-| **pipeline-contract** | The gate-once contract: who runs the verify, the result-line formats, consume-don't-re-run, and the small-diff fast path |
-| **branch-discipline** | Feature-branch-first — branch *before* the first edit, never commit on an integration branch, and how to recover if you slip |
-| **testing-guidelines** | Test quality checklist (Q1–Q8), test types, anti-patterns, session close protocol |
-| **verification-integrity** | Never read an exit code through a pipe; a green must be able to be red; instruments must distinguish healthy from not-looking; a regression claim needs a baseline |
-| **codex-job-status-integrity** | `unknown`/`orphaned` on a background Codex job is an integrity incident, not a pending result |
-| **codex-dispatch-protocol** | The wrapper is not the job: liveness is PID + log, placement is verified at dispatch, waiting is a PID bridge, cancellation criteria are written down |
-| **agent-purpose-statements** | Telling an agent *why* it was invoked, so it optimizes for relevance instead of completeness |
-| **public-surface-hygiene** | No real client/project/ticket/feature name in any file, commit message, PR body or tracker text — enforced by `scripts/name-hygiene.sh` in the gate |
-
-Path-scoped — these load only when a matching file is read:
-
-| Rule | What it provides |
-|------|-----------------|
-| **agent-isolation** | Worktree-based isolation so concurrent sessions don't corrupt each other's branch state |
-| **parallel-authoring** | Fan out authoring agents for independent additive work, then gate once |
-| **branch-completion-review** | Adversarial GO/NO-GO triggered by risk class, capped at three rounds with per-finding triage |
-| **peer-session-coordination** | Sessions message each other directly, scoped by what is actually shared, bounded in size |
-| **windowed-gate-serialization** | Serialize gates that open real windows, so parallel agents don't flood the desktop |
-| **computer-control-release** | Hand back screen, simulator or browser when active use ends |
-| **claude-md-project-templates** | NEVER lists, autonomy tiers, and authoring prompts for a project `CLAUDE.md` |
-| **memory-discipline** | Memory exclusions plus a recall-time verification protocol |
-| **native-codex-routing** | Shared `harness_*` Codex roles and the project adoption checks |
+Incident reports use purpose-based pseudonyms such as `AudioApp` and `AudioWebsite`; the
+[documentation index](docs/README.md) explains them.
 
 ## Uninstall
 
@@ -228,18 +162,16 @@ Path-scoped — these load only when a matching file is read:
 ./uninstall.sh
 ```
 
-Removes only harness-owned symlinks and restores any backed-up Claude directories or Codex
-`AGENTS.md`; it keeps personal Codex roles, directories, and configuration.
+Uninstall removes harness-owned symlinks and hook registrations, clears the installed
+`env.CODEX_PLUGIN` value from `~/.claude/settings.json`, and restores backed-up Claude directories
+or Codex `AGENTS.md`. It leaves unrelated settings, personal Codex roles, directories, and
+configuration in place.
 
-## Customization
+## Customize
 
-Fork this repo and modify agents/rules to match your workflow. The agents are markdown files — no build step, no dependencies.
-
-Key customization points:
-- Agent models: change `model:` in frontmatter (e.g., `claude-haiku-4-5` for cheaper quality checks)
-- Quality thresholds: adjust per-project via Agent Config, not by modifying the global agent
-- Additional agents: add new `.md` files to `agents/`
-- Additional rules: add new `.md` files to `rules/`
+Fork the repository and adapt the markdown agents and rules to your workflow. Typical changes are
+project thresholds in Agent Config, model choices in agent frontmatter, and additional files under
+`agents/` or `rules/`.
 
 ## License
 

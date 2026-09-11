@@ -1,13 +1,12 @@
-# Branch Guard Setup (maintainer reference)
+# Branch guard setup (maintainer reference)
 
-Machine-enforced branch discipline: a `PreToolUse` hook that refuses `Edit`/`Write`/
-`NotebookEdit` while HEAD is on an integration branch. Rules steer the model; hooks are a
-hard stop at tool-call time. Use both.
+This `PreToolUse` hook refuses `Edit`, `Write`, and `NotebookEdit` while HEAD is on an
+integration branch. Rules guide the model; the hook stops the tool call. Use both.
 
-This file is **not symlinked into `~/.claude/`** — copy from here when setting a project up.
-A live example is AudioWebsite's `scripts/branch-guard.sh` + `.claude/rules/branching.md`.
+This file is not symlinked into `~/.claude/`; copy it when setting up a project. For a live
+example, see AudioWebsite's `scripts/branch-guard.sh` and `.claude/rules/branching.md`.
 
-## 1. Drop in the guard script
+## 1. Add the guard script
 
 `scripts/branch-guard.sh` (chmod +x):
 
@@ -31,11 +30,11 @@ case "$FILE_PATH" in
   "$HOME"/.claude/plans/*) exit 0 ;;
   "$HOME"/.claude/projects/*/memory/*) exit 0 ;;
 esac
-echo "branch-guard: refusing to edit $REL while HEAD is on $BRANCH. Create a feature branch first: git checkout -b claude/<desc> origin/$BRANCH" >&2
+echo "branch-guard: refusing to edit $REL while HEAD is on $BRANCH. Create a feature branch first: git checkout -b feat/<desc> origin/$BRANCH" >&2
 exit 2
 ```
 
-## 2. Wire the hook in the project's `.claude/settings.json`
+## 2. Register the hook in `.claude/settings.json`
 
 ```json
 {
@@ -54,14 +53,14 @@ exit 2
 
 ## 3. Keep the allowlist narrow
 
-Cover only paths that mutate on `main` by design — issue-tracker files (`.beads/`),
-persistent agent memory, plan files. Anything you wouldn't want to see on `main` in a
-`git diff` does not belong there.
+Allow only paths designed to change on `main`: issue-tracker files (`.beads/`), persistent
+agent memory, and plan files. If a change would be unwelcome in `git diff` on `main`, it does
+not belong in the allowlist.
 
 ## Post-merge cleanup companion
 
-The companion to "branch first" is "clean up after merge", or worktrees under
-`worktree_root` and local feature branches pile up:
+Branch-first discipline needs post-merge cleanup, or worktrees under `worktree_root` and local
+feature branches accumulate:
 
 | Trigger | Mechanism | Scope |
 |---|---|---|
@@ -69,5 +68,4 @@ The companion to "branch first" is "clean up after merge", or worktrees under
 | Manual / scheduled | `scripts/cleanup-stale-git-state.sh` | All stale worktrees and merged local branches in the repo |
 
 The manual script is idempotent and refuses to touch the current checkout's working tree,
-branch, or HEAD. Projects should call it out in CLAUDE.md NEVER rules so the user knows it
-exists.
+branch, or HEAD. Mention it in the project's `CLAUDE.md` NEVER rules so users know it exists.
