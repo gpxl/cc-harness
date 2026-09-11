@@ -1,13 +1,12 @@
 # Engineering retrospectives
 
-A periodic, evidence-first account of how this development system actually behaved: what went
-wrong, what it cost, what we changed, and whether the change worked. One entry per period, dated,
-never edited after publication except to append a follow-through note.
+These retrospectives record how the development system behaved: what failed, what it cost, what
+changed, and whether the change worked. Each period gets one dated entry. After publication, an
+entry changes only to add a follow-through note.
 
-These are **narrative over a period**. They are not the same as
-[`../reference/rule-histories.md`](../reference/rule-histories.md), which is per-rule incident
-forensics and answers "why does this rule say that". A retrospective answers "what happened to us,
-and what did we do about it". Link between them rather than restating either.
+Retrospectives tell the story of a period: what happened and what we did about it.
+[`../reference/rule-histories.md`](../reference/rule-histories.md) instead explains why each rule
+says what it says. Link the two rather than repeating either one.
 
 ## Index
 
@@ -16,63 +15,62 @@ and what did we do about it". Link between them rather than restating either.
 | 2026-09-05 | [Codex integration and unbounded review loops](2026-09-05-codex-integration-and-review-loops.md) | 29 Aug – 5 Sep 2026 | A PR reached 12 adversarial review rounds; review is now capped at 3 with mechanical enforcement | — |
 
 The markdown file in this directory is canonical. A shareable rendering may be published for
-people who will not open the repo; when the two disagree, the file wins. Record its URL in the
-index so the next author republishes to it rather than creating a second one — and republish it
-whenever the entry changes, because a stale rendering of a scrubbed entry is a leak the repository
-cannot see (`../../rules/public-surface-hygiene.md`).
+readers outside the repository, but the file wins if they differ. Record the rendering's URL in
+the index so later authors update it instead of creating a duplicate. Republish after every edit:
+a stale rendering of a scrubbed entry is a leak the repository cannot detect
+(`../../rules/public-surface-hygiene.md`).
 
 ## Cadence
 
 | Trigger | When |
 |---|---|
-| Scheduled | Monthly, on the first working day. Even a quiet month gets an entry: "nothing notable, here are the counters" is a finding. |
+| Scheduled | Monthly, on the first working day. Quiet months still get an entry; "nothing notable, here are the counters" is a finding. |
 | Incident | Any single failure that costs more than a working day, or any change to how work is reviewed, gated, or routed. |
-| Follow-through | Every entry reports on the previous entry's open items before it introduces anything new. An entry that skips this is incomplete. |
+| Follow-through | Every entry reports on the previous entry's open items before introducing anything new. Without that section, the entry is incomplete. |
 
-The scheduled trigger is wired: `~/.claude/scheduled-tasks/monthly-engineering-retrospective/` fires on the first of each month at 09:00 and points back at this file. It is machine-local, so a fresh machine has the series but not the reminder — recreate the task there.
+The scheduled trigger at `~/.claude/scheduled-tasks/monthly-engineering-retrospective/` runs on the
+first of each month at 09:00 and points to this file. It is machine-local. A new machine has the
+series but not the reminder, so recreate the task there.
 
 ## How to produce one
 
-1. **Gather the measured half first.** `bash scripts/retro-evidence.sh --since <date> --repo <owner/name> --acks <checkout>/.build/merge-gate/acks --out /tmp/dossier.md`. It emits merged PRs with open→merge hours, parsed `branch-review` acknowledgements, the loop and routing counters, this repo's rule and script churn, and a fixed list of what it cannot show. Never start from recollection: a sentence of the form "we used to…" or "that took hours" is a claim about a commit or a ledger row, so name it (`rules/verification-integrity.md` § A regression claim needs a baseline).
-2. **Read the qualitative sources.** `docs/reference/rule-histories.md` for the reasoning behind each rule change in the window, the beads closed and opened, and targeted transcript searches for the moments the counters point at. Search transcripts, do not read them whole.
-3. **Write the narrative.** Structure below. Delegate drafting to Codex with the dossier as input if the window is large; the orchestrator's job is the judgement, not the prose.
-4. **Publish both.** Commit the markdown through the normal branch → commit agent → gate → merge path, and republish the artifact to the URL in the index.
-5. **Turn open items into beads** before you finish, and record their ids in the entry. An open item with no bead is a wish.
+1. Gather evidence first with `bash scripts/retro-evidence.sh --since <date> --repo <owner/name> --acks <checkout>/.build/merge-gate/acks --out /tmp/dossier.md`. It lists merged PRs with open→merge hours, parsed `branch-review` acknowledgements, loop and routing counters, this repository's rule and script churn, and a fixed list of what it cannot show. Do not begin from memory. "We used to…" and "that took hours" are claims about a commit or ledger row; identify the evidence (`rules/verification-integrity.md` § A regression claim needs a baseline).
+2. Read the qualitative sources: `docs/reference/rule-histories.md` for the reasoning behind rule changes in the period, beads opened and closed, and targeted transcript searches where the counters point. Search transcripts; do not read them whole.
+3. Write the narrative using the structure below. For a large period, delegate the draft to Codex with the dossier as input; the orchestrator remains responsible for judgment.
+4. Publish both versions. Commit markdown through the normal branch → commit agent → gate → merge path, then republish the artifact at the URL in the index.
+5. Turn every open item into a bead and record its ID so it does not disappear after publication.
 
 ## Structure
 
-Sections, in this order. Adapt the names, keep the jobs.
+Use these sections in order. You may rename them, but preserve their purpose.
 
 | Section | Its job |
 |---|---|
-| Summary | The period in one paragraph plus the four or five numbers that carry it. A reader who stops here should know what happened and what changed. |
+| Summary | One paragraph plus the four or five numbers that carry the period. A reader who stops here should know what happened and what changed. |
 | The setup | Only the parts of our environment a competent outsider could not guess, and only where they explain a failure. Written fresh each time; do not link and assume. |
 | Timeline | Dated, terse, one line per event that mattered. |
-| What went wrong | Grouped by mechanism, not by date. Each block: what happened, why, what it cost (measured, or explicitly unmeasured), what the response was. |
+| What went wrong | Grouped by mechanism, not date. Each block covers what happened, why, the measured or explicitly unmeasured cost, and the response. |
 | Why it happened | Root causes, each tied to a file or a policy that has since changed. |
 | What we changed | One row per change with where it landed and its status. Include the changes that did not hold. |
 | Results so far | Every sample from the period, against the targets. Mark the misses. |
-| Still open | With bead ids. |
+| Still open | Open work, with bead IDs. |
 | Learnings | Transferable statements, not a restatement of the changes. |
 
 ## The honesty rules
 
-These exist because a retrospective is the one document with a standing incentive to flatter its
-author, who is usually also the system under review.
+The author is usually part of the system under review, which makes candor a requirement:
 
-- **Report the failures of the fix, not only of the thing it fixed.** If the new rule was breached,
-  say when and by which commit. If the enforcement script shipped with defects, name them.
-- **Include other people's efforts and their results**, including work that regressed or was
-  abandoned. An entry that only contains the author's successes is not a retrospective.
-- **Separate measured from asserted.** A ledger note claiming a negative control ran is an
-  assertion until replayed. Say which you are relying on.
-- **Never let a target that was missed appear as met.** If a number is not comparable, print it and
-  say why it is not comparable, rather than omitting it.
-- **No causal claim without a mechanism.** "Rounds fell after the cap" is a coincidence until you
-  can point at the round that was refused.
-- **Write it publishable the first time.** Real project, client and ticket names never go in, not
-  even in a draft — substitute the purpose-based pseudonym from the private mapping as you write
-  (`../../rules/public-surface-hygiene.md`). An entry is scrubbed at authoring time or it is
-  scrubbed by a history rewrite later.
-- **Name what the evidence cannot establish.** The dossier's "Not measured" section goes into the
-  entry, edited for the period, not dropped.
+- Report failures of the fix as well as failures of the original system. If a new rule was broken,
+  name the commit and date. If an enforcement script shipped with defects, name them.
+- Include other people's work and its results, including regressions and abandoned efforts. A
+  record containing only the author's successes is not a retrospective.
+- Separate measurements from assertions. A ledger note saying a negative control ran remains an
+  assertion until replayed; state which kind of evidence you use.
+- Present missed targets plainly. If figures are not comparable, show them and explain why.
+- Tie causal claims to a mechanism. "Rounds fell after the cap" is only a coincidence
+  until you can identify the round the cap refused.
+- Write for publication from the first draft. Keep real project, client, and ticket names out, even
+  temporarily. Apply the purpose-based pseudonym from the private mapping while writing
+  (`../../rules/public-surface-hygiene.md`). Otherwise removal requires rewriting history.
+- State what the evidence cannot establish. Adapt the dossier's "Not measured" section to the
+  period; do not drop it.

@@ -1,10 +1,10 @@
-# Agent Config Template
+# Agent config template
 
-Add this section to your project's `CLAUDE.md`. The global agents read these
-values at runtime to adapt to your project's tooling.
+Add this section to the project's `CLAUDE.md`. Global agents read it at runtime and adapt to the
+project's tools.
 
-Replace placeholder values with your project-specific commands and thresholds.
-Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
+Replace every placeholder with the project's commands and thresholds. Use `(none)` when a
+capability does not apply, such as `build_cmd | (none)` for a project with no build step.
 
 ---
 
@@ -37,13 +37,16 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | deploy_model | discrete |
 | pr_merge_strategy | merge |
 | release_merge_strategy | squash |
+| auto_merge_labels | agent/auto |
 | browser_validation | (none) |
 | quality_gate_pattern | src/**/*.ts |
+| worktree_root | ../<repo-name>-worktrees |
+| isolation_required_for | (none) |
 | co_author | (none) |
 
 ---
 
-## Key Reference
+## Key reference
 
 | Key | What it controls | Example values |
 |-----|-----------------|----------------|
@@ -59,8 +62,8 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | `lint_cmd` | Run linter | `pnpm lint`, `ruff check src/` |
 | `lint_fix_cmd` | Auto-fix lint issues | `ruff check --fix src/`, `(none)` |
 | `build_cmd` | Build/compile step | `pnpm build`, `(none)` |
-| `verify_cmd` | **Optional.** One command running lint+test+build. When present it *is* the verify — the gate runs it once per HEAD and later steps consume the recorded `VERIFY RESULT:` line (see `rules/pipeline-contract.md`) instead of re-running the three separately | `pnpm verify`, `make check`, `(none)` |
-| `ci` | Whether the project has CI running checks on PRs. `none` makes the pipeline **skip pr-monitor** — it exists to poll checks, so with no CI the orchestrator merges on the recorded local verify instead | `github-actions`, `none` |
+| `verify_cmd` | Optional command that runs lint+test+build. When present, it is the verify. The gate runs it once per working tree; later steps consume the recorded `VERIFY RESULT:` line instead of running the three checks again. See `rules/pipeline-contract.md`. | `pnpm verify`, `make check`, `(none)` |
+| `ci` | Whether CI runs checks on PRs. `none` skips pr-monitor because there are no checks to poll; the orchestrator merges from the recorded local verify instead. | `github-actions`, `none` |
 | `test_pattern` | Map source files to test files | `src/foo.ts -> tests/foo.test.ts` |
 | `test_framework` | Which test framework | `pytest`, `jest + react-testing-library`, `vitest` |
 | `test_fixtures` | Available shared fixtures/helpers | `conftest.py: fixture1, fixture2`, `(none)` |
@@ -68,10 +71,13 @@ Use `(none)` to skip a capability (e.g., `build_cmd | (none)` if no build step).
 | `exclusion_reason` | Why those files are excluded | `Shadcn UI (auto-generated)`, `(none)` |
 | `version_files` | Files containing version strings to sync | `package.json (version), src/version.ts (VERSION)`, `(none)` |
 | `version_strategy` | How versions are managed | `semver`, `semver-beta`, `git-tags-only`, `(none)` |
-| `branch_pattern` | Branch naming convention | `<type>/<description>`, `claude/<description>` |
+| `branch_pattern` | Branch naming convention | `<type>/<description>`, `feat/<description>` |
 | `deploy_model` | How releases reach production | `discrete` (explicit), `auto-deploy` (Vercel/etc.) |
 | `pr_merge_strategy` | How feature PRs are merged | `merge` (preserve history), `squash` |
 | `release_merge_strategy` | How release PRs are merged | `squash`, `(none)` |
+| `auto_merge_labels` | PR labels that allow agent-managed merging. Omit this row to disable label-gating. | `agent/auto`, `agent/review` |
 | `browser_validation` | Browser-based validation commands | `pnpm test:visual:home`, `(none)` |
 | `quality_gate_pattern` | Files that require code-quality PASS before commit | `src/**/*.ts`, `app/**/*.py` |
-| `co_author` | A **human** co-author trailer, or `(none)` | `Ada Lovelace <ada@example.com>`, `(none)` |
+| `worktree_root` | Parent directory for isolated worktrees; keep it outside the repository | `../<repo>-worktrees` |
+| `isolation_required_for` | Skills that must run in an isolated worktree | `<skill-name-1>, <skill-name-2>`, `(none)` |
+| `co_author` | A human co-author trailer, or `(none)` | `Ada Lovelace <ada@example.com>`, `(none)` |

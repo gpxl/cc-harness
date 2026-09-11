@@ -2,42 +2,39 @@
 
 **Period:** 29 August – 5 September 2026 · **Repos:** AudioApp (a native macOS/Swift audio app), cc-harness · **Published:** 2026-09-05
 
-First entry in this series, so there is no previous follow-through section. Sources: 30 AudioApp
-pull requests, the merge-gate acknowledgement ledger (277 rows), `docs/reference/rule-histories.md`,
-the appendix below, targeted transcript searches, and `loop-report.sh`
-/ `routing-report.sh` runs on 5 September.
+This is the first entry in the series, so there is no previous follow-through section. Evidence
+comes from 30 AudioApp pull requests, 277 rows in the merge-gate acknowledgement ledger,
+`docs/reference/rule-histories.md`, the appendix, targeted transcript searches, and
+`loop-report.sh` / `routing-report.sh` runs on 5 September.
 
 ## Summary
 
 | | |
 |---:|---|
-| **12** | review rounds on AudioApp PR #8, 22 commits, 19 of them fixes; the last blocker was fabricated |
+| **12** | review rounds on AudioApp PR #8, 22 commits, 19 of them fixes |
 | **65** | merge-gate invocations in one session, against a target of 2 per pull request |
 | **12** | commits to live, globally shared rules and scripts in six days |
 | **3** | round cap now enforced by the merge gate; a fourth round needs the owner's words in the acknowledgement |
 | **3 of 3** | pull requests under the new rule reached the cap and stopped; every round past it has the owner's words attached |
 
-Two things collided. We moved implementation and review work onto OpenAI Codex behind a Claude
-orchestrator, and we let adversarial code review run "until GO". The Codex plugin's job model was
-misread several times: status is not liveness, the sandbox cannot build Swift, the review commands
-are user-typed only. The review rule had no round budget, used a fresh reviewer every round, and
-turned every finding into a fix commit. Together they produced PR #410's twelve rounds, a
-2,360-message session, and a week in which three sessions worked on the pipeline instead of the
-product.
+Two changes collided: implementation and review moved to OpenAI Codex behind a Claude
+orchestrator, while adversarial review was allowed to run "until GO". We repeatedly misread the
+plugin's job model: status is not liveness, the sandbox cannot build Swift, and review commands are
+user-typed only. Meanwhile, the review rule had no round budget, started with a fresh reviewer each
+time, and turned every finding into a fix commit. The result was AudioApp PR #8's twelve rounds, one
+2,360-message session, and three sessions spent on the pipeline instead of the product.
 
-The response landed in three parts: an instrument that counts rounds, gate runs and messages per
-pull request; a rule that caps review at three rounds with same-reviewer resume and
-fix/bead/unverified triage; and mechanical enforcement in AudioApp's merge gate plus shared scripts
-in cc-harness. Results are early and mixed. All three pull requests run under the cap reached it.
-One merged after the owner authorised a fourth round, one was split so the contested component
-could be rebuilt separately, one merged after a root-cause fix elsewhere. The enforcement scripts
-shipped with two real defects of their own. The fourteen-day rule freeze was breached by a
-documentation PR within eighty minutes.
+We responded with an instrument that counts rounds, gate runs, and messages per pull request; a
+three-round review cap with same-reviewer resume and fix/bead/unverified triage; and enforcement in
+AudioApp's merge gate and shared cc-harness scripts. Early results are mixed. All three pull
+requests reached the cap. One merged after the owner authorized a fourth round, one was split so a
+contested component could be rebuilt separately, and one merged after a root-cause fix elsewhere.
+The enforcement scripts introduced two defects, and a documentation PR breached the fourteen-day
+rule freeze within eighty minutes.
 
 ## The setup
 
-The parts that make this week hard to read from outside are the parts that are unusual. Each is a
-deliberate choice, and each widened the blast radius of a mistake.
+Several deliberate choices made this week unusual and widened the blast radius of mistakes.
 
 | Moving part | What it is | Why it matters here |
 |---|---|---|
@@ -46,134 +43,132 @@ deliberate choice, and each widened the blast radius of a mistake.
 | **Adversarial branch review** | A read-only reviewer is dispatched when a diff hits one of five risk classes: lifetime/cancellation, persistence, integrity of a check or the policy behind it, trusted external surface, real-time audio. It returns GO or NO-GO with BLOCKER/MAJOR/MINOR findings. | Until 4 September the rule's step 5 read "Repeat until GO". |
 | **AudioApp merge gate** | No server-side CI. `scripts/merge-gate.sh` runs build, tests, a signed bundle plus launch smoke, path-triggered scanners, and checks a ledger of manual-step acknowledgements keyed by commit sha. Only `MERGE GATE RESULT: PASS` authorises a merge. | The acknowledgement ledger is the only durable record of review rounds, which is how we can count them at all. It is also where the cap is enforced. |
 | **Worktrees and peer sessions** | Several Claude sessions run against the same repository at once, each in its own git worktree, and can message each other. | Peer messaging turned into engineering debate and delegation. Worktrees isolate git state but not machine state, window-server locks or caches. |
-| **beads (`bd`)** | A local issue tracker. Every task is an issue with acceptance criteria; the issue is meant to be the stop condition for work. | The loops happened when review findings replaced the issue's acceptance criteria as the definition of done. |
+| **beads (`bd`)** | A local issue tracker. Every task has acceptance criteria meant to define when work stops. | The loops began when review findings replaced those criteria as the definition of done. |
 | **Verification-integrity rules** | Exit codes never read through a pipe; every new guard proven by mutating the source and watching the test go red; instruments must distinguish healthy from not looking. | This discipline caught most of the week's defects, including defects in the fix itself. |
 
 ## Timeline
 
-- **29–30 Aug** — Normal week. AudioApp ships PR #1–#4. The ledger already shows a four-round
-  review that found two real defects, and feature pull requests taking 49–74 hours open to merge.
-- **31 Aug – 1 Sep** — Codex job-status integrity rule lands, then a second commit for the missing
-  `queued` state. The dispatch, wait and broker protocol follows after a foreground timeout killed
-  a worker while its app-server turn kept editing files. A session in another repository reads
-  `running` as live for 25 minutes before learning no job existed.
+- **29–30 Aug** — AudioApp ships PR #1–#4. The ledger already shows one four-round review that
+  found two real defects, while feature pull requests take 49–74 hours from open to merge.
+- **31 Aug – 1 Sep** — The Codex job-status integrity rule lands, followed by a commit for the
+  missing `queued` state. The dispatch, wait, and broker protocol follows after a foreground
+  timeout kills a worker while its app-server turn keeps editing files. Another repository's
+  session reads `running` as live for 25 minutes before learning that no job exists.
 - **2 Sep** — AudioApp PR #6 merges after six review rounds with a fresh, no-context Codex reviewer each
   round. A note claims the Codex stop-time review gate is on in every main checkout.
-- **3 Sep** — The review route changes three times in one day: the rule points at a user-typed-only
+- **3 Sep** — The review route changes three times: the rule points at a user-typed-only
   slash command, a peer refuses a Bash workaround, a Claude reviewer stands in and returns three
   MAJOR NO-GOs, and the route settles on read-only `/codex:rescue`. The stop-gate claim is measured
   and found false. A selftest fix lands because bash 3.2 resets `$?` before the EXIT trap, so an
   aborting selftest could look green. AudioApp PR #7 merges after five rounds and six defects.
-- **4 Sep** — AudioApp PR #8 opens at 06:44 and merges at 17:05 after twelve rounds and 22 commits. The
-  same session records 65 merge-gate invocations. AudioApp PR #10 reaches four rounds with blockers going
-  4 → 9 → 6; its round-3 headline blocker is fabricated and costs about an hour to disprove. At
-  20:43 a Codex task is cancelled by hand. At 22:37 the bounded-review plan is approved and AudioApp PR #11
-  opens.
-- **5 Sep** — AudioApp PR #11 merges at 05:13 after four rounds. cc-harness #40 lands the bounded rules and the
-  freeze; #41 edits a frozen rule 79 minutes later. The merge-gate evaluation, the gate-slimming PR
-  AudioApp PR #12 and the shared-scripts PR #42 run under the new rule; both reach round three and stop.
+- **4 Sep** — AudioApp PR #8 opens at 06:44 and merges at 17:05 after twelve rounds and 22
+  commits. Its session records 65 merge-gate invocations. AudioApp PR #10 reaches four rounds with
+  blocker counts of 4 → 9 → 6; its headline round-3 blocker is fabricated and takes about an hour
+  to disprove. A Codex task is cancelled by hand at 20:43. The bounded-review plan is approved at
+  22:37, and AudioApp PR #11 opens.
+- **5 Sep** — AudioApp PR #11 merges at 05:13 after four rounds. cc-harness #40 lands the bounded
+  rules and freeze; #41 edits a frozen rule 79 minutes later. The merge-gate evaluation,
+  gate-slimming AudioApp PR #12, and shared-scripts PR #42 run under the new rule. Both PRs reach
+  round three and stop.
 
 ## What went wrong
 
 ### The unbounded review loop
 
-AudioApp PR #8 (paging and search in a paginated browse tab) went through twelve adversarial rounds.
-Three of the branch's seven defects came from its own fixes. The session behind it produced 2,360
-assistant messages, 963 Bash calls, 60 subagent calls, 65 merge-gate runs, 156 test-suite runs and
-90 builds for roughly six pull requests. AudioApp PR #10's rounds diverged (4, then 9, then 6 blockers) and
-its session wrote: *"the hook has been working since round 2 — what consumed the last several hours
-is proving it works."*
+AudioApp PR #8, which added paging and search to a paginated browse tab, went through twelve
+adversarial rounds. Its fixes introduced three of the branch's seven defects. Across roughly six
+pull requests, the session produced 2,360 assistant messages, 963 Bash calls, 60 subagent calls, 65
+merge-gate runs, 156 test-suite runs, and 90 builds. AudioApp PR #10's rounds diverged—4, then 9,
+then 6 blockers—and its session wrote: *"the hook has been working since round 2 — what consumed
+the last several hours is proving it works."*
 
-The rule said "Repeat until GO" and nothing else. Sessions used a fresh reviewer every round, so
-each round re-derived the diff and found new things instead of converging. Every finding, including
-MINOR and forward-looking ones, became a fix commit that reopened a round. The orchestrator wrote
-negative controls and reproduced findings by hand, on the most expensive model, instead of one
-triage line per finding.
+The rule said only "Repeat until GO." Each fresh reviewer re-derived the diff and found new issues
+instead of converging. Every finding, including MINOR and forward-looking ones, became a fix commit
+and opened another round. On the most expensive model, the orchestrator wrote negative controls and
+reproduced findings by hand instead of giving one triage line per finding.
 
 ### Review found real defects too
 
-AudioApp PR #5 had two rounds and four MAJORs, one found only on the recheck. AudioApp PR #7 had five rounds, six
-defects in a one-audio-owner race, and ten deliberate negative controls. AudioApp PR #6's six rounds found six
-real reporting defects, including a stage that conflated an unavailable temp directory with zero.
+AudioApp PR #5 had two rounds and four MAJORs, one found only on recheck. AudioApp PR #7 had five
+rounds, six defects in a one-audio-owner race, and ten deliberate negative controls. AudioApp PR
+#6's six rounds found six real reporting defects, including a stage that treated an unavailable
+temp directory as zero.
 
-The loop is not worthless. Independent review adds signal on cancellation, ownership and
-observability semantics that deterministic gates do not cover. The fix had to bound the loop, not
-remove it. Nothing here justifies twelve rounds.
+Independent review still adds signal on cancellation, ownership, and observability semantics that
+deterministic gates miss. The right response was to bound it, not remove it. Nothing here supports
+twelve rounds.
 
 ### Codex job status was not job liveness
 
-A foreground `codex-companion.mjs task` killed by the 120-second Bash timeout left the record at
-`running` with a dead PID while the app-server turn kept editing files with nobody tracking it. The
-plugin's status command filters by session id, so a job dispatched from another session or into a
-worktree showed an empty table while alive. A `queued` job whose worker died stayed `queued`
-forever. During this retrospective's own evidence collection `setup --json` reported `ready:false`
-with "Shared Codex broker is busy"; it was `ready:true` again an hour later.
+A 120-second Bash timeout killed a foreground `codex-companion.mjs task`, leaving its record at
+`running` with a dead PID while the app-server turn continued editing untracked. The plugin's
+status command filters by session id, so a live job dispatched from another session or worktree
+appeared as an empty table. A `queued` job whose worker died stayed `queued` forever. During this
+retrospective's evidence collection, `setup --json` reported `ready:false` with "Shared Codex
+broker is busy"; an hour later it returned `ready:true`.
 
-The wrapper was mistaken for the job, and session-scoped listing for global truth. Guidance was
-written before reading the plugin's runtime code: a proposed `setsid` wrapper was unnecessary
-because background workers are already detached, and would have made things worse by creating
-workers nobody records.
+We mistook the wrapper for the job and a session-scoped listing for global truth. Guidance preceded
+inspection of the plugin's runtime code. A proposed `setsid` wrapper was unnecessary because
+background workers were already detached; it would have created unrecorded workers.
 
-Six commits over three days followed: an integrity rule for `unknown`/`orphaned`, a PID-bridge wait
-script that wakes once instead of polling, a cross-session jobs lister, a broker lister, a dispatch
-wrapper that verifies placement, and written cancellation criteria. Three job records still read
-`running` on disk at collection time; the protocol correctly requires PID and log inspection rather
-than trusting them.
+Six commits followed in three days: an integrity rule for `unknown`/`orphaned`; a PID-bridge wait
+script that wakes once instead of polling; cross-session job and broker listers; a dispatch wrapper
+that verifies placement; and written cancellation criteria. Three on-disk records still read
+`running` at collection time, so the protocol requires PID and log inspection rather than trust in
+the record.
 
 ### The sandbox cannot build the product
 
-Codex tasks in AudioApp cannot run `swift build` or the test runner even with the sandbox disabled
-and the SwiftPM cache made writable. Swift's macro plugin host runs under `sandbox-exec`, and nested
-Seatbelt inside Codex's sandbox fails with "Operation not permitted". Every `@State` and
-`@Observable` site errors out.
+AudioApp Codex tasks cannot run `swift build` or the test runner, even with the sandbox disabled and
+the SwiftPM cache writable. Swift's macro plugin host runs under `sandbox-exec`; nested Seatbelt
+inside Codex's sandbox fails with "Operation not permitted." Every `@State` and `@Observable` site
+then errors.
 
-Code Codex hands back is therefore unverified and in practice does not compile first time. Every fix
-round becomes at least two round trips: Codex writes, the orchestrator builds outside the sandbox,
-the error list goes back on the same thread. This amplified the review loops. It is a structural
-limitation, not a rule problem, and it is unchanged.
+Codex therefore hands back unverified code that, in practice, does not compile on the first try.
+Each fix round takes at least two trips: Codex writes, the orchestrator builds outside the sandbox,
+and the errors return to the same thread. This structural limitation amplified the loops and
+remains unchanged.
 
 ### The review route contradicted its own control boundary
 
-The rule instructed agents to run `/codex:adversarial-review`, but the plugin marks that command
-`disable-model-invocation: true`. A peer session correctly refused a Bash workaround. The stand-in
-Claude reviewer returned three MAJOR NO-GOs on a branch. Separately, a note asserted that the Codex
-stop-time review gate was enabled in every main checkout; measuring it the next day showed
+The rule told agents to run `/codex:adversarial-review`, but the plugin marks that command
+`disable-model-invocation: true`. A peer correctly refused a Bash workaround, and the stand-in
+Claude reviewer returned three MAJOR NO-GOs. Separately, a note claimed the Codex stop-time review
+gate was enabled in every main checkout. Measurement the next day showed
 `reviewGateEnabled:false`.
 
-Routing prose and plugin behaviour were never reconciled, and per-workspace state was generalised as
-global. Stacked passes — two Codex reviews for the `code-review-high` acknowledgement, plus branch
-review, plus code-quality, plus the assumed stop gate — each produced deltas that reopened the
-others. The settlement is one review pass per branch, Stage 2 wins, "check, never assume". The route
-now rests on an inference about the plugin's task contract rather than a first-class review
-subcommand, and is documented as such.
+Routing prose and plugin behavior had drifted apart, while per-workspace state was generalized as
+global. Two Codex reviews for `code-review-high`, branch review, code-quality, and the assumed stop
+gate each produced deltas that reopened the others. The settlement is one review pass per branch:
+Stage 2 wins, and state is checked rather than assumed. The route rests on an inference about the
+plugin's task contract, not a first-class review subcommand, and is documented that way.
 
 ### Verification that could not fail
 
-Bash 3.2 resets `$?` before the EXIT trap fires, so an aborting selftest could report green; fixed on
-3 September in the hook, Codex and merge selftests. An AudioApp PR #9 session noted *"the gates were all green
-through every one of these; only the real bundle showed it."* Open AudioApp bead `aa-en6e` records a
-large-diff merge gate under-firing path stages through SIGPIPE under `pipefail`. A watcher in the
-AudioApp PR #8 session gave a false green because zsh does not word-split unquoted variables.
+Bash 3.2 resets `$?` before the EXIT trap fires, so an aborting selftest could report green. The
+hook, Codex, and merge selftests were fixed on 3 September. An AudioApp PR #9 session noted: *"the
+gates were all green through every one of these; only the real bundle showed it."* Open AudioApp
+bead `aa-en6e` records a large-diff merge gate under-firing path stages through SIGPIPE under
+`pipefail`. A watcher in the AudioApp PR #8 session returned a false green because zsh does not
+word-split unquoted variables.
 
-Status was read through pipes and traps rather than captured at the source, and instruments
-themselves were under-tested. This class has not disappeared. It is why every new guard this week
-was proven red by a source mutation before being reported green.
+Status was read through pipes and traps instead of captured at the source, and the instruments were
+under-tested. This class of failure remains. Every new guard that week was therefore proven red by
+a source mutation before it was reported green.
 
 ### Two attribution policies, both in force
 
-The owner's global instructions forbid any agent, vendor or model identity in commits, including
-`Co-authored-by` trailers. The Claude Code harness injects its own instruction to end every commit
-with such a trailer. Three commits on cc-harness #42 carried it; the round-3 reviewer flagged them
-as a BLOCKER.
+The owner's global instructions forbid agent, vendor, or model identities in commits, including
+`Co-authored-by` trailers. The Claude Code harness also injected an instruction requiring that
+trailer. Three cc-harness #42 commits carried it, and the round-3 reviewer marked them BLOCKER.
 
-The root cause was in the harness, not in one prompt. The commit agent's template emitted
-`Co-Authored-By: <co_author>` unconditionally, and four projects had `co_author` set to Claude in
-their Agent Config. Several commits already on cc-harness `main` carry the trailer. The owner chose
-to fix the root rather than rewrite history: `co_author` is now `(none)` in all four projects, the
-trailer and the "Generated with" pull-request footer are gone from the commit agent, and the agent
-greps the unpushed commits for agent trailers before pushing (cc-harness #43, AudioWebsite PR #1,
-and three sibling projects). #42 squash-merged with a clean body, so its trailers
-never reached `main`.
+The conflict lived in the harness, not one prompt. The commit-agent template always emitted
+`Co-Authored-By: <co_author>`, and four projects set `co_author` to Claude in Agent Config. Several
+commits already on cc-harness `main` carry the trailer. The owner fixed the source instead of
+rewriting history: all four projects now set `co_author` to `(none)`; the commit agent no longer
+adds the trailer or "Generated with" PR footer; and it greps unpushed commits for agent trailers
+before pushing (cc-harness #43, AudioWebsite PR #1, and three sibling projects). #42 squash-merged
+with a clean body, so its trailers never reached `main`.
 
 ### Collateral
 
@@ -186,25 +181,25 @@ never reached `main`.
 
 ## Why it happened
 
-- **The loop had no floor.** `rules/branch-completion-review.md` step 5: "Repeat until GO." No cap,
-  no escalation path, no convergence test. A rule that cannot be violated cannot stop anything.
-- **Fresh reviewer per round ratchets.** The memory governing *plan* reviews said "fresh reviewer
-  each round, repeat until convergence". It leaked into code review. A reviewer without the prior
-  rounds' findings re-derives them and finds adjacent ones; blocker counts go up, not down.
-- **Every finding became a commit.** MINOR, NIT, forward-looking and test-hardening findings were
-  fixed on the branch under review. Each fix reopened a round, and fixes introduced three of AudioApp PR #8's
-  seven defects.
-- **The orchestrator did implementation-grade work.** Negative controls, mutation harnesses and hand
-  reproductions ran inline on the most expensive model — exactly the work the budget rule says is a
-  Codex task, with the orchestrator emitting one triage line per finding.
-- **Stacked passes.** Two Codex reviews, an adversarial review, code-quality and an assumed
-  stop-time gate each generated deltas for the others to review.
-- **Targets without an instrument.** The gate rule had targets for runs per pull request since
-  24 August. Nothing counted them, so nothing could fail.
+- **No stopping rule.** Step 5 of `rules/branch-completion-review.md` said "Repeat until GO," with
+  no cap, escalation path, or convergence test. A rule with no failure condition cannot stop a loop.
+- **A fresh reviewer each round.** Guidance for *plan* reviews—"fresh reviewer each round, repeat
+  until convergence"—leaked into code review. Without prior findings, each reviewer re-derived the
+  diff and found adjacent issues, so blocker counts rose instead of converging.
+- **A commit for every finding.** MINOR, NIT, forward-looking, and test-hardening findings were
+  fixed on the reviewed branch. Each fix reopened review, and fixes introduced three of AudioApp
+  PR #8's seven defects.
+- **Implementation work in the orchestrator.** The most expensive model ran negative controls,
+  mutation harnesses, and manual reproductions. The budget rule assigns that work to Codex and asks
+  the orchestrator for one triage line per finding.
+- **Stacked review passes.** Two Codex reviews, adversarial review, code-quality, and an assumed
+  stop-time gate each created deltas for the others to review.
+- **Targets without measurement.** The gate rule had set run targets per pull request on 24
+  August, but nothing counted them, so nothing could fail.
 
-Underneath all six is one habit: rules were edited in response to live incidents, globally, in the
-middle of the incident. Some of those edits were themselves wrong — the `setsid` guidance, the
-stop-gate claim, the user-typed review route — and had to be corrected the next day.
+All six share one habit: editing global rules in the middle of a live incident. Some edits—the
+`setsid` guidance, stop-gate claim, and user-typed review route—were wrong and needed correction the
+next day.
 
 ## What we changed
 
@@ -219,15 +214,14 @@ stop-gate claim, the user-typed review route — and had to be corrected the nex
 | generalise | Only the bounded-review check is lifted into cc-harness as project-agnostic scripts: `review-round.sh` with state under the git common dir, `--collect`/`--adopt`, and `review-ack-check.sh` any project's gate can call. Selftests wired into `verify.sh`. | cc-harness #42 | merged |
 | attribution | `co_author` is `(none)` in every project; the commit agent no longer emits an agent trailer or the generated-with footer, and checks unpushed commits before pushing. | cc-harness #43 + 3 project PRs | merged |
 
-The status line is the cheapest part and the one that anchors everything else. Every round prints
-the issue's acceptance criteria as the goal, so the definition of done cannot drift into the
-reviewer's last finding:
+The status line anchors the process at little cost. Every round prints the issue's acceptance
+criteria, keeping the definition of done from drifting to the reviewer's latest finding:
 
 ```
 GOAL: <bead acceptance> | ROUND 3/3 | OPEN BLOCKERS k | NEXT: <one action>
 ```
 
-And the acknowledgement the gate parses:
+The gate parses this acknowledgement:
 
 ```
 branch-review  rounds=4 verdict=NO-GO open_blockers=1 classes=3 user_decision="Split it, merge the rest, bead the lock"
@@ -252,20 +246,18 @@ Session counters over the two-day window, against the plan's targets:
 | Feature PR open→merge | 49–74 h | 6.6 h (AudioApp PR #11) | ≤ 12 h | One sample. |
 | Rule edits during freeze | 12 in 6 days | 1 | 0 | cc-harness #41, 24 lines in a frozen rule, merged 79 minutes after the freeze without citing a metric. |
 
-**What did not work.** The cap has not made a review converge in fewer rounds; it has made the loop
-stop and hand the decision to a person. All three sample pull requests hit the cap, and two needed
-the owner. The enforcement scripts shipped with defects that the rule's own reviewer found only
-partially — source mutation and a real captured log found the rest. The freeze did not hold on its
-first day. The commit agent had been attributing every commit to Claude for weeks, against the
-owner's own policy, and nobody noticed until a reviewer blocked on it. Gate A (five merged pull
-requests within targets) has one clean sample and it missed on rounds.
+**What did not work.** The cap stopped reviews but did not make them converge faster. All three
+sample pull requests hit it, and two needed the owner. The rule's reviewer found only some defects
+in the enforcement scripts; source mutation and a captured real log found the rest. The freeze
+failed on its first day. For weeks, the commit agent attributed every commit to Claude against the
+owner's policy, unnoticed until a reviewer blocked it. Gate A—five merged pull requests within
+target—has one clean sample, which missed the round target.
 
-**What did work.** Nothing ran to round twelve. Every escalation went to the owner with options
-instead of another round, and the last one ended in a split rather than a fifth round. Every guard
-added this week has a negative control that was actually watched going red. The instrument exists
-and its numbers are the ones in this document. The merge gate was evaluated from its ledger rather
-than from opinion, and the verdict was to keep it — a judgement the gate then earned on its way out,
-failing a merge run in one second on a missing acknowledgement before any build ran.
+**What did work.** Nothing reached round twelve. Each escalation gave the owner options instead of
+starting another round; the last ended in a split rather than a fifth round. Every new guard has a
+negative control that was observed going red. The instrument now provides the numbers in this
+document. Evidence from the ledger supported keeping the merge gate, which then failed a merge run
+in one second on a missing acknowledgement before any build began.
 
 ## Still open
 
@@ -286,41 +278,39 @@ rule edit must cite the metric it moves.
 
 ## Learnings
 
-- **A loop needs a counter, not a sentence.** "Repeat until GO" cannot fail. "Round 4 refused
-  without the owner's quoted words" can, and did, three times this week.
-- **The tracker issue is the stop condition.** The moment a reviewer's last finding replaces the
-  acceptance criteria as the definition of done, the branch belongs to the reviewer. Print the goal
-  every round.
-- **Resume the reviewer.** A fresh reviewer per round is a ratchet. Same thread, prior findings
-  attached, and a calibration block that says to call GO plainly and not manufacture severity.
-- **Triage is one line; fixing is a task.** The orchestrator's output per finding is FIX, BEAD or
-  UNVERIFIED. The reproduction, the fix and the negative control are Codex work, once per round,
-  with the whole list.
-- **Read the runtime before writing the rule.** Three of the week's rule edits were wrong because
-  they described plugin behaviour from assumption. The wrapper is not the job; the sandbox is not
-  the machine; the slash command is not callable.
-- **Prove the instrument against a real sample.** The collect parser passed its hand-written fixture
-  and never matched a real log. A guard that has not been watched going red is decoration.
-- **Do not edit global rules during the incident.** Twelve live commits in six days, several
-  correcting each other. The freeze is the response, and its first-day breach measures how strong
-  the habit is.
-- **Keep the gate; make it fail fast.** The ledger shows the gate and the reviews found real
-  defects. What was wasteful was paying the full gate on every fix and checking acknowledgements
-  last.
-- **A cap stops a loop; it does not fix convergence.** Three pull requests stopped at the cap and
-  each still needed a person. The next lever is the reviewer's calibration and the triage
-  discipline, not a bigger budget.
-- **When two instruction sources disagree, fix the source, not the instance.** The attribution
-  blocker was three commits; the cause was one template and four config values.
+- **Count the loop.** "Repeat until GO" cannot fail. "Refuse round 4 without the owner's quoted
+  words" can, and did three times that week.
+- **Let the tracker define done.** If the latest review finding replaces the issue's acceptance
+  criteria, the reviewer controls the branch. Print the goal each round.
+- **Resume the reviewer.** A new reviewer each round creates a ratchet. Reuse the thread, attach
+  prior findings, and ask the reviewer to call GO plainly rather than inflate severity.
+- **Keep triage short; make fixing a task.** The orchestrator labels each finding FIX, BEAD, or
+  UNVERIFIED. Codex handles the round's reproductions, fixes, and negative controls together.
+- **Read runtime behavior before writing rules.** Three rule edits described assumptions rather
+  than the plugin: the wrapper is not the job, the sandbox is not the machine, and the slash command
+  is not callable.
+- **Test instruments on real samples.** The collect parser passed a hand-written fixture but never
+  matched a real log. A guard is not evidence until it has been seen going red.
+- **Do not rewrite global rules mid-incident.** Twelve live commits landed in six days, several
+  correcting one another. The freeze was the response; its first-day breach showed how entrenched
+  the habit was.
+- **Keep the gate, but fail fast.** The ledger shows that the gate and reviews found real defects.
+  The waste came from paying the full gate on every fix and checking acknowledgements last.
+- **A cap stops a loop; it does not create convergence.** Three pull requests stopped at the cap
+  and still needed a person. The next levers are reviewer calibration and triage discipline, not a
+  larger budget.
+- **Fix conflicting instructions at their source.** Three commits carried the attribution
+  blocker; one template and four configuration values caused it.
 
 ## What this entry cannot establish
 
-No token or dollar totals: the counts here are transcript occurrence counts and ledger rows, not
-billing data. No causal claim that the delegation rate produced useful work. No complete mapping of
-every pull request to its review rounds — the acknowledgement ledger is sha-keyed and several rows
-cannot be joined to a PR number. Ledger claims that a reviewer was "fresh" or that a negative
-control ran are assertions cited here, not replayed. One fabricated blocker is documented on AudioApp PR #8;
-whether others were fabricated is unknown.
+This entry cannot provide token or dollar totals: its counts are transcript occurrences and ledger
+rows, not billing data. It does not establish that the delegation rate caused useful work. It also
+cannot map every pull request to its review rounds because the acknowledgement ledger is sha-keyed
+and several rows cannot be joined to a PR number. Ledger claims that a reviewer was "fresh" or that
+a negative control ran remain assertions; they were cited, not replayed. The sources disagree on
+whether the fabricated blocker belonged to AudioApp PR #8 or PR #10, and the claim was not
+replayed. Whether there were others is unknown.
 
 ## Appendix — baseline and targets
 
