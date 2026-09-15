@@ -13,20 +13,23 @@ trap 'st=$?; rm -rf "$tmp_root"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HU
 fail() { printf '%s\n' "$*" >&2; return 1; }
 record() { "$@" || failures=$((failures + 1)); return 0; }
 
-roles=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
+roles=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer harness_spark)
 
 roles_follow_routing_table() {
-  local probe build architecture
+  local probe build architecture mechanical
   # shellcheck source=hooks/model-routing-table.sh
   . "$root/hooks/model-routing-table.sh"
   probe=$(model_routing_index_for_key probe) || return 1
   build=$(model_routing_index_for_key build) || return 1
   architecture=$(model_routing_index_for_key architecture) || return 1
+  mechanical=$(model_routing_index_for_key mechanical) || return 1
   "$generator" --check || return 1
   grep -Fqx "model = \"${MODEL_ROUTING_CODEX[$probe]}\"" "$root/codex/agents/harness_explorer.toml" || return 1
   grep -Fqx "model_reasoning_effort = \"${MODEL_ROUTING_EFFORT[$probe]}\"" "$root/codex/agents/harness_runner.toml" || return 1
   grep -Fqx "model = \"${MODEL_ROUTING_CODEX[$build]}\"" "$root/codex/agents/harness_worker.toml" || return 1
   grep -Fqx "model = \"${MODEL_ROUTING_CODEX[$architecture]}\"" "$root/codex/agents/harness_analyst.toml" || return 1
+  grep -Fqx "model = \"${MODEL_ROUTING_CODEX[$mechanical]}\"" "$root/codex/agents/harness_spark.toml" || return 1
+  grep -Fqx "model_reasoning_effort = \"${MODEL_ROUTING_EFFORT[$mechanical]}\"" "$root/codex/agents/harness_spark.toml" || return 1
   grep -Fqx 'sandbox_mode = "read-only"' "$root/codex/agents/harness_reviewer.toml"
 }
 
@@ -147,6 +150,12 @@ semantic_toml_collisions_and_defaults_are_rejected() {
     return 1
   fi
   grep -F 'semantic project role shadow' "$tmp_root/semantic-shadow.out" >/dev/null || return 1
+  rm "$project/.codex/agents/custom.toml" || return 1
+  printf '%s\n' 'name = "harness_spark"' 'developer_instructions = "Project Spark override."' > "$project/.codex/agents/custom.toml" || return 1
+  if "$checker" --codex-dir "$codex" --project "$project" >"$tmp_root/semantic-spark-shadow.out" 2>&1; then
+    return 1
+  fi
+  grep -F 'semantic project role shadow' "$tmp_root/semantic-spark-shadow.out" >/dev/null || return 1
   rm "$project/.codex/agents/custom.toml" || return 1
   printf '%s\n' 'agents.default_subagent_model = "gpt-test"' > "$project/.codex/config.toml" || return 1
   if "$checker" --codex-dir "$codex" --project "$project" >"$tmp_root/dotted-default.out" 2>&1; then

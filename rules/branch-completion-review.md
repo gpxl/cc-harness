@@ -212,6 +212,29 @@ It runs under a **three-round budget** per branch — not per commit, not per fi
 
 After R3 with open BLOCKERs, the orchestrator **STOPS** and escalates one paragraph to the user: merge with disclosure, authorize more budget, or shelve. R4 exists only after the user's explicit words in chat, quoted in the ack note.
 
+### Requesting rounds beyond the budget
+
+Every request to exceed the regular three-round budget, or to extend an already approved
+exception, **must include a convergence assessment before asking for approval**. More review is
+not justified merely because the latest verdict is NO-GO. Keep the assessment concise and tie it
+to the recorded findings, dispositions, fix commits, and verification results:
+
+| Include | Required evaluation |
+|---|---|
+| Trajectory | Summarize each completed round's decision-changing findings: resolved with evidence, still open, newly discovered, or reopened. Track the same findings across rounds; a rename or severity change is not a new defect or a resolution. |
+| Convergence judgment | State **converging**, **stalled/circular**, **diverging**, or **insufficient evidence**, and explain why. Falling counts alone do not prove progress: separate verified fixes and narrowing uncertainty from repeated disputes, contradictory requests, scope growth, and regressions introduced by fixes. Identify missing evidence rather than inferring progress. |
+| Reason for an exception | Name the remaining decision-changing issue and what has changed that makes another round useful: a reproduced failure, a verified fix awaiting confirmation, new evidence, or a resolved requirement. Explain what the next round can establish that prior rounds could not. |
+| Bounded proposal | Recommend continue, merge with disclosed risk, or shelve. If requesting continuation, specify the number of extra rounds, their exact scope, the expected exit evidence, and a stop condition. Default to one extra round; any larger request needs a reason. |
+
+When rounds are stalled, circular, or diverging, recommend stopping the repeated review loop
+unless there is a concrete change in evidence or approach that justifies a bounded exception.
+For example, resolve a disputed requirement before asking another reviewer to revisit it.
+Never treat elapsed effort, a new reviewer, or “one more pass” alone as evidence of convergence.
+Further review still requires explicit user approval; a positive convergence assessment is not
+authorization. Approval covers only the stated extension, not unlimited rounds. At its limit,
+stop and provide an updated assessment before requesting another extension. Preserve the
+assessment with the review record alongside the user's quoted decision.
+
 | Triage line — one per finding | Action |
 |---|---|
 | **FIX** | On this branch only for a BLOCKER/MAJOR inside the bead's acceptance criteria with a reproduced failure — by the reviewer or by one Codex verification task, never by hand. |
@@ -239,7 +262,7 @@ preferences:
 | Redundant with code-quality / verify? | **No.** Those are lint, typecheck, tests — deterministic. This stage's one founding BLOCKER was an *omission* after every gate was green. Different defect classes; neither replaces the other. |
 | Order | **Deterministic gates → commit → adversary → PR body.** Cheap, falsifiable checks before an expensive model read is fail-fast, and a NO-GO costs the same number of adversary runs wherever the commit sits. Committing first also makes the reviewed diff exactly `origin/<integration>...HEAD`. |
 | Adversary before the task starts? | **A complement, never a substitute.** A plan-stage pass (`/grill-me`) catches scope and approach on design-decision tasks — schema changes, shared-component restyles, new abstractions. It cannot see the omission class, because there is no code yet. Author's discretion, and it does not discharge this stage. |
-| How many rounds? | **Three, then the user decides** — measured 2026-09-04: 12-round and 4-round chains, blockers diverging 4→9→6. See the retrospective appendix, `docs/retrospectives/2026-09-05-codex-integration-and-review-loops.md`. |
+| How many rounds? | **Three, then the user decides with a convergence assessment and a bounded extension proposal** — see “Requesting rounds beyond the budget” above. Measured 2026-09-04: 12-round and 4-round chains, blockers diverging 4→9→6. See the retrospective appendix, `docs/retrospectives/2026-09-05-codex-integration-and-review-loops.md`. |
 | How many review passes per branch? | **One.** The Codex stop-time review gate (`/codex:setup --enable-review-gate`), `/codex:review`, and this stage overlap almost entirely — **assessed, not measured**: the stop-gate has one recorded catch (a reap-while-running bug) and reviews at the stop that introduced a defect rather than at branch end, so the overlap is a judgment call. What is not a judgment call is precedence: **when this stage's trigger fires, Stage 2 runs and is never the pass that gets dropped.** The stop-gate is a per-workspace setting while the trigger is per-branch, so a repo whose branches can trigger Stage 2 leaves the stop-gate off permanently and states so; a repo whose branches never trigger it may keep the stop-gate as its one pass. |
 | Where does the real waste hide? | In project files that **restate** this rule instead of referencing it — they freeze the version they copied. Project files carry parameters only: which surfaces are class 1/4 *there*, the gate commands, the stated-skip line. See `claude-md-project-templates.md` § Referencing global rules. |
 

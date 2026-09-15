@@ -5,7 +5,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 codex_dir="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
 project_dir=''
-roles=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
+roles=(harness_explorer harness_runner harness_spark harness_worker harness_analyst harness_reviewer)
 legacy_roles=(explorer runner worker analyst reviewer)
 failures=0
 

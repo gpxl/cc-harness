@@ -16,7 +16,7 @@ MODEL_ROUTING_DESCRIPTIONS=(
   'ADRs, system design, novel abstractions, hard trade-offs'
   'coding, refactors, tests, eval scenarios, debugging'
   'codebase surveys, read-only investigation, light passes'
-  'trivial rewrites, formatting-scale edits'
+  'precise known-outcome small UI edits, refactors, fixes, focused tests, and utilities with clear checks'
 )
 MODEL_ROUTING_CODEX=(
   gpt-6-astra

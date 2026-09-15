@@ -158,13 +158,16 @@ When orchestrating agents manually, include a purpose statement: "This [context]
 
 This compact section is for native Codex sessions only. Select a generated `harness_*` role for
 useful bounded work: explorer for read-only investigation, runner for approved existing commands,
-worker for implementation and tests, analyst for difficult design or evidence interpretation, and
+spark for precise, small coding iterations with a known outcome and an easy correctness check,
+worker for broader implementation and tests, analyst for difficult design or evidence interpretation, and
 reviewer for independent review. Keep the main model unchanged. When a client cannot select a
 named role, spawn a self-contained subtask with its generated explicit model and effort; desktop
 collaboration forks need `fork_turns="none"` to accept overrides. Do not recursively invoke
 Claude-only `/codex:rescue`, mismatch, model-switch, or fallback rules. Projects inherit these
 roles and retain only project constraints; `scripts/codex-routing-check.sh --project <repo>`
 reports local shadows, copied legacy roles, and routing-default copies without changing files.
+Use the Spark selection guidance in `~/.claude/rules/native-codex-routing.md`; if the live client cannot
+select Spark, use worker for the same bounded coding task and report the substitution.
 
 ## Model Routing (Claude Code sessions)
 
@@ -215,7 +218,17 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 | **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work; **the local Codex default** | `claude-fable-5-1` → `claude-opus-5` | `xhigh` |
 | **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder (`gpt-5.6-sol` is its same-tier sibling, a reliable everyday workhorse) | `claude-opus-5` | `high` |
 | **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-5.6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
-| **Mechanical** — trivial rewrites, formatting-scale edits, ultra-fast passes | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
+| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
+
+Prefer Spark over the build tier when the task meets all three conditions: precise outcome,
+small scope, and a clear check. It suits small UI adjustments from textual requirements,
+mechanical refactors, known fixes, focused regression tests, and utilities with explicit inputs
+and outputs. See `~/.claude/rules/native-codex-routing.md` § Spark selection for examples and a prompt.
+Use the build tier for diagnosis or broader implementation and the architecture tier for design
+or ambiguous requirements. If a Spark task reveals those needs, return the findings and
+reassign it; do not keep expanding the fast task. Check live model availability before dispatch;
+if Spark is unavailable, use the build tier and report that substitution. Spark availability
+alone does not trigger the Claude fallback.
 
 - **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
   to move a tier deliberately. Same for `--effort` — set it when the row above disagrees

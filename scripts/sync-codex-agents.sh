@@ -7,7 +7,7 @@ routing_table="$root/hooks/model-routing-table.sh"
 output_dir="$root/codex/agents"
 templates_dir="$root/codex/agent-templates"
 check_only=0
-expected_roles=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
+expected_roles=(harness_explorer harness_runner harness_spark harness_worker harness_analyst harness_reviewer)
 
 usage() {
   printf '%s\n' 'Usage: scripts/sync-codex-agents.sh [--check] [--routing-table <path>] [--templates-dir <path>] [--output-dir <path>]'
