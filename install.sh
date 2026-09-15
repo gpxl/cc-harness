@@ -11,7 +11,7 @@ CLAUDE_DIR="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
 # Set CC_HARNESS_CODEX_DIR to install native Codex roles into a non-default directory.
 # Deliberately do not read CODEX_HOME: fake-HOME tests must never reach a live Codex home.
 CODEX_DIR="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
-CODEX_ROLES=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
+CODEX_ROLES=(harness_explorer harness_runner harness_spark harness_worker harness_analyst harness_reviewer)
 
 echo "cc-harness installer"
 echo "========================"

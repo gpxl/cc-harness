@@ -9,7 +9,7 @@ HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Set CC_HARNESS_CLAUDE_DIR to uninstall from a non-default Claude directory.
 CLAUDE_DIR="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
 CODEX_DIR="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
-CODEX_ROLES=(harness_explorer harness_runner harness_worker harness_analyst harness_reviewer)
+CODEX_ROLES=(harness_explorer harness_runner harness_spark harness_worker harness_analyst harness_reviewer)
 
 echo "cc-harness uninstaller"
 echo "========================="

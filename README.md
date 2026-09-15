@@ -2,7 +2,7 @@
 
 This is the development harness I use with
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and native Codex. It combines six
-Claude agents, five Codex roles, and a set of shared rules for testing, verification, git, and
+Claude agents, six Codex roles, and a set of shared rules for testing, verification, git, and
 review.
 
 I publish it as a working reference, not a supported product. The repository records both the
@@ -33,8 +33,11 @@ The Claude agents form a development pipeline:
 | **release** | Audits documentation, updates versions and changelogs, tags, and creates GitHub Releases. |
 | **verification** | Tries to break the finished change before it is reported done. |
 
-Native Codex uses five shared, bounded roles: explorer, runner, worker, analyst, and reviewer.
+Native Codex uses six shared, bounded roles: explorer, runner, spark, worker, analyst, and reviewer.
 Projects inherit them without replacing personal Codex settings or roles.
+Spark handles small, precise coding changes with known outcomes and clear checks; worker and
+analyst handle broader implementation, diagnosis, and design. See the
+[selection guidance](rules/native-codex-routing.md#spark-selection) for examples and escalation.
 
 The supporting rules cover the parts that are easy to get subtly wrong: meaningful tests, honest
 exit codes, feature-branch discipline, one gate per working tree, parallel-session isolation,
