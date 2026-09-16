@@ -260,6 +260,15 @@ else
   # is usually empty. That is legitimate and it is why the count is printed rather than implied:
   # agents/commit.md Step 8 is the primary check on a message, this is the backstop that catches
   # anything already committed.
+  # The count is asserted against git's own answer, so deleting the counter cannot leave the suite
+  # green: a printed 0 must mean the range really held no commits.
+  range_commits=$(git -C "$root" rev-list --count "$gate_base..HEAD" 2>/dev/null || printf '0')
+  reported=$(printf '%s' "$real_output" | sed -nE 's/.*and ([0-9]+) commit messages.*/\1/p')
+  if [ "$reported" = "$range_commits" ]; then
+    pass "the scan reports the number of commit messages the range holds ($range_commits)"
+  else
+    fail 'the scan reports the number of commit messages the range holds' "reported=$reported git=$range_commits output=$real_output"
+  fi
   printf 'gate scope: %s\n' "$(printf '%s' "$real_output" | tail -1)"
 fi
 
