@@ -5,6 +5,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 tool="$root/scripts/review-round.sh"
 sample_log="$root/scripts/testdata/review-job-sample.log"
+bullets_log="$root/scripts/testdata/review-job-bullets-sample.log"
 runner="$tool"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/review-round-selftest.XXXXXX") || exit 1
 completed=0
@@ -531,7 +532,7 @@ run
 printf 'grown-two\n' > "$repo/file.txt"
 git -C "$repo" commit -am 'feat(core): grow once more' -q
 seed_prior_findings 1
-make_mutant 's/^    archive_pending=$recorded_stamp$/    archive_pending=$recorded_stamp; archive_scope_state "$recorded_stamp" >\/dev\/null/'
+make_mutant 's/^      archive_pending=$recorded_stamp$/      archive_pending=$recorded_stamp; archive_scope_state "$recorded_stamp" >\/dev\/null/'
 cat > "$tmp/bin/codex-dispatch.sh" <<'DISPATCH'
 #!/usr/bin/env bash
 exit 7
@@ -683,6 +684,193 @@ if ! grep -Fq 'Counter on disk: 1' "$tmp/out"; then
 else
   fail 'dry-run counter source mutation goes red' "out=$(<"$tmp/out" 2>/dev/null || true)"
 fi
+
+# --- cch-48i: the refusal must say WHICH half of the stamp moved -------------------------------
+
+# Only the acceptance text moves: same commits, so the counter must be kept, not restarted.
+reset_state
+RR_ACCEPTANCE='Ship the thing.' run
+RR_ACCEPTANCE='Ship the thing, please.' run
+if [ "$rc" -ne 0 ] && grep -Fq 'the acceptance text changed since round 1, but the commits did not' "$tmp/err" && [ "$(<"$state")" = 1 ]; then
+  pass 'an acceptance-only change is refused as such, naming the half that moved'
+else
+  fail 'an acceptance-only change is refused as such, naming the half that moved' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+seed_prior_findings 1
+RR_ACCEPTANCE='Ship the thing, please.' run --acceptance-reworded 'typo'
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 2 ] && ! compgen -G "$state.scope-*" > /dev/null; then
+  pass 'a declared rewording keeps the counter and archives nothing'
+else
+  fail 'a declared rewording keeps the counter and archives nothing' "rc=$rc counter=$(<"$state" 2>/dev/null || true) archives=$(ls -d "$state".scope-* 2>/dev/null || true)"
+fi
+
+# The same wording change, declared instead as a real redefinition, still restarts the budget.
+reset_state
+RR_ACCEPTANCE='Ship the thing.' run
+seed_prior_findings 1
+RR_ACCEPTANCE='Ship a different thing.' run --scope-changed 'the definition of done really changed'
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ] && compgen -G "$state.scope-*" > /dev/null; then
+  pass 'an acceptance change declared as a scope change still restarts the budget'
+else
+  fail 'an acceptance change declared as a scope change still restarts the budget' "rc=$rc counter=$(<"$state" 2>/dev/null || true)"
+fi
+
+# Only the commits move: the refusal must not offer the rewording flag, which would not apply.
+reset_state
+RR_ACCEPTANCE='Ship the thing.' run
+printf 'more\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): a new capability' -q
+seed_prior_findings 1
+RR_ACCEPTANCE='Ship the thing.' run
+if [ "$rc" -ne 0 ] && grep -Fq 'What moved: the scope-changing commits below.' "$tmp/err" && ! grep -Fq 'acceptance-reworded' "$tmp/err"; then
+  pass 'a commits-only change names the commits and does not offer the rewording flag'
+else
+  fail 'a commits-only change names the commits and does not offer the rewording flag' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+# Both halves move: the refusal says so rather than reporting only one.
+reset_state
+RR_ACCEPTANCE='Ship the thing.' run
+printf 'more-two\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): another capability' -q
+seed_prior_findings 1
+RR_ACCEPTANCE='Ship something else entirely.' run
+if [ "$rc" -ne 0 ] && grep -Fq 'the acceptance text, as well as the commits' "$tmp/err"; then
+  pass 'when both halves move the refusal says so'
+else
+  fail 'when both halves move the refusal says so' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+# The negative control: with one combined digest the halves cannot be told apart, which is the
+# defect this change removes — an acceptance-only edit then reads as an enlarged scope.
+reset_state
+# Returning nothing from stamp_field is what a single combined digest amounts to: neither half
+# can be read back, so no refusal can say which one moved.
+make_mutant 's/^stamp_field() {/stamp_field() { return 0;/'
+RR_ACCEPTANCE='Ship the thing.' run
+RR_ACCEPTANCE='Ship the thing, please.' run
+runner="$tool"
+if ! grep -Fq 'the acceptance text changed since round 1, but the commits did not' "$tmp/err"; then
+  pass 'combining the two digests source mutation goes red'
+else
+  fail 'combining the two digests source mutation goes red' "the mutant still attributed the change"
+fi
+
+# --- cch-k6d: carried gate records must be marked fresh or stale against this worktree ---------
+
+reset_state
+fresh_tree=$( cd "$repo" && ( export GIT_INDEX_FILE; GIT_INDEX_FILE=$(mktemp -u); git read-tree HEAD >/dev/null 2>&1; git add -A >/dev/null 2>&1; git rev-parse --short "$(git write-tree)"; rm -f "$GIT_INDEX_FILE" ) )
+printf 'VERIFY RESULT: PASS sha=deadbee tree=%s\n' "$fresh_tree" > "$tmp/evidence-fresh.txt"
+run --evidence-file "$tmp/evidence-fresh.txt"
+if [ "$rc" -eq 0 ] && grep -Fq '[fresh: measured on this exact worktree]' "$tmp/dispatched-prompt"; then
+  pass 'a gate record measured on this worktree is carried as fresh'
+else
+  fail 'a gate record measured on this worktree is carried as fresh' "rc=$rc"
+fi
+
+reset_state
+printf 'VERIFY RESULT: PASS sha=deadbee tree=0000000\n' > "$tmp/evidence-stale.txt"
+run --evidence-file "$tmp/evidence-stale.txt"
+if [ "$rc" -eq 0 ] && grep -Fq 'STALE: measured on tree 0000000' "$tmp/dispatched-prompt" && grep -Fq 'treat it as no evidence' "$tmp/dispatched-prompt"; then
+  pass 'a gate record from another tree is carried as stale, not as evidence'
+else
+  fail 'a gate record from another tree is carried as stale, not as evidence' "rc=$rc"
+fi
+
+# A record with no tree= cannot be tied to any content, which is a third state and not "fresh".
+reset_state
+printf 'VERIFY RESULT: PASS sha=deadbee\n' > "$tmp/evidence-untied.txt"
+run --evidence-file "$tmp/evidence-untied.txt"
+if [ "$rc" -eq 0 ] && grep -Fq 'UNVERIFIABLE: no tree=' "$tmp/dispatched-prompt"; then
+  pass 'a gate record with no tree= is carried as unverifiable'
+else
+  fail 'a gate record with no tree= is carried as unverifiable' "rc=$rc"
+fi
+
+# An edit after the record was written must flip the same record from fresh to stale.
+reset_state
+run --evidence-file "$tmp/evidence-fresh.txt"
+printf 'edited after the gate ran\n' >> "$repo/file.txt"
+seed_prior_findings 1
+run --evidence-file "$tmp/evidence-fresh.txt"
+if [ "$rc" -eq 0 ] && grep -Fq 'STALE: measured on tree' "$tmp/dispatched-prompt"; then
+  pass 'editing the worktree after the record was written makes that record stale'
+else
+  fail 'editing the worktree after the record was written makes that record stale' "rc=$rc prompt=$(grep -F 'VERIFY RESULT' "$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+reset_state
+make_mutant 's/^  current=$(working_tree_hash)$/  current=""/'
+run --evidence-file "$tmp/evidence-stale.txt"
+runner="$tool"
+if ! grep -Fq 'STALE: measured on tree 0000000' "$tmp/dispatched-prompt"; then
+  pass 'stale-evidence detection source mutation goes red'
+else
+  fail 'stale-evidence detection source mutation goes red' 'the mutant still marked the record stale'
+fi
+
+# --- cch-aif: a reviewer that writes findings as bold bullets must not lose every title --------
+
+use_bullets_log() { cp "$bullets_log" "$job_log"; }
+
+reset_state
+use_bullets_log
+run_subcommand --collect review-job --round 1
+collected=$(<"$state-r1-findings.md")
+if [ "$rc" -eq 0 ] \
+  && printf '%s' "$collected" | grep -Fq '**BLOCKER — src/cache/store.ts:120**' \
+  && printf '%s' "$collected" | grep -Fq '**MAJOR — src/cache/eviction.ts:64**' \
+  && printf '%s' "$collected" | grep -Fq '**MINOR: src/cache/index.ts:9**' \
+  && printf '%s' "$collected" | grep -Fqx 'VERDICT: NO-GO'; then
+  pass 'collect keeps bold-bullet findings, not just the verdict'
+else
+  fail 'collect keeps bold-bullet findings, not just the verdict' "rc=$rc findings=$collected"
+fi
+
+reset_state
+use_bullets_log
+make_mutant 's/\[-\*\]/[ZZZ]/'
+run_subcommand --collect review-job --round 1
+runner="$tool"
+if ! grep -Fq '**BLOCKER — src/cache/store.ts:120**' "$state-r1-findings.md" 2>/dev/null; then
+  pass 'bullet-findings parser source mutation goes red'
+else
+  fail 'bullet-findings parser source mutation goes red' 'the mutant still collected the bullet'
+fi
+
+reset_state
+
+# --- cch-g81: a threadId recorded after round 1 finished must still resume at round 2 ---------
+
+seed_late_thread_state() {  # round 1 left a job id but no thread; the record gained one later
+  reset_state
+  mkdir -p "$(dirname "$state")"
+  printf '1\n' > "$state"
+  printf 'review-job\n' > "$state.job"
+  rm -f "$state.thread"
+  printf '%s\n' 'MAJOR: retained r1 finding' 'VERDICT: NO-GO' 'Dispositions: fix it' > "$state-r1-findings.md"
+}
+
+seed_late_thread_state
+RR_NEWEST_THREAD='reviewer-thread' run
+if [ "$rc" -eq 0 ] && grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then
+  pass 'a late-recorded threadId resumes the reviewer at round 2'
+else
+  fail 'a late-recorded threadId resumes the reviewer at round 2' "rc=$rc argv=$(<"$tmp/dispatch-argv" 2>/dev/null || true)"
+fi
+
+seed_late_thread_state
+make_mutant 's/^    delayed_thread_id=\$(wait_for_thread_id "\$delayed_job_record")$/    delayed_thread_id=""/'
+RR_NEWEST_THREAD='reviewer-thread' run
+runner="$tool"
+if [ "$rc" -ne 0 ] || ! grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then
+  pass 'late-threadId source mutation goes red'
+else
+  fail 'late-threadId source mutation goes red' "rc=$rc argv=$(<"$tmp/dispatch-argv" 2>/dev/null || true)"
+fi
+
+reset_state
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'REVIEW ROUND SELFTEST: FAIL'; completed=1; exit 1
