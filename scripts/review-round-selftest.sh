@@ -64,7 +64,7 @@ chmod +x "$tmp/bin/codex-dispatch.sh" "$tmp/bin/codex-jobs.sh"
 
 run() {
   set +e
-  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_THREAD_WAIT_SECONDS="${RR_THREAD_WAIT_SECONDS:-30}" bash "$runner" "$base" "$@") > "$tmp/out" 2> "$tmp/err"
+  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_THREAD_WAIT_SECONDS="${RR_THREAD_WAIT_SECONDS:-30}" REVIEW_ROUND_ACCEPTANCE="${RR_ACCEPTANCE-Ship the bounded review changes.}" bash "$runner" "$base" "$@") > "$tmp/out" 2> "$tmp/err"
   rc=$?
   set -e
   output=$(<"$tmp/out")
@@ -72,7 +72,7 @@ run() {
 
 run_subcommand() {
   set +e
-  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_THREAD_WAIT_SECONDS="${RR_THREAD_WAIT_SECONDS:-30}" bash "$runner" "$@") > "$tmp/out" 2> "$tmp/err"
+  (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" RR_NEWEST_THREAD="${RR_NEWEST_THREAD:-}" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_THREAD_WAIT_SECONDS="${RR_THREAD_WAIT_SECONDS:-30}" REVIEW_ROUND_ACCEPTANCE="${RR_ACCEPTANCE-Ship the bounded review changes.}" bash "$runner" "$@") > "$tmp/out" 2> "$tmp/err"
   rc=$?
   set -e
   output=$(<"$tmp/out")
@@ -83,6 +83,14 @@ reset_state() {
   rm -f "$tmp/dispatch-argv" "$tmp/dispatched-prompt"
   write_job_record
   write_job_log
+}
+
+seed_prior_findings() {  # seed_prior_findings <highest-round>
+  local k
+  mkdir -p "$(dirname "$state")"
+  for ((k = 1; k <= $1; k++)); do
+    printf '%s\n' "MAJOR: seeded r$k finding" 'VERDICT: NO-GO' 'Dispositions: fixed' > "$state-r$k-findings.md"
+  done
 }
 
 make_mutant() {
@@ -186,12 +194,14 @@ runner="$tool"
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '3\n' > "$state"
+seed_prior_findings 3
 run
 if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 3 ]; then pass 'round 4 refused without user approval'; else fail 'round 4 refused without user approval' "rc=$rc counter=$(<"$state")"; fi
 
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '3\n' > "$state"
+seed_prior_findings 3
 make_mutant 's/\[ "$round" -ge 4 \] && \[ -z "$user_approved" \]/false/'
 run
 if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 4 ]; then pass 'round-4 refusal source mutation goes red'; else fail 'round-4 refusal source mutation goes red' "rc=$rc counter=$(<"$state" 2>/dev/null || true)"; fi
@@ -200,12 +210,14 @@ runner="$tool"
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '3\n' > "$state"
+seed_prior_findings 3
 RR_NEWEST_THREAD='other-thread' run --user-approved 'I approve round four'
 if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 4 ] && [ "$(<"$state.thread")" = reviewer-thread ]; then pass 'round 4 accepted and thread persisted from job record'; else fail 'round 4 accepted and thread persisted from job record' "rc=$rc"; fi
 
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '3\n' > "$state"
+seed_prior_findings 3
 make_mutant 's|> "$thread_file"|> /dev/null|'
 RR_NEWEST_THREAD='other-thread' run --user-approved 'I approve round four'
 if [ "$rc" -eq 0 ] && [ ! -e "$state.thread" ]; then pass 'thread-persistence source mutation goes red'; else fail 'thread-persistence source mutation goes red' "rc=$rc thread=$(<"$state.thread" 2>/dev/null || true)"; fi
@@ -232,6 +244,7 @@ runner="$tool"
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
+seed_prior_findings 1
 printf 'previous-reviewer-thread\n' > "$state.thread"
 printf 'previous-review-job\n' > "$state.job"
 rm -f "$job_record"
@@ -265,6 +278,7 @@ runner="$tool"
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
+seed_prior_findings 1
 printf 'reviewer-thread\n' > "$state.thread"
 RR_NEWEST_THREAD='reviewer-thread' run
 if [ "$rc" -eq 0 ] && grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then pass 'resume only when newest thread is reviewer thread'; else fail 'resume only when newest thread is reviewer thread' "rc=$rc"; fi
@@ -272,6 +286,7 @@ if [ "$rc" -eq 0 ] && grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then pass 'r
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
+seed_prior_findings 1
 printf 'reviewer-thread\n' > "$state.thread"
 RR_NEWEST_THREAD='other-thread' run
 if [ "$rc" -eq 0 ] && ! grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then pass 'newer non-reviewer thread starts fresh'; else fail 'newer non-reviewer thread starts fresh' "rc=$rc"; fi
@@ -279,10 +294,200 @@ if [ "$rc" -eq 0 ] && ! grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then pass 
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
+seed_prior_findings 1
 printf 'reviewer-thread\n' > "$state.thread"
 make_mutant 's/\[ "$reviewer_thread" = "$newest_thread" \]/true/'
 RR_NEWEST_THREAD='other-thread' run
 if [ "$rc" -eq 0 ] && grep -Fqx -- '--resume' "$tmp/dispatch-argv"; then pass 'newest-thread resume source mutation goes red'; else fail 'newest-thread resume source mutation goes red' "rc=$rc"; fi
+runner="$tool"
+
+# --- acceptance criteria are mandatory (cch-q4c.2) ---
+
+reset_state
+RR_ACCEPTANCE='' run
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && grep -Fq 'no acceptance criteria resolved' "$tmp/err"; then
+  pass 'empty acceptance criteria refuse the round'
+else
+  fail 'empty acceptance criteria refuse the round' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+RR_ACCEPTANCE='   
+	 ' run
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ]; then
+  pass 'whitespace-only acceptance criteria refuse the round'
+else
+  fail 'whitespace-only acceptance criteria refuse the round' "rc=$rc"
+fi
+
+reset_state
+make_mutant 's/|| refuse_without_acceptance/|| true/'
+RR_ACCEPTANCE='' run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ]; then
+  pass 'acceptance-refusal source mutation goes red'
+else
+  fail 'acceptance-refusal source mutation goes red' "rc=$rc counter=$(<"$state" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+reset_state
+run
+if [ "$rc" -eq 0 ] && grep -Fq 'definition of done' "$tmp/dispatched-prompt" && grep -Fq 'Ship the bounded review changes.' "$tmp/dispatched-prompt"; then
+  pass 'acceptance criteria reach the prompt as the scope boundary'
+else
+  fail 'acceptance criteria reach the prompt as the scope boundary' "rc=$rc"
+fi
+
+# --- a round may not be dispatched over a hole in the findings record (cch-q4c.2) ---
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+run
+if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 1 ] && grep -Fq 'no findings recorded for round(s) 1' "$tmp/err"; then
+  pass 'round 2 refused when round 1 has no findings file'
+else
+  fail 'round 2 refused when round 1 has no findings file' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_prior_findings 1
+run
+if [ "$rc" -ne 0 ] && grep -Fq 'no findings recorded for round(s) 2' "$tmp/err"; then
+  pass 'round 3 refused when only round 1 has findings'
+else
+  fail 'round 3 refused when only round 1 has findings' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+make_mutant 's/\[ -n "$missing" \]/false/'
+run
+if ! grep -Fq 'no findings recorded for round(s)' "$tmp/err"; then
+  pass 'missing-prior-findings refusal source mutation goes red'
+else
+  fail 'missing-prior-findings refusal source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# --- recorded gate evidence is carried or its absence is stated (cch-q4c.2) ---
+
+reset_state
+printf '%s\n' 'noise' 'VERIFY RESULT: PASS sha=abc1234 tree=def5678' 'CODE QUALITY RESULT: PASS sha=abc1234 tree=def5678 covered=test,lint' 'more noise' > "$tmp/evidence.txt"
+run --evidence-file "$tmp/evidence.txt"
+if [ "$rc" -eq 0 ] && grep -Fq 'VERIFY RESULT: PASS sha=abc1234 tree=def5678' "$tmp/dispatched-prompt" && ! grep -Fq 'noise' "$tmp/dispatched-prompt"; then
+  pass 'evidence-file gate records reach the prompt without their surrounding log'
+else
+  fail 'evidence-file gate records reach the prompt without their surrounding log' "rc=$rc"
+fi
+
+reset_state
+run
+if [ "$rc" -eq 0 ] && grep -Fq 'No deterministic gate record was supplied' "$tmp/dispatched-prompt"; then
+  pass 'absent gate evidence is a stated gap, not a silent omission'
+else
+  fail 'absent gate evidence is a stated gap, not a silent omission' "rc=$rc"
+fi
+
+reset_state
+run --evidence-file "$tmp/does-not-exist.txt"
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ]; then
+  pass 'a missing evidence file refuses rather than reporting no records'
+else
+  fail 'a missing evidence file refuses rather than reporting no records' "rc=$rc"
+fi
+
+reset_state
+printf '%s\n' 'VERIFY RESULT: PASS sha=abc1234 tree=def5678' > "$tmp/evidence.txt"
+make_mutant 's/evidence_section="$records"/evidence_section="REDACTED"/'
+run --evidence-file "$tmp/evidence.txt"
+if [ "$rc" -eq 0 ] && ! grep -Fq 'VERIFY RESULT: PASS sha=abc1234' "$tmp/dispatched-prompt"; then
+  pass 'evidence-carrying source mutation goes red'
+else
+  fail 'evidence-carrying source mutation goes red' "rc=$rc"
+fi
+runner="$tool"
+
+# --- a fresh reviewer says why it is fresh (cch-q4c.3) ---
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+seed_prior_findings 1
+printf 'reviewer-thread\n' > "$state.thread"
+RR_NEWEST_THREAD='fixer-thread' run
+if [ "$rc" -eq 0 ] && printf '%s' "$output" | grep -Fq 'the plugin resumes only the newest thread'; then
+  pass 'a superseded reviewer thread reports why the round is fresh'
+else
+  fail 'a superseded reviewer thread reports why the round is fresh' "rc=$rc output=$output"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+seed_prior_findings 1
+printf 'reviewer-thread\n' > "$state.thread"
+make_mutant 's/REVIEW ROUND: the plugin resumes only the newest thread/REVIEW ROUND: silently fresh/'
+RR_NEWEST_THREAD='fixer-thread' run
+if [ "$rc" -eq 0 ] && ! printf '%s' "$output" | grep -Fq 'the plugin resumes only the newest thread'; then
+  pass 'fresh-reviewer disclosure source mutation goes red'
+else
+  fail 'fresh-reviewer disclosure source mutation goes red' "rc=$rc"
+fi
+runner="$tool"
+
+# --- the budget counts looks at one scope (cch-q4c.1) ---
+
+reset_state
+run
+printf 'fix\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'fix(core): close the round-1 finding' -q
+seed_prior_findings 1
+run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 2 ]; then
+  pass 'a fix commit keeps the scope stamp and advances the round'
+else
+  fail 'a fix commit keeps the scope stamp and advances the round' "rc=$rc counter=$(<"$state" 2>/dev/null || true) err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+printf 'feature\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): add a second capability to the branch' -q
+seed_prior_findings 2
+run
+if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 2 ] && grep -Fq 'the reviewed scope changed' "$tmp/err"; then
+  pass 'a feat commit refuses the next round until the scope change is declared'
+else
+  fail 'a feat commit refuses the next round until the scope change is declared' "rc=$rc counter=$(<"$state" 2>/dev/null || true) err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+run --scope-changed 'second capability added; acceptance restated'
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ] && printf '%s' "$output" | grep -Fq 'scope changed since round 2' && printf '%s' "$output" | grep -Fq 'ROUND 1/3'; then
+  pass 'a declared scope change archives prior rounds and restarts the budget'
+else
+  fail 'a declared scope change archives prior rounds and restarts the budget' "rc=$rc counter=$(<"$state" 2>/dev/null || true) output=$output"
+fi
+
+if compgen -G "$state.scope-*/$slug-r1-findings.md" > /dev/null && compgen -G "$state.scope-*/$slug" > /dev/null; then
+  pass 'the archived scope keeps its counter and findings'
+else
+  fail 'the archived scope keeps its counter and findings' "archive=$(ls -d "$state".scope-* 2>/dev/null || true)"
+fi
+
+reset_state
+run
+printf 'feature-two\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): a third capability' -q
+seed_prior_findings 1
+make_mutant 's/\[ "$recorded_stamp" != "$stamp" \]/false/'
+run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 2 ]; then
+  pass 'scope-change refusal source mutation goes red'
+else
+  fail 'scope-change refusal source mutation goes red' "rc=$rc counter=$(<"$state" 2>/dev/null || true)"
+fi
 runner="$tool"
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
