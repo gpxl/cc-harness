@@ -29,7 +29,7 @@ index_entries() {  # index_entries <claude-md> -> sorted rule filenames named in
   # Terminate on ANY following section, not only an uppercase-initial one: a terminator that does
   # not fire reads a later section's lines as [Rules] entries and reports an unindexed rule as
   # indexed, which is the silent pass this check exists to prevent.
-  sed -n '/^\[Rules\]/,/^\[[^]]/p' "$1" | sed -nE 's/^\|([A-Za-z0-9._-]+\.md):.*/\1/p' | sort -u
+  sed -n '/^\[Rules\]/,/^\[[^]]/p' "$1" | sed -nE 's/^\|([A-Za-z0-9._/-]+\.md):.*/\1/p' | sort -u
 }
 
 rule_files() {  # rule_files <rules-dir> -> sorted rule paths on disk, relative to the directory
@@ -141,6 +141,12 @@ fi
 nested="$workdir/nested"; make_fixture "$nested" alpha.md beta.md
 mkdir -p "$nested/rules/sub"; printf 'rule\n' > "$nested/rules/sub/gamma.md"
 expect 'a rule in a subdirectory is not invisible' 1 'sub/gamma.md has no entry' "$nested/rules" "$nested/global/CLAUDE.md"
+
+# And the remedy the failure message offers must actually work: a gate whose only advertised fix
+# cannot turn it green is a gate nobody can clear.
+nested_ok="$workdir/nested-ok"; make_fixture "$nested_ok" alpha.md beta.md sub/gamma.md
+mkdir -p "$nested_ok/rules/sub"; printf 'rule\n' > "$nested_ok/rules/sub/gamma.md"
+expect 'a correctly indexed rule in a subdirectory passes' 0 '' "$nested_ok/rules" "$nested_ok/global/CLAUDE.md"
 
 expect 'a missing rules directory is refused' 1 'rules directory not found' "$workdir/absent" "$ok/global/CLAUDE.md"
 expect 'a missing index file is refused' 1 'index file not found' "$ok/rules" "$workdir/absent/CLAUDE.md"
