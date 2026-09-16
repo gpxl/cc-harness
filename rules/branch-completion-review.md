@@ -208,7 +208,32 @@ It runs under a **three-round budget** per branch — not per commit, not per fi
 
 ### The NO-GO loop
 
-**Round budget: 3.** R1 is review. R2/R3 resume that reviewer only when the newest job record under the plugin state directory has the R1-recorded reviewer `threadId`; otherwise they are fresh reviewers, given R1's findings with each `FIX`/`BEAD`/`UNVERIFIED` disposition and the fix commit SHA, and told to re-trace those scenarios first (cch-9o4). Print every round: `GOAL: <acceptance> | ROUND n/3 | OPEN BLOCKERS k | NEXT: <one action>`.
+**Round budget: 3, per reviewed scope.** Not per branch: a branch that grows a feature between
+rounds is not on its second look at the same code, it is on its first look at different code.
+`review-round.sh` stamps the scope at R1 (the acceptance text plus every commit subject that is not
+`fix`/`test`/`docs`/`chore`) and refuses the next round when that stamp moves, until
+`--scope-changed "<what changed>"` declares it; the prior rounds are then archived and the counter
+restarts. Restating what done means for the enlarged branch is the point of that declaration, but
+the script cannot check that you did — it only requires the flag and a non-empty reason. The stamp
+reads commit *subjects*, so amending a commit's body or its diff moves nothing; declare a scope
+change yourself when the code grew under an unchanged subject. Prefer one tracker item per PR — the 6-round branch measured on
+2026-09-16 carried six, and its reviewed diff went 856 → 6,685 → 9,339 lines while the counter
+climbed as though nothing had changed (rounds per branch then ran at a median of 3 against a target
+of ≤2, which is the metric this edit moves).
+
+**A round is never dispatched blind.** R1 is review. The script refuses to dispatch without
+acceptance criteria, and refuses round N while any round k<N has no recorded findings file — both
+were silent placeholders until 2026-09-16, and both rendered on every round of the 6-round branch.
+Hand it the recorded gate lines with `--evidence-file`; when there are none the prompt says so
+rather than printing a bare negative.
+
+**R2/R3 are usually fresh reviewers, and that is a plugin limit, not a choice.** The Codex plugin
+resumes only the *newest* tracked thread in a workspace, so the fix task between rounds takes the
+slot (openai-codex 1.0.6 `executeTaskRun`; measured 6 of 6 rounds fresh). Give a fresh reviewer R1's
+findings with each `FIX`/`BEAD`/`UNVERIFIED` disposition and the fix commit SHA, and tell it to
+re-trace those scenarios first (cch-9o4). The findings file, not the thread, is the continuity
+mechanism — `docs/reference/review-round-scripts.md` has the detail. Print every round:
+`GOAL: <acceptance> | ROUND n/3 | OPEN BLOCKERS k | NEXT: <one action>`.
 
 After R3 with open BLOCKERs, the orchestrator **STOPS** and escalates one paragraph to the user: merge with disclosure, authorize more budget, or shelve. R4 exists only after the user's explicit words in chat, quoted in the ack note.
 
@@ -241,7 +266,17 @@ assessment with the review record alongside the user's quoted decision.
 | **BEAD** | Everything else: MINOR, NIT, forward-looking, test-hardening, out-of-scope MAJOR, or pre-existing. Never make a fix commit for these on the branch. |
 | **UNVERIFIED** | A claimed red the reviewer could have executed and did not: one Codex verification attempt, then drop or bead. The fabricated BLOCKER on AudioApp PR #10 (2026-09-04) is the standing counterexample. |
 
-Fixes are **one Codex task per round** carrying the full finding list; negative controls are part of that task's contract, not orchestrator work. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
+Fixes are **one Codex task per round** carrying the full finding list, built from
+`templates/review-fix-round.md`; negative controls are part of that task's contract, not orchestrator
+work. That template exists because the fix round is where the loop is manufactured: on the branch
+measured 2026-09-16, round 3's fix built a mechanism, rounds 4 and 5 each found a *different* defect
+inside it, one fix shipped with a test pinning the behaviour its finding called wrong, and round 6
+returned GO in one minute once it asked whether the mechanism should be restructured instead of
+patched a third time. So the template makes three things mandatory — the findings verbatim, a
+**siblings** sweep for the same failure class across the whole branch diff, and the **structural**
+question once one mechanism has been patched twice — and it forbids telling the fixer how much
+review budget is left, since the fixer can neither see nor spend it and answers the pressure by
+widening its own scope. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
 
 ### Skip conditions
 

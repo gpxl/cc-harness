@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
   printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
   printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
@@ -19,6 +19,8 @@ collect_job=''
 collect_round=''
 adopt_round=''
 adopt_job=''
+evidence_file=''
+scope_changed=''
 
 [ "$#" -gt 0 ] || { usage; exit 2; }
 case "$1" in
@@ -47,6 +49,8 @@ case "$1" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --bead) [ "$#" -ge 2 ] || { usage; exit 2; }; bead=$2; shift 2 ;;
+        --evidence-file) [ "$#" -ge 2 ] || { usage; exit 2; }; evidence_file=$2; shift 2 ;;
+        --scope-changed) [ "$#" -ge 2 ] || { usage; exit 2; }; scope_changed=$2; shift 2 ;;
         --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
         --dry-run) dry_run=true; shift ;;
         --selftest) selftest=true; shift ;;
@@ -71,11 +75,14 @@ state_dir="$common_dir/review-rounds"
 counter="$state_dir/$slug"
 thread_file="$counter.thread"
 job_file="$counter.job"
+scope_file="$counter.scope"
 thread_wait_seconds=${REVIEW_ROUND_THREAD_WAIT_SECONDS:-30}
 case "$thread_wait_seconds" in
   ''|*[!0-9]*) printf '%s\n' 'review-round: REVIEW_ROUND_THREAD_WAIT_SECONDS must be an integer from 0 to 30' >&2; exit 2 ;;
 esac
 [ "$thread_wait_seconds" -le 30 ] || { printf '%s\n' 'review-round: REVIEW_ROUND_THREAD_WAIT_SECONDS must be at most 30' >&2; exit 2; }
+
+archive_pending=''
 
 dispatcher=${REVIEW_ROUND_DISPATCH:-}
 if [ -z "$dispatcher" ]; then
@@ -85,6 +92,104 @@ jobs_tool=${REVIEW_ROUND_JOBS:-}
 if [ -z "$jobs_tool" ]; then
   jobs_tool=$(command -v codex-jobs.sh 2>/dev/null || printf '%s' "$script_dir/codex-jobs.sh")
 fi
+
+sha256_hex() {  # sha256_hex <<< text -> hex digest
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    sha256sum | awk '{print $1}'
+  fi
+}
+
+# The acceptance criteria are the branch's definition of done. A review dispatched without them
+# lets the reviewer's latest finding become the definition instead, which is how a three-round
+# budget turns into six (rules/branch-completion-review.md; the 2026-09-16 evaluation).
+resolve_acceptance() {  # -> acceptance text on stdout, empty when none could be resolved
+  local shown
+  if [ -n "${REVIEW_ROUND_ACCEPTANCE:-}" ]; then
+    printf '%s\n' "$REVIEW_ROUND_ACCEPTANCE"
+    return 0
+  fi
+  [ -n "$bead" ] || return 0
+  command -v bd >/dev/null 2>&1 || return 0
+  shown=$(bd show "$bead" 2>/dev/null) || return 0
+  # Terminate on the NEXT bd show section heading, not on any all-caps line: criteria bodies
+  # legitimately contain them ("MUST NOT REGRESS"), and the old terminator silently dropped
+  # everything after the first one — two-thirds of a definition of done, with no indication.
+  printf '%s\n' "$shown" | awk '
+    /^ACCEPTANCE CRITERIA$/ { found = 1; next }
+    found && /^(DESCRIPTION|DESIGN|NOTES|ACCEPTANCE CRITERIA|PARENT|CHILDREN|DEPENDS ON|BLOCKS|RELATED|LABELS|COMMENTS|ATTACHMENTS|HISTORY)[[:space:]]*$/ { exit }
+    found && NF { print }
+  '
+}
+
+refuse_without_acceptance() {
+  printf 'review-round: refused — no acceptance criteria resolved for this review\n' >&2
+  if [ -n "$bead" ]; then
+    printf 'review-round: %s has no ACCEPTANCE CRITERIA section (or bd could not read it)\n' "$bead" >&2
+  else
+    printf 'review-round: no --bead was supplied\n' >&2
+  fi
+  printf '%s\n' 'Supply them one of three ways:' >&2
+  printf '%s\n' '  bd update <id> --acceptance="<what done means>"   then re-run with --bead <id>' >&2
+  printf '%s\n' '  --bead <id> pointing at an item that already has them' >&2
+  printf '%s\n' '  REVIEW_ROUND_ACCEPTANCE="<what done means>" scripts/review-round.sh ...' >&2
+  printf '%s\n' 'A reviewer with no definition of done writes one from its own findings.' >&2
+  exit 1
+}
+
+# Commits that change what is under review. fix/test/docs/chore land BECAUSE of a round; a feat or
+# refactor commit makes the next round a first look at different code, which the per-branch counter
+# used to charge against the old budget.
+scope_subjects() {
+  local subjects
+  # Capture git's own status before any filter touches it: a pipeline would report grep's status,
+  # and `|| true` would erase the difference between "git failed" and "no scope-changing commits"
+  # (rules/verification-integrity.md). A bad base must not read as an empty scope.
+  subjects=$(git log --format=%s "$base..HEAD") || {
+    printf 'review-round: cannot list commits in %s..HEAD\n' "$base" >&2
+    exit 2
+  }
+  [ -n "$subjects" ] || return 0
+  printf '%s\n' "$subjects" | grep -vaE '^(fix|test|docs|chore)(\([^)]*\))?!?:' || true
+}
+
+scope_stamp() {  # scope_stamp <acceptance> -> hex digest of acceptance + scope-changing subjects
+  { printf '%s\n' "$1"; printf -- '---\n'; scope_subjects; } | sha256_hex
+}
+
+archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
+  local base_dir archive n=1 f
+  base_dir="$counter.scope-${1:0:12}"
+  archive="$base_dir"
+  # A branch can return to a scope it reviewed before (revert, then re-land), which would key a
+  # second archive to the same stamp. Both documents promise "archived, not deleted", so never
+  # reuse a directory that already holds rounds.
+  while [ -e "$archive" ]; do
+    n=$((n + 1))
+    archive="$base_dir-$n"
+  done
+  mkdir -p "$archive"
+  for f in "$counter" "$thread_file" "$job_file" "$scope_file" "$state_dir/$slug"-r*-findings.md; do
+    [ -e "$f" ] || continue
+    # A half-archive leaves stale findings the next round would read as this scope's, so a failed
+    # move is fatal rather than skipped.
+    mv "$f" "$archive/" || {
+      printf 'review-round: could not archive %s into %s\n' "$f" "$archive" >&2
+      exit 1
+    }
+  done
+  printf '%s\n' "$archive"
+}
+
+evidence_records() {  # -> recorded gate lines, empty when none were supplied
+  [ -n "$evidence_file" ] || return 0
+  [ -f "$evidence_file" ] || {
+    printf 'review-round: --evidence-file %s does not exist\n' "$evidence_file" >&2
+    exit 2
+  }
+  grep -aE '^(VERIFY RESULT:|CODE QUALITY RESULT:)' "$evidence_file" || true
+}
 
 read_round() {
   if [ -e "$counter" ]; then
@@ -233,23 +338,69 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 prepare_round() {
+  local recorded_stamp=''
+
+  goal=$(resolve_acceptance)
+  [ -n "$(printf '%s' "$goal" | tr -d '[:space:]')" ] || refuse_without_acceptance
+  stamp=$(scope_stamp "$goal")
+
+  # The budget is per reviewed scope. A branch that grows a feature between rounds is not on its
+  # second look at the same code; it is on its first look at different code.
   previous=$(read_round)
+  if [ -e "$scope_file" ]; then
+    recorded_stamp=$(tr -d '[:space:]' < "$scope_file")
+  fi
+  if [ -n "$recorded_stamp" ] && [ "$recorded_stamp" != "$stamp" ] && [ "$previous" -gt 0 ]; then
+    if [ -z "$scope_changed" ]; then
+      printf 'review-round: refused — the reviewed scope changed since round %s\n' "$previous" >&2
+      printf '%s\n' 'Scope-changing commits now in this branch (fix/test/docs/chore excluded):' >&2
+      scope_subjects | sed 's/^/  /' >&2
+      printf '%s\n' 'The round budget counts looks at one scope. Restate what done means for the' >&2
+      printf '%s\n' 'enlarged branch, then re-run with --scope-changed "<what changed>".' >&2
+      printf '%s\n' 'The counter restarts at round 1; the prior rounds are archived, not deleted.' >&2
+      exit 1
+    fi
+    # Do NOT archive here. Everything between this point and a successful dispatch can fail —
+    # a bad base ref, mktemp, the dispatcher itself — and an archive performed early would leave
+    # the branch with no counter and no findings, so the NEXT run would dispatch as a fresh round 1
+    # with "(none — this is the first round)". That is the silent placeholder this script exists to
+    # remove, reintroduced by its own repair. Archive with the new round's state instead.
+    archive_pending=$recorded_stamp
+    printf 'REVIEW ROUND: scope changed since round %s; archiving on dispatch\n' "$previous"
+    printf 'REVIEW ROUND: scope change accepted — %s\n' "$scope_changed"
+    previous=0
+  fi
+
   round=$((previous + 1))
   if [ "$round" -ge 4 ] && [ -z "$user_approved" ]; then
     printf 'review-round: round %s refused — user approval is required after round 3\n' "$round" >&2
     exit 1
   fi
 
-  goal='branch review acceptance criteria were not supplied'
-  if [ -n "$bead" ]; then
-    if command -v bd >/dev/null 2>&1; then
-      goal=$(bd show "$bead" 2>&1 || printf 'bead %s could not be read' "$bead")
-    else
-      goal="bead $bead (bd unavailable)"
+  # Prior rounds are the only continuity a fresh reviewer gets (see the resume note in
+  # docs/reference/review-round-scripts.md). Dispatching round N with a hole in that record means
+  # paying for a round that re-derives what round k already found.
+  if [ "$round" -ge 2 ]; then
+    local prior missing=''
+    for ((prior = 1; prior < round; prior++)); do
+      [ -f "$state_dir/$slug-r$prior-findings.md" ] || missing="$missing $prior"
+    done
+    if [ -n "$missing" ]; then
+      printf 'review-round: refused — no findings recorded for round(s)%s\n' "$missing" >&2
+      printf '%s\n' 'Record them before dispatching the next round:' >&2
+      printf '%s\n' '  scripts/review-round.sh --collect <job-id> --round <k>' >&2
+      printf '%s\n' "  or write $state_dir/$slug-r<k>-findings.md by hand with each finding's disposition" >&2
+      exit 1
     fi
   fi
+
   goal_line=$(printf '%s' "$goal" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
   printf 'GOAL: %s | ROUND %s/3 | OPEN BLOCKERS ? | NEXT: wait for verdict\n' "$goal_line" "$round"
+}
+
+git rev-parse --verify --quiet "$base^{commit}" >/dev/null || {
+  printf 'review-round: %s is not a commit this worktree can resolve\n' "$base" >&2
+  exit 2
 }
 
 if [ "$dry_run" = false ]; then
@@ -262,21 +413,31 @@ if [ "$dry_run" = false ]; then
   prepare_round
 else
   prepare_round
-  printf 'REVIEW ROUND: dry run; counter remains %s\n' "$previous"
+  # `previous` is zeroed by an accepted scope change, so it is what the counter WOULD become, not
+  # what is on disk. An inspector whose only job is to report state without changing it must not
+  # state the state wrongly.
+  printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; next round would be %s\n' \
+    "$(read_round)" "$round"
   exit 0
 fi
 
 prior_findings='(none — this is the first round)'
 if [ "$round" -ge 2 ]; then
+  # prepare_round refuses when any prior round has no findings file, so every iteration reads one.
   prior_findings=''
   for ((prior=1; prior<round; prior++)); do
     findings="$state_dir/$slug-r$prior-findings.md"
-    if [ -f "$findings" ]; then
-      prior_findings="$prior_findings\n--- round $prior findings: $findings ---\n$(<"$findings")\n"
-    else
-      prior_findings="$prior_findings\n--- round $prior findings unavailable: $findings ---\n"
-    fi
+    prior_findings="$prior_findings\n--- round $prior findings: $findings ---\n$(<"$findings")\n"
   done
+fi
+
+records=$(evidence_records)
+if [ -n "$records" ]; then
+  evidence_section="$records"
+else
+  evidence_section='No deterministic gate record was supplied with this review. Nothing here tells you
+whether lint, tests or the build passed on this tree — treat every such claim in the diff or the
+commit messages as unverified, and weight your attention toward what no gate could have covered.'
 fi
 
 prompt_file=$(mktemp "${TMPDIR:-/tmp}/review-round-prompt.XXXXXX") || exit 1
@@ -285,8 +446,13 @@ cat > "$prompt_file" <<EOF
 This is a bounded, read-only branch-completion review, round $round of 3.
 
 Purpose: find decision-changing defects in the full branch diff; do not edit files or manufacture findings.
-Acceptance criteria:
+
+Acceptance criteria — this is the branch's definition of done, and the boundary of this review.
+Label anything outside it OUT-OF-SCOPE rather than raising it as a blocker:
 $goal
+
+Recorded deterministic evidence:
+$evidence_section
 
 Diff against $base...HEAD:
 $diff
@@ -322,6 +488,12 @@ process.stdout.write(job && job.logFile ? String(job.logFile) : "");
   fi
 fi
 
+# The plugin can only resume the NEWEST tracked thread in a workspace (openai-codex 1.0.6:
+# executeTaskRun resolves its resume target solely through resolveLatestTrackedTaskThread behind
+# --resume-last; runAppServerTurn takes a resumeThreadId but no CLI path passes a caller-supplied
+# one). So a fix task dispatched between rounds takes the slot and this reviewer cannot be resumed.
+# Measured 2026-09-16: 6 of 6 rounds on one branch ran fresh for exactly that reason. The prior
+# findings file, not the thread, is the continuity mechanism — say which one happened.
 if [ -f "$thread_file" ]; then
   reviewer_thread=$(tr -d '[:space:]' < "$thread_file")
   newest_thread=''
@@ -332,7 +504,15 @@ const first = Array.isArray(jobs) ? jobs[0] : null;
 process.stdout.write(first && first.threadId ? String(first.threadId) : "");
 ' "$jobs_json" 2>/dev/null || true)
   fi
-  [ -n "$reviewer_thread" ] && [ "$reviewer_thread" = "$newest_thread" ] && resume=true
+  if [ -n "$reviewer_thread" ] && [ "$reviewer_thread" = "$newest_thread" ]; then
+    resume=true
+  elif [ "$round" -ge 2 ]; then
+    printf 'REVIEW ROUND: fresh reviewer — thread %s is no longer the newest tracked thread%s\n' \
+      "$reviewer_thread" "${newest_thread:+ (that is $newest_thread)}"
+    printf '%s\n' 'REVIEW ROUND: the plugin resumes only the newest thread; prior findings carry the continuity'
+  fi
+elif [ "$round" -ge 2 ]; then
+  printf '%s\n' 'REVIEW ROUND: fresh reviewer — no reviewer thread was recorded for the prior round'
 fi
 
 dispatch_args=(--read-only --json --prompt-file "$prompt_file")
@@ -353,8 +533,13 @@ wait_command=$(decode "$wait_command_b64")
 [ -n "$job_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId' >&2; exit 1; }
 
 # Persist launch state before resolving asynchronous reviewer metadata.
+if [ -n "$archive_pending" ]; then
+  archive=$(archive_scope_state "$archive_pending")
+  printf 'REVIEW ROUND: prior scope archived to %s\n' "$archive"
+fi
 printf '%s\n' "$round" > "$counter"
 printf '%s\n' "$job_id" > "$job_file"
+printf '%s\n' "$stamp" > "$scope_file"
 rm -f "$thread_file"
 job_record=$(job_record_from_log "$log_file" "$job_id")
 thread_id=$(wait_for_thread_id "$job_record")

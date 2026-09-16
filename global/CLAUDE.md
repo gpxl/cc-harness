@@ -94,7 +94,7 @@ Before creating, renaming, pushing, or opening a pull request in **every** proje
 | Phase | Action |
 |-------|--------|
 | Session start | Run `bd prime` if `.beads/` exists in project |
-| Plan | `bd create` issue BEFORE writing code |
+| Plan | `bd create` issue BEFORE writing code — with `--acceptance="<what done means>"` whenever the work will reach branch-completion review, because that text is the reviewer's scope boundary and `review-round.sh` refuses to dispatch without it |
 | Claim | `bd update <id> --status=in_progress` when starting |
 | **Branch** | **If on `main`/`master`/`trunk`/`develop`, create a feature branch that follows the repository's current naming convention off `origin/<integration>` BEFORE first edit (for example, `git checkout -b feat/WEB-2823-<desc> origin/main`). Never commit on the integration branch. See `branch-discipline.md`.** |
 | **Delegate** | **Codex-first**: hand implementation, debugging, and design work to OpenAI models via `/codex:rescue` unless it is orchestration, a gate, or tool-bound work. See `## Model Routing`. |
