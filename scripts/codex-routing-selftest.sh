@@ -214,6 +214,46 @@ same_second_backups_preserve_each_payload() {
   cmp -s <(printf '%s\n' 'unrelated backup') "$codex/AGENTS.md.backup.20250101000000"
 }
 
+installed_entrypoint_resolves_the_repository() {
+  # Installed, both scripts are reached through ~/.claude/scripts -> <repo>/scripts. A logical
+  # `cd .../scripts/..` lands in ~/.claude, where none of the repository-relative paths exist, and
+  # the check then reports fabricated drift (cch-u9w). The symlink here stands in for that install.
+  local link_dir="$tmp_root/installed"
+  local out rc mutant mutant_out
+  ln -sfn "$root/scripts" "$link_dir" || return 1
+
+  out=$(bash "$link_dir/codex-routing-check.sh" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "installed entrypoint: codex-routing-check exited $rc: $out" || return 1
+  case "$out" in
+    *"$root/codex/agents"*) ;;
+    *) fail "installed entrypoint: check resolved the wrong root: $out"; return 1 ;;
+  esac
+  case "$out" in
+    *"$HOME/.claude/codex"*) fail "installed entrypoint: check still reads through the symlink parent: $out"; return 1 ;;
+  esac
+
+  out=$(bash "$link_dir/sync-codex-agents.sh" --check 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "installed entrypoint: sync --check exited $rc: $out" || return 1
+
+  # NEGATIVE CONTROL: with the logical resolution restored, the same invocation must fail.
+  # The mutant must be reached THROUGH the symlink for the difference to show, so it lives beside
+  # the real script for the length of this check and is removed either way.
+  mutant="$root/scripts/.codex-routing-check-mutant.sh"
+  sed 's|pwd -P)$|pwd)|' "$root/scripts/codex-routing-check.sh" > "$mutant" || return 1
+  if cmp -s "$mutant" "$root/scripts/codex-routing-check.sh"; then
+    rm -f "$mutant"; fail 'installed entrypoint: mutation did not apply'; return 1
+  fi
+  mutant_out=$(bash "$link_dir/.codex-routing-check-mutant.sh" 2>&1) || true
+  rm -f "$mutant"
+  # The symlink's LOGICAL parent is $tmp_root, which holds neither the role sources nor the sibling
+  # scripts: whichever it misses first, naming that path is the fabricated drift the fix removes.
+  case "$mutant_out" in
+    *"$tmp_root/"*) ;;
+    *) fail "installed entrypoint: mutation did not restore the wrong root: $mutant_out"; return 1 ;;
+  esac
+  return 0
+}
+
 record roles_follow_routing_table
 record stale_generated_output_is_rejected
 record missing_role_template_is_rejected
@@ -224,6 +264,7 @@ record project_shadow_and_link_drift_are_reported
 record semantic_toml_collisions_and_defaults_are_rejected
 record nonempty_instruction_overrides_are_reported
 record same_second_backups_preserve_each_payload
+record installed_entrypoint_resolves_the_repository
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX ROUTING SELFTEST: PASS'

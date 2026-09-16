@@ -78,15 +78,36 @@ const fs = require("fs");
 const activeOnly = process.argv[1] === "true";
 const outputMode = process.argv[2];
 const stateFiles = process.argv.slice(3);
+// A record whose tracked pid is gone while its status still says queued/running is an ORPHAN, not
+// pending work (rules/codex-job-status-integrity.md). --active is consulted precisely when nobody
+// is watching, so it must not report a worker that died days ago as live: an instrument that
+// cannot tell "still executing" from "not looking" reports unknown dressed up as good.
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid < 1) return null;  // nothing to check — unverifiable, not alive
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM" ? true : false;
+  }
+}
 const jobs = [];
+let orphaned = 0;
+let unverifiable = 0;
 for (const stateFile of stateFiles) {
   try {
     const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
     if (!Array.isArray(state.jobs)) continue;
     for (const job of state.jobs) {
       if (!job || typeof job !== "object") continue;
-      if (activeOnly && job.status !== "queued" && job.status !== "running") continue;
-      jobs.push(job);
+      const alive = pidAlive(job.pid);
+      const annotated = { ...job, pidAlive: alive };
+      if (activeOnly) {
+        if (job.status !== "queued" && job.status !== "running") continue;
+        if (alive === false) { orphaned += 1; continue; }
+        if (alive === null) { unverifiable += 1; }
+      }
+      jobs.push(annotated);
     }
   } catch {
     // An incomplete state write is not a usage error; omit it this tick.
@@ -94,16 +115,29 @@ for (const stateFile of stateFiles) {
 }
 jobs.sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")));
 function pidState(pid) {
-  if (!Number.isInteger(pid) || pid < 1) return "-";
-  try {
-    process.kill(pid, 0);
-    return `${pid}(alive)`;
-  } catch (error) {
-    return error.code === "EPERM" ? `${pid}(alive)` : `${pid}(dead)`;
+  const alive = pidAlive(pid);
+  if (alive === null) return "-";
+  return `${pid}(${alive ? "alive" : "dead"})`;
+}
+// Counted out loud, never silently dropped: "0 live" and "0 seen" are different answers, and a
+// filter that hid its omissions would make an orphan look like no work at all.
+function reportOmissions(stream) {
+  if (!activeOnly) return;
+  if (orphaned > 0) {
+    stream.write(`CODEX JOBS: ${orphaned} orphaned record(s) omitted — status says queued/running but the tracked pid is gone (codex-job-status-integrity.md)\n`);
+  }
+  if (unverifiable > 0) {
+    stream.write(`CODEX JOBS: ${unverifiable} record(s) listed with no usable pid — liveness unverified\n`);
+  }
+  if (jobs.length === 0) {
+    stream.write(orphaned > 0
+      ? "CODEX JOBS: no live work (every queued/running record is orphaned)\n"
+      : "CODEX JOBS: no live work\n");
   }
 }
 if (outputMode === "json") {
   console.log(JSON.stringify(jobs));
+  reportOmissions(process.stderr);
 } else {
   for (const job of jobs) {
     console.log([
@@ -116,6 +150,7 @@ if (outputMode === "json") {
       String(job.workspaceRoot ?? "-")
     ].join(" "));
   }
+  reportOmissions(process.stdout);
 }
 ' "$active_flag" "$output_mode" ${state_files[@]+"${state_files[@]}"} || {
   printf '%s\n' 'CODEX JOBS: unavailable (state could not be read)' >&2; exit 1; }

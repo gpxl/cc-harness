@@ -2,7 +2,12 @@
 # Check installed shared native Codex roles and optional project-local shadows.
 set -euo pipefail
 
-root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# Resolve the PHYSICAL script directory before taking its parent. Installed, this script is reached
+# through ~/.claude/scripts, a symlink to the repository's scripts/: a logical `cd .../scripts/..`
+# lands in ~/.claude, and every repository-relative path below then points at a directory that does
+# not hold them (cch-u9w).
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
 codex_dir="${CC_HARNESS_CODEX_DIR:-${HOME}/.codex}"
 project_dir=''
 roles=(harness_explorer harness_runner harness_spark harness_worker harness_analyst harness_reviewer)

@@ -42,5 +42,59 @@ if grep -q '^job-inline ' "$active" || ! grep -q '^job-other ' "$active"; then
   printf -- '--active filter wrong: %s\n' "$(cat "$active")" >&2; failures=$((failures + 1))
 fi
 
+# Case 4: a queued/running record whose tracked pid is dead is an ORPHAN, not active. The pid is a
+# real one that has exited, so the check is against the live process table, not a sentinel value.
+dead_root="$tmp_root/dead-data"
+mkdir -p "$dead_root/codex-inline/state/ws-c-3333"
+dead_pid=$( (exec bash -c 'exit 0') & printf '%s' "$!" ); wait "$dead_pid" 2>/dev/null || true
+live_pid=$$
+printf '{"jobs":[{"id":"job-dead","status":"running","pid":%s,"sessionId":"s3","updatedAt":"2026-01-01T00:00:03Z","workspaceRoot":"/c"},{"id":"job-live","status":"running","pid":%s,"sessionId":"s4","updatedAt":"2026-01-01T00:00:04Z","workspaceRoot":"/c"}]}\n' \
+  "$dead_pid" "$live_pid" > "$dead_root/codex-inline/state/ws-c-3333/state.json"
+
+dead_out="$tmp_root/dead-active.out"
+CLAUDE_PLUGIN_DATA="$dead_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$tool" --all-workspaces --active > "$dead_out" 2>&1 || true
+if grep -q '^job-dead ' "$dead_out"; then
+  printf -- '--active listed a job whose pid is dead: %s\n' "$(cat "$dead_out")" >&2; failures=$((failures + 1))
+fi
+if ! grep -q '^job-live ' "$dead_out"; then
+  printf -- '--active dropped a job whose pid is alive: %s\n' "$(cat "$dead_out")" >&2; failures=$((failures + 1))
+fi
+# Omissions are counted out loud: a filter that hid them would make an orphan look like no work.
+if ! grep -q '1 orphaned record(s) omitted' "$dead_out"; then
+  printf -- '--active did not report the omitted orphan: %s\n' "$(cat "$dead_out")" >&2; failures=$((failures + 1))
+fi
+
+# Without --active the same record is still listed, annotated dead: the filter is for --active only.
+all_dead="$tmp_root/dead-all.out"
+CLAUDE_PLUGIN_DATA="$dead_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$tool" --all-workspaces > "$all_dead" 2>&1 || true
+grep -q "^job-dead running - $dead_pid(dead) " "$all_dead" || {
+  printf 'full listing lost the dead record or its annotation: %s\n' "$(cat "$all_dead")" >&2; failures=$((failures + 1)); }
+
+# --json carries the liveness verdict and applies the same filter, since codex-dispatch.sh's
+# duplicate-job check reads it and must not be blocked by a worker that died days ago.
+dead_json="$tmp_root/dead-active.json"
+CLAUDE_PLUGIN_DATA="$dead_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$tool" --all-workspaces --active --json > "$dead_json" 2>/dev/null || true
+if ! node -e '
+const jobs = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const ids = jobs.map((job) => job.id);
+if (ids.includes("job-dead") || !ids.includes("job-live")) process.exit(1);
+if (jobs.find((job) => job.id === "job-live").pidAlive !== true) process.exit(1);
+' "$dead_json"; then
+  printf -- '--active --json wrong: %s\n' "$(cat "$dead_json")" >&2; failures=$((failures + 1))
+fi
+
+# NEGATIVE CONTROL: without the liveness filter the dead record comes back, so the rows above
+# cannot be passing for some other reason.
+mutant="$tmp_root/codex-jobs-mutant.sh"
+sed 's/if (alive === false) { orphaned += 1; continue; }/if (false) { orphaned += 1; continue; }/' "$tool" > "$mutant"
+if cmp -s "$mutant" "$tool"; then
+  printf 'liveness-filter mutation did not apply\n' >&2; failures=$((failures + 1))
+else
+  mutant_out="$tmp_root/mutant-active.out"
+  CLAUDE_PLUGIN_DATA="$dead_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$mutant" --all-workspaces --active > "$mutant_out" 2>&1 || true
+  grep -q '^job-dead ' "$mutant_out" || {
+    printf 'mutation did not restore the dead record: %s\n' "$(cat "$mutant_out")" >&2; failures=$((failures + 1)); }
+fi
+
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'CODEX JOBS SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'CODEX JOBS SELFTEST: FAIL'; completed=1; exit 1

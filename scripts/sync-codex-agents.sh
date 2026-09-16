@@ -2,7 +2,12 @@
 # Render tracked native Codex roles from templates and the shared routing table.
 set -euo pipefail
 
-root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# Resolve the PHYSICAL script directory before taking its parent. Installed, this script is reached
+# through ~/.claude/scripts, a symlink to the repository's scripts/: a logical `cd .../scripts/..`
+# lands in ~/.claude, and every repository-relative path below then points at a directory that does
+# not hold them (cch-u9w).
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
 routing_table="$root/hooks/model-routing-table.sh"
 output_dir="$root/codex/agents"
 templates_dir="$root/codex/agent-templates"
