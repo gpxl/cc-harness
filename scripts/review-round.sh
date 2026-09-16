@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
   printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
   printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
@@ -21,6 +21,7 @@ adopt_round=''
 adopt_job=''
 evidence_file=''
 scope_changed=''
+acceptance_reworded=''
 
 [ "$#" -gt 0 ] || { usage; exit 2; }
 case "$1" in
@@ -51,6 +52,7 @@ case "$1" in
         --bead) [ "$#" -ge 2 ] || { usage; exit 2; }; bead=$2; shift 2 ;;
         --evidence-file) [ "$#" -ge 2 ] || { usage; exit 2; }; evidence_file=$2; shift 2 ;;
         --scope-changed) [ "$#" -ge 2 ] || { usage; exit 2; }; scope_changed=$2; shift 2 ;;
+        --acceptance-reworded) [ "$#" -ge 2 ] || { usage; exit 2; }; acceptance_reworded=$2; shift 2 ;;
         --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
         --dry-run) dry_run=true; shift ;;
         --selftest) selftest=true; shift ;;
@@ -154,13 +156,34 @@ scope_subjects() {
   printf '%s\n' "$subjects" | grep -vaE '^(fix|test|docs|chore)(\([^)]*\))?!?:' || true
 }
 
-scope_stamp() {  # scope_stamp <acceptance> -> hex digest of acceptance + scope-changing subjects
+# The stamp has two independent halves, recorded separately so a refusal can say WHICH moved.
+# A combined digest can only report "something changed", and the two causes want opposite
+# remedies: new feature commits mean the next round is a first look at different code and the
+# budget should restart, while a reworded acceptance is the same code judged by the same
+# criteria in different words and must NOT buy three more rounds.
+acceptance_digest() { printf '%s\n' "$1" | sha256_hex; }
+subjects_digest() { scope_subjects | sha256_hex; }
+
+scope_stamp() {  # scope_stamp <acceptance> -> "acceptance=<hex> subjects=<hex>"
+  printf 'acceptance=%s subjects=%s\n' "$(acceptance_digest "$1")" "$(subjects_digest)"
+}
+
+stamp_field() {  # stamp_field <stamp> <acceptance|subjects> -> that half, empty when absent
+  printf '%s' "$1" | sed -nE "s/.*(^|[[:space:]])$2=([0-9a-f]+).*/\2/p"
+}
+
+legacy_scope_stamp() {  # legacy_scope_stamp <acceptance> -> the pre-split combined digest
+  # Branches that were mid-review when the halves were split still carry a bare digest. Recomputing
+  # the old formula tells an unchanged scope from a genuinely changed one, so an in-flight branch
+  # does not lose its counter and its findings to a format migration.
   { printf '%s\n' "$1"; printf -- '---\n'; scope_subjects; } | sha256_hex
 }
 
 archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
   local base_dir archive n=1 f
-  base_dir="$counter.scope-${1:0:12}"
+  # Keyed by a digest of the whole stamp, not a prefix of it: the stamp's own first characters are
+  # the constant literal "acceptance=", which would give every scope on a branch the same directory.
+  base_dir="$counter.scope-$(printf '%s' "$1" | sha256_hex | cut -c1-12)"
   archive="$base_dir"
   # A branch can return to a scope it reviewed before (revert, then re-land), which would key a
   # second archive to the same stamp. Both documents promise "archived, not deleted", so never
@@ -182,13 +205,48 @@ archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
   printf '%s\n' "$archive"
 }
 
-evidence_records() {  # -> recorded gate lines, empty when none were supplied
+working_tree_hash() {  # -> short hash of the working tree, tracked and untracked-not-ignored
+  # Built in a throwaway index so the real index and the stash are never touched; this is the
+  # `stamp` helper from rules/pipeline-contract.md, which is what wrote the tree= being compared.
+  (
+    export GIT_INDEX_FILE
+    GIT_INDEX_FILE=$(mktemp -u) || exit 1
+    git read-tree HEAD >/dev/null 2>&1 || exit 1
+    git add -A >/dev/null 2>&1 || exit 1
+    git rev-parse --short "$(git write-tree)" 2>/dev/null || exit 1
+    rm -f "$GIT_INDEX_FILE"
+  )
+}
+
+evidence_records() {  # -> recorded gate lines, each marked fresh or stale against this tree
   [ -n "$evidence_file" ] || return 0
   [ -f "$evidence_file" ] || {
     printf 'review-round: --evidence-file %s does not exist\n' "$evidence_file" >&2
     exit 2
   }
-  grep -aE '^(VERIFY RESULT:|CODE QUALITY RESULT:)' "$evidence_file" || true
+  local records current line recorded
+  records=$(grep -aE '^(VERIFY RESULT:|CODE QUALITY RESULT:)' "$evidence_file") || return 0
+  [ -n "$records" ] || return 0
+  current=$(working_tree_hash)
+  # A record names the tree it was measured on. Carried without that comparison, a green from
+  # before the last edit reads to the reviewer as current gate evidence — an instrument that
+  # cannot tell fresh from stale reporting healthy (rules/verification-integrity.md).
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    recorded=$(printf '%s' "$line" | sed -nE 's/.*(^|[[:space:]])tree=([0-9a-f]+).*/\2/p')
+    if [ -z "$current" ]; then
+      printf '%s   [UNVERIFIABLE: this worktree could not be hashed, so freshness is unknown]\n' "$line"
+    elif [ -z "$recorded" ]; then
+      printf '%s   [UNVERIFIABLE: no tree= in this record, so it cannot be tied to a tree]\n' "$line"
+    elif [ "$recorded" = "$current" ]; then
+      printf '%s   [fresh: measured on this exact worktree]\n' "$line"
+    else
+      printf '%s   [STALE: measured on tree %s, this worktree is %s — treat it as no evidence]\n' \
+        "$line" "$recorded" "$current"
+    fi
+  done <<EOF
+$records
+EOF
 }
 
 read_round() {
@@ -255,7 +313,12 @@ final_findings_from_log() {
   awk '
   /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[^]]+\][[:space:]]+Final output:?[[:space:]]*$/ { in_final = 1; saw_final = 1; next }
   in_final && /^\[[^]]+\][[:space:]]/ { exit }
-  in_final && (/^### (BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ || /^(BLOCKER|MAJOR|MINOR|NIT|VERDICT|OPEN BLOCKERS):/) {
+  # Reviewers write a severity three ways, and all three are the same finding. A parser that
+  # knows only the heading form silently drops every title from a bullet-style report, leaving a
+  # findings file with a verdict and nothing to re-trace — measured on PR #42 round 1.
+  in_final && (/^### (BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ ||
+               /^(BLOCKER|MAJOR|MINOR|NIT|VERDICT|OPEN BLOCKERS):/ ||
+               /^[[:space:]]*[-*][[:space:]]+\*\*(BLOCKER|MAJOR|MINOR|NIT)([[:space:]]|\*|:|—|-)/) {
     sub(/[[:space:]]+$/, "")
     print
   }
@@ -348,27 +411,78 @@ prepare_round() {
   # second look at the same code; it is on its first look at different code.
   previous=$(read_round)
   if [ -e "$scope_file" ]; then
-    recorded_stamp=$(tr -d '[:space:]' < "$scope_file")
+    recorded_stamp=$(tr -d '\n' < "$scope_file")
+  fi
+  local recorded_acceptance='' recorded_subjects='' unattributable=false
+  if [ -n "$recorded_stamp" ]; then
+    recorded_acceptance=$(stamp_field "$recorded_stamp" acceptance)
+    recorded_subjects=$(stamp_field "$recorded_stamp" subjects)
+    if [ -z "$recorded_acceptance" ] && [ -z "$recorded_subjects" ]; then
+      # A stamp written before the halves were recorded separately is a bare digest. Recompute the
+      # old formula first: when it matches, the scope did not move at all and the record is simply
+      # in the older format, so upgrade it in place rather than charging the branch a restart.
+      if [ "$recorded_stamp" = "$(legacy_scope_stamp "$goal")" ]; then
+        printf 'REVIEW ROUND: scope stamp upgraded from the pre-split format; the scope is unchanged\n'
+        printf '%s\n' "$stamp" > "$scope_file"
+        recorded_stamp=$stamp
+        recorded_acceptance=$(stamp_field "$stamp" acceptance)
+        recorded_subjects=$(stamp_field "$stamp" subjects)
+      else
+        # It really did move, but a combined digest cannot say which half. Say that, rather than
+        # printing an attribution the record does not support.
+        unattributable=true
+        recorded_acceptance='(unattributable)'
+        recorded_subjects='(unattributable)'
+      fi
+    fi
   fi
   if [ -n "$recorded_stamp" ] && [ "$recorded_stamp" != "$stamp" ] && [ "$previous" -gt 0 ]; then
-    if [ -z "$scope_changed" ]; then
+    local acceptance_moved=false subjects_moved=false
+    [ "$recorded_acceptance" = "$(acceptance_digest "$goal")" ] || acceptance_moved=true
+    [ "$recorded_subjects" = "$(subjects_digest)" ] || subjects_moved=true
+
+    if [ -n "$scope_changed" ]; then
+      # An explicit declaration wins whichever half moved: the operator is saying the definition
+      # of done really is different, which makes the next round a first look.
+      archive_pending=$recorded_stamp
+      printf 'REVIEW ROUND: scope changed since round %s; archiving on dispatch\n' "$previous"
+      printf 'REVIEW ROUND: scope change accepted — %s\n' "$scope_changed"
+      previous=0
+    elif [ "$acceptance_moved" = true ] && [ "$subjects_moved" = false ] && [ -n "$acceptance_reworded" ]; then
+      # Same commits, same criteria, different words. Record the new wording and keep the counter:
+      # a typo fix must not buy three more rounds, which is what a single combined digest did.
+      printf 'REVIEW ROUND: acceptance text reworded — %s\n' "$acceptance_reworded"
+      printf 'REVIEW ROUND: the commits under review are unchanged, so the counter stays at %s\n' "$previous"
+    elif [ "$acceptance_moved" = true ] && [ "$subjects_moved" = false ]; then
+      printf 'review-round: refused — the acceptance text changed since round %s, but the commits did not\n' "$previous" >&2
+      printf '%s\n' 'No scope-changing commit has been added, so this is the same code under review.' >&2
+      printf '%s\n' 'Say which it is:' >&2
+      printf '%s\n' '  --acceptance-reworded "<why>"  same criteria, different words; the counter is kept' >&2
+      printf '%s\n' '  --scope-changed "<what>"       the definition of done really changed; the budget restarts' >&2
+      exit 1
+    else
       printf 'review-round: refused — the reviewed scope changed since round %s\n' "$previous" >&2
+      if [ "$unattributable" = true ]; then
+        printf '%s\n' 'What moved: unknown — the recorded stamp predates the split into an acceptance' >&2
+        printf '%s\n' 'half and a commits half, so it can only say that something changed.' >&2
+      elif [ "$subjects_moved" = false ] && [ "$acceptance_moved" = false ]; then
+        printf '%s\n' 'What moved: neither half — the recorded stamp is not in the format this script' >&2
+        printf '%s\n' 'writes, so it cannot be compared field by field.' >&2
+      else
+        if [ "$subjects_moved" = true ]; then
+          printf '%s\n' 'What moved: the scope-changing commits below.' >&2
+        fi
+        if [ "$acceptance_moved" = true ]; then
+          printf '%s\n' 'What moved: the acceptance text, as well as the commits.' >&2
+        fi
+      fi
       printf '%s\n' 'Scope-changing commits now in this branch (fix/test/docs/chore excluded):' >&2
       scope_subjects | sed 's/^/  /' >&2
-      printf '%s\n' 'The round budget counts looks at one scope. Restate what done means for the' >&2
-      printf '%s\n' 'enlarged branch, then re-run with --scope-changed "<what changed>".' >&2
+      printf '%s\n' 'The round budget looks at one scope. Restate what done means for the enlarged' >&2
+      printf '%s\n' 'branch, then re-run with --scope-changed "<what changed>".' >&2
       printf '%s\n' 'The counter restarts at round 1; the prior rounds are archived, not deleted.' >&2
       exit 1
     fi
-    # Do NOT archive here. Everything between this point and a successful dispatch can fail —
-    # a bad base ref, mktemp, the dispatcher itself — and an archive performed early would leave
-    # the branch with no counter and no findings, so the NEXT run would dispatch as a fresh round 1
-    # with "(none — this is the first round)". That is the silent placeholder this script exists to
-    # remove, reintroduced by its own repair. Archive with the new round's state instead.
-    archive_pending=$recorded_stamp
-    printf 'REVIEW ROUND: scope changed since round %s; archiving on dispatch\n' "$previous"
-    printf 'REVIEW ROUND: scope change accepted — %s\n' "$scope_changed"
-    previous=0
   fi
 
   round=$((previous + 1))
@@ -451,7 +565,8 @@ Acceptance criteria — this is the branch's definition of done, and the boundar
 Label anything outside it OUT-OF-SCOPE rather than raising it as a blocker:
 $goal
 
-Recorded deterministic evidence:
+Recorded deterministic evidence (each record is marked against the worktree you are reviewing;
+a record marked STALE was measured on different content and is not evidence about this one):
 $evidence_section
 
 Diff against $base...HEAD:

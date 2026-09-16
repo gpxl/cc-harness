@@ -11,6 +11,7 @@ without dispatching or changing state.
 | `REVIEW_ROUND_ACCEPTANCE=...` | Supply the acceptance criteria directly, for a branch with no tracker item |
 | `--evidence-file <path>` | Carry the `VERIFY RESULT:` / `CODE QUALITY RESULT:` lines from that file into the prompt |
 | `--scope-changed "<words>"` | Declare that the branch grew, archiving the prior rounds and restarting the budget |
+| `--acceptance-reworded "<words>"` | Declare that only the wording of the acceptance text changed — same commits, same criteria; the round counter is kept |
 | `--user-approved "<words>"` | The owner's words authorising a round beyond three |
 
 State is local to the repository and independent of the project:
@@ -40,6 +41,7 @@ looking). Each is now a refusal with a named remedy.
 |---|---|
 | No acceptance criteria resolved | `bd update <id> --acceptance=...`, a `--bead` that has them, or `REVIEW_ROUND_ACCEPTANCE=...` |
 | Round `N` dispatched while round `k < N` has no findings file | `--collect <job-id> --round <k>`, or write that file by hand with each finding's disposition |
+| The acceptance text changed but no scope-changing commit was added | Decide which it was: `--acceptance-reworded "<why>"` keeps the counter (same code, same criteria, different words), `--scope-changed "<what>"` restarts the budget (the definition of done really moved). The script refuses until you say which, because a typo fix must not buy three more rounds |
 | The reviewed scope changed since the recorded round | Restate what done means for the enlarged branch, then `--scope-changed "<what changed>"` — the script requires the flag and a non-empty reason, and cannot check that the criteria really were restated |
 
 The **scope stamp** is a digest of the acceptance text plus the branch's commit subjects excluding

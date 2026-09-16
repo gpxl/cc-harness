@@ -14,7 +14,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 - Engineering retrospectives are a standing series in `docs/retrospectives/`. Its `README.md` is authoritative for cadence, section structure and the honesty rules; `TEMPLATE.md` is the skeleton, and every entry opens with follow-through on the previous one. Assemble the measured half with `bash scripts/retro-evidence.sh` before writing.
 
 [Scripts]|root: scripts/
-|review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--user-approved "<words>"] [--dry-run]`|
+|review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run]`|
 |review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate, and is what `trusted-pr-merge.sh` calls before merging a PR that changes a check or its policy; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
 |retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
 

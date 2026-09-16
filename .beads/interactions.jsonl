@@ -56,3 +56,11 @@
 {"id":"int-810b13d0","kind":"field_change","created_at":"2026-09-16T15:17:38.704953Z","actor":"Gerlando Piro","issue_id":"cch-fb5.1","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
 {"id":"int-c10076fe","kind":"field_change","created_at":"2026-09-16T15:17:39.254986Z","actor":"Gerlando Piro","issue_id":"cch-fb5.2","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
 {"id":"int-89d9beda","kind":"field_change","created_at":"2026-09-16T15:17:39.80663Z","actor":"Gerlando Piro","issue_id":"cch-fb5.3","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-13054966","kind":"field_change","created_at":"2026-09-16T15:59:37.601514Z","actor":"Gerlando Piro","issue_id":"cch-fb5.1","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-99fb6686","kind":"field_change","created_at":"2026-09-16T15:59:37.874521Z","actor":"Gerlando Piro","issue_id":"cch-fb5.2","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-5c9f1d65","kind":"field_change","created_at":"2026-09-16T15:59:38.154466Z","actor":"Gerlando Piro","issue_id":"cch-fb5.3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-5aefcbcb","kind":"field_change","created_at":"2026-09-16T15:59:38.47651Z","actor":"Gerlando Piro","issue_id":"cch-fb5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-db3d6d76","kind":"field_change","created_at":"2026-09-16T16:12:10.093939Z","actor":"Gerlando Piro","issue_id":"cch-k6d","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-e64f058a","kind":"field_change","created_at":"2026-09-16T16:12:11.087969Z","actor":"Gerlando Piro","issue_id":"cch-48i","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-407f175f","kind":"field_change","created_at":"2026-09-16T16:12:11.767584Z","actor":"Gerlando Piro","issue_id":"cch-aif","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-3088223a","kind":"field_change","created_at":"2026-09-16T16:12:12.40396Z","actor":"Gerlando Piro","issue_id":"cch-g81","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
