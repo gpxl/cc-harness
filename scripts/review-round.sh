@@ -649,19 +649,30 @@ fi
 # reviewer samples a different subset and nothing carried the gaps forward. This does.
 prior_not_traced=''
 collect_not_traced() {  # collect_not_traced <round> -> that round's not-traced line, if any
-  local prior=$1 file="$state_dir/$slug-r$1-findings.md"
+  local prior=$1 file="$state_dir/$slug-r$1-findings.md" fields
   [ -f "$file" ] || return 0
-  # grep exiting 1 is "no match", not an error, and `set -e` would take it for one — a round whose
-  # report simply listed no gaps would then abort the dispatch.
+  # A findings file that DISCUSSES the coverage format quotes it. Round 1 of this branch quoted a
+  # reviewer log inside a fence to demonstrate a parsing defect, and its invented gap was carried
+  # into round 2's prompt as a real one — a fabricated target, in the mechanism built to stop
+  # fabricated coverage claims. A fenced block is an example, not a record; the same distinction
+  # rules/public-surface-hygiene.md draws for a review acknowledgement.
+  #
+  # The presence test and the extraction read the file the SAME way on purpose: keyed differently,
+  # a file whose only map is quoted would test as mapped and then carry nothing forward, which is
+  # the reassuring "nothing was skipped" wording for a file that recorded nothing.
+  fields=$(awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    !fence && tolower($0) ~ /^[[:space:]]*not-traced[[:space:]]*=/ { sub(/^[[:space:]]*/, ""); print }
+  ' "$file" 2>/dev/null) || true
   # Any prior file WITHOUT a not-traced field is an unknown gap, however it got that way: a report
   # with no map, a partial map, or a findings file written by hand (which the refusal message above
   # invites, and which no --collect ever touched). Keying on the sentinel alone left that last path
   # reading as the reassuring "nothing was skipped" (round 1 of this branch, MINOR 3).
-  if ! grep -qi '^not-traced[[:space:]]*=' "$file" 2>/dev/null; then
+  if [ -z "$fields" ]; then
     printf 'round %s: no coverage map was recorded, so its gaps are unknown — treat the whole diff as untraced by it\n' "$prior"
     return 0
   fi
-  grep -i '^[[:space:]]*not-traced[[:space:]]*=' "$file" 2>/dev/null | sed "s/^[[:space:]]*/round $prior: /" || true
+  printf '%s\n' "$fields" | sed "s/^/round $prior: /"
 }
 
 prior_findings='(none — this is the first round)'

@@ -36,7 +36,9 @@ Each round's report ends with a coverage map (`COVERAGE:` / `traced=` / `not-tra
 `--collect` carries into the findings file. The next round's prompt lists those `not-traced=` items
 as its targets after the prior findings are re-traced; a report that carried no map is recorded as
 `COVERAGE: (none recorded)` and the next prompt says its gaps are unknown, so "nothing was skipped"
-never reads the same as "nobody said".
+never reads the same as "nobody said". A `not-traced=` line inside a fenced code block is an
+example, not a record, and is skipped: a findings file that quotes the coverage format to
+demonstrate a defect in it would otherwise hand the next round an invented target.
 
 ## What the script refuses, and why
 

@@ -340,12 +340,89 @@ write_job_log
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
 cp "$coverage_findings_fixture" "$state-r1-findings.md"
-make_mutant "s|grep -i '\^\[\[:space:\]\]\*not-traced|grep -i '^[[:space:]]*no-such-field|"
+make_mutant "s|not-traced\[\[:space:\]\]\*=|no-such-field[[:space:]]*=|"
 run
 if [ "$rc" -ne 0 ] || ! grep -Fq 'round 1: not-traced=docs/reference' "$tmp/dispatched-prompt" 2>/dev/null; then
   pass 'not-traced carry-forward source mutation goes red'
 else
   fail 'not-traced carry-forward source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# A findings file that QUOTES the coverage format inside a fence is showing an example, not
+# recording a gap. Round 1 of this branch quoted a reviewer log to demonstrate a parsing defect and
+# its invented path was carried into round 2's prompt as a real target — a fabricated gap, in the
+# mechanism built to stop fabricated coverage claims.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+{
+  printf '%s\n' 'MAJOR: the extractor drops a map with a blank line in it'
+  printf '%s\n' 'Reviewer log that reproduces it:'
+  printf '%s\n' '```'
+  printf '%s\n' 'COVERAGE:'
+  printf '%s\n' 'traced=scripts/a.sh'
+  printf '%s\n' 'not-traced=scripts/invented-example.sh — ran out of budget, never opened it'
+  printf '%s\n' '```'
+  printf '%s\n' 'VERDICT: NO-GO'
+  printf '%s\n' 'COVERAGE:'
+  printf '%s\n' 'traced=scripts/review-round.sh'
+  printf '%s\n' 'not-traced=docs/reference/review-round-scripts.md — budget'
+} > "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] &&
+  grep -Fq 'round 1: not-traced=docs/reference/review-round-scripts.md' "$tmp/dispatched-prompt" &&
+  ! grep -Fq 'round 1: not-traced=scripts/invented-example.sh' "$tmp/dispatched-prompt"; then
+  pass 'a not-traced line quoted inside a fence is not carried forward as a real gap'
+else
+  fail 'a not-traced line quoted inside a fence is not carried forward as a real gap' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# ...and a file whose ONLY map is quoted recorded nothing, so it must read as unknown gaps. If the
+# presence test and the extraction read fences differently, this file tests as mapped and then
+# carries nothing forward — the reassuring wording for a round that mapped nothing.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+{
+  printf '%s\n' 'MAJOR: hand-written r1 finding that only quotes the format'
+  printf '%s\n' '```'
+  printf '%s\n' 'not-traced=scripts/invented-example.sh — example only'
+  printf '%s\n' '```'
+  printf '%s\n' 'VERDICT: NO-GO'
+} > "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] &&
+  grep -Fq 'round 1: no coverage map was recorded' "$tmp/dispatched-prompt" &&
+  ! grep -Fq 'round 1: not-traced=scripts/invented-example.sh' "$tmp/dispatched-prompt"; then
+  pass 'a file whose only coverage map is fenced reads as unknown gaps'
+else
+  fail 'a file whose only coverage map is fenced reads as unknown gaps' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# NEGATIVE CONTROL: stop skipping fences and the quoted example comes back as a target.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+{
+  printf '%s\n' 'MAJOR: the extractor drops a map with a blank line in it'
+  printf '%s\n' '```'
+  printf '%s\n' 'not-traced=scripts/invented-example.sh — ran out of budget, never opened it'
+  printf '%s\n' '```'
+  printf '%s\n' 'VERDICT: NO-GO'
+  printf '%s\n' 'COVERAGE:'
+  printf '%s\n' 'traced=scripts/review-round.sh'
+  printf '%s\n' 'not-traced=docs/reference/review-round-scripts.md — budget'
+} > "$state-r1-findings.md"
+make_mutant "s|fence = !fence; next|next|"
+run
+if [ "$rc" -ne 0 ] || grep -Fq 'round 1: not-traced=scripts/invented-example.sh' "$tmp/dispatched-prompt" 2>/dev/null; then
+  pass 'fence-skipping source mutation goes red'
+else
+  fail 'fence-skipping source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
 fi
 runner="$tool"
 
