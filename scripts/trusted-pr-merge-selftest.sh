@@ -77,6 +77,9 @@ labels='[]'
 author_login='external-user'
 association='CONTRIBUTOR'
 path='src/ordinary.sh'
+body=''
+
+valid_ack='REVIEW ACK: rounds=2 verdict=GO open_blockers=0 classes=3'
 
 case "${TEST_SCENARIO:?}" in
   external_high_risk)
@@ -102,14 +105,37 @@ case "${TEST_SCENARIO:?}" in
     author_login=''
     association=''
     ;;
+  internal_rules_no_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    ;;
+  internal_rules_with_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n\n%s\n' 'Body text above the acknowledgement.' "$valid_ack")
+    ;;
+  internal_rules_bad_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body='REVIEW ACK: rounds=2 verdict=GO open_blockers=0'
+    ;;
+  internal_claude_md_with_ack)
+    association='OWNER'; author_login='owner-user'; path='CLAUDE.md'
+    body="$valid_ack"
+    ;;
+  internal_ordinary_no_ack)
+    association='OWNER'; author_login='owner-user'
+    ;;
+  ack_removed_after_gate)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    if [ "$count" -lt 2 ]; then body="$valid_ack"; fi
+    ;;
   *)
     printf 'unknown TEST_SCENARIO: %s\n' "$TEST_SCENARIO" >&2
     exit 92
     ;;
 esac
 
-printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
-  "$head" "$author_login" "$association" "$labels" "$path"
+body_json=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","body":%s,"author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
+  "$head" "$body_json" "$author_login" "$association" "$labels" "$path"
 EOF
 chmod +x "$tmpdir/bin/gh"
 
@@ -202,6 +228,46 @@ run_wrapper unknown_author
 assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=unknown-author-metadata' || true
 assert_file_absent "$tmpdir/gate-ran" || true
+
+
+# --- the review acknowledgement (cch-fb5.3) -----------------------------------------------------
+# A pull request that changes a check, or the policy behind it, must carry a machine-readable
+# acknowledgement that the bounded review ran. The hold lands BEFORE the candidate gate executes,
+# so an unreviewed policy change never gets to run its own code.
+run_wrapper internal_rules_no_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_contains "$run_stderr" 'REVIEW ACK: rounds=' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+assert_file_absent "$tmpdir/merge-called" || true
+
+run_wrapper internal_rules_bad_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+run_wrapper internal_rules_with_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: DRY_RUN verified-head=head-sha-1' || true
+assert_file_present "$tmpdir/gate-ran" || true
+
+run_wrapper internal_claude_md_with_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+
+# A pull request that touches no review-triggering surface is untouched by the requirement.
+run_wrapper internal_ordinary_no_ack
+assert_eq 0 "$run_status" || true
+assert_not_contains "$run_stdout" 'review acknowledgement accepted' || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: DRY_RUN verified-head=head-sha-1' || true
+
+# The acknowledgement is revalidated after the gate: a body edited mid-run must not buy a merge.
+run_wrapper ack_removed_after_gate --merge
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_file_present "$tmpdir/gate-ran" || true
+assert_file_absent "$tmpdir/merge-called" || true
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'TRUSTED PR MERGE SELFTEST: PASS'

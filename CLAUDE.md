@@ -15,7 +15,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 
 [Scripts]|root: scripts/
 |review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--user-approved "<words>"] [--dry-run]`|
-|review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
+|review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate, and is what `trusted-pr-merge.sh` calls before merging a PR that changes a check or its policy; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
 |retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
 
 ## Agent Config
@@ -61,6 +61,7 @@ Every agent-authored PR carries **EXACTLY ONE** merge label, chosen by the commi
 - `agent/auto` is the default for harness work: rules, hooks, scripts, docs, agents, and templates. `agent/auto` and `agent/review` are both merged by an agent via `gh pr merge <PR> --squash --delete-branch`; **never use `--auto`**.
 - `human/hold` is required for changes to `.github/`, branch protection or repo settings, anything touching credentials, and `install.sh` or `uninstall.sh` changes that alter what is linked into `~/.claude`, because they mutate the user's live environment on next install.
 - Use `agent/review` for anything in between that warrants a glance but no human gate.
+- **A PR that changes a check, or the policy behind it, merges only with a review acknowledgement.** `scripts/trusted-pr-merge.sh` holds any PR touching `rules/`, `agents/`, `CLAUDE.md`, `.github/`, or a merge-gate or policy path unless its body carries a line of the form `REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>` that `scripts/review-ack-check.sh` accepts. It is validated with the trusted harness copy of the checker, never one from the branch under review, and re-checked after the candidate gate so a body edited mid-run buys nothing. Before this existed the merge rested on the orchestrator's own report of its own review.
 - Treat an unlabelled PR as `human/hold` in the legacy monitor. The trusted host wrapper may classify an ordinary unlabelled PR as `agent/auto`, but only after it has held unknown authors and external high-risk paths, run the candidate gate, revalidated the metadata, and bound the merge to the verified head SHA.
 
 If a label is missing from the repo, recreate it:
@@ -80,6 +81,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/retro-evidence-selftest.sh`
 - `scripts/review-round-selftest.sh`
 - `scripts/review-ack-check-selftest.sh`
+- `scripts/rules-index-selftest.sh`
 - `scripts/install-symmetry-selftest.sh`
 - `scripts/codex-routing-selftest.sh`
 - `scripts/codex-wait-selftest.sh`
