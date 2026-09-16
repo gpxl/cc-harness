@@ -345,6 +345,19 @@ scripts/name-hygiene.sh --quiet --range "$INTEGRATION_REF..HEAD" # if shipped; e
 A hit is `COMMIT RESULT: FAIL`. Substitute the pseudonym and amend — never add the name to an
 allowlist to get past the check.
 
+Scan the pull-request **title and body you are about to write** as well. Neither is a tracked file
+nor a commit message, so the range scan above cannot see them, and on a multi-commit PR the title
+becomes the squash headline on the integration branch:
+
+```bash
+printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" > "$TMPDIR/pr-text.txt"
+scripts/name-hygiene.sh --quiet --text-file "$TMPDIR/pr-text.txt" --label 'pull-request title and body'
+```
+
+A hit is `COMMIT RESULT: FAIL` — rewrite the title or body before `gh pr create`. On the paths that
+merge through `scripts/trusted-pr-merge.sh` the wrapper checks this again at merge time; on the
+plain `gh pr merge` path this is the only check.
+
 Run `scripts/name-hygiene.sh --quiet` only as a separate, deliberate full-history audit; outgoing
 commits cannot remediate historical hits.
 

@@ -61,8 +61,20 @@ set -euo pipefail
 printf '%s\n' "$@" >> "$TEST_TMP/gh-argv"
 arguments=" $* "
 if [[ "$arguments" == */pulls/*/files* ]]; then
-  # The REST files endpoint, already reduced by the wrapper's --jq to a list of previous paths.
-  printf '%s\n' "${TEST_PREVIOUS_PATHS:-[]}"
+  # The REST files endpoint, answered from RECORDED payload pages. The wrapper's own --jq filter is
+  # applied here, once per page, exactly as `gh --paginate --jq` does — so the filter expression and
+  # the page slurp on the wrapper's side are under test, not stubbed out.
+  [ "${TEST_REST_FAIL:-0}" = 1 ] && exit 1
+  filter=''
+  previous_arg=''
+  for argument in "$@"; do
+    [ "$previous_arg" = --jq ] && filter=$argument
+    previous_arg=$argument
+  done
+  [ -n "$filter" ] || { printf 'gh stub: no --jq filter given\n' >&2; exit 91; }
+  for page in ${TEST_REST_PAGES:-}; do
+    jq -c "$filter" "$page" || exit 90
+  done
   exit 0
 fi
 if [[ "$arguments" == *mergePullRequest* ]]; then
@@ -228,7 +240,7 @@ run_wrapper() {
   if [ "$scenario" = stale_checkout ]; then local_head='local-stale-sha'; fi
   set +e
   TEST_TMP="$tmpdir" TEST_SCENARIO="$scenario" TEST_LOCAL_HEAD="$local_head" \
-    TEST_PREVIOUS_PATHS="${TEST_PREVIOUS_PATHS:-[]}" PATH="$tmpdir/bin:$PATH" \
+    TEST_REST_PAGES="${TEST_REST_PAGES:-}" TEST_REST_FAIL="${TEST_REST_FAIL:-0}" PATH="$tmpdir/bin:$PATH" \
     bash "${WRAPPER_UNDER_TEST:-$wrapper}" --repo octo/example --pr 42 --checkout "$tmpdir/candidate" --gate gate "$@" \
     > "$tmpdir/stdout" 2> "$tmpdir/stderr"
   run_status=$?
@@ -400,24 +412,44 @@ assert_file_absent "$tmpdir/gate-ran" || true
 # --- cch-nq9: a rename OUT of a covered directory is high risk, and GraphQL cannot see it -------
 # GraphQL's PullRequestChangedFile exposes the new path only (schema introspection 2026-09-16:
 # additions, changeType, deletions, path, viewerViewedState), so the wrapper resolves the old side
-# from REST. A check deleted by moving it to docs/ must still demand a review acknowledgement.
-TEST_PREVIOUS_PATHS='["scripts/some-check.sh"]' run_wrapper rename_out_of_scripts
+# from REST. The rows below answer that REST call from recorded payloads and let the wrapper's own
+# --jq filter run over them. A check deleted by moving it to docs/ must still demand an ack.
+rest_pages="$script_dir/testdata/pr-files-rename-page1.json $script_dir/testdata/pr-files-rename-page2.json"
+
+TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" run_wrapper rename_out_of_scripts
 assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
-unset TEST_PREVIOUS_PATHS
+unset TEST_REST_PAGES
+
+# Two pages: the wrapper slurps every page, so a rename on the SECOND one is classified too.
+TEST_REST_PAGES="$rest_pages" run_wrapper rename_out_of_scripts
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+unset TEST_REST_PAGES
 
 # A rename whose old side is ordinary stays ordinary: the previous path is classified, not assumed.
-TEST_PREVIOUS_PATHS='["src/old-name.txt"]' run_wrapper rename_within_ordinary
+TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-ordinary.json" run_wrapper rename_within_ordinary
 assert_eq 0 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
-unset TEST_PREVIOUS_PATHS
+unset TEST_REST_PAGES
 
 # Fail closed: a rename whose previous path GitHub does not report cannot be classified as safe.
-TEST_PREVIOUS_PATHS='[]' run_wrapper rename_out_of_scripts
+TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-nopath.json" run_wrapper rename_out_of_scripts
 assert_eq 2 "$run_status" || true
 assert_contains "$run_stderr" 'previous path could not be resolved' || true
 assert_file_absent "$tmpdir/gate-ran" || true
-unset TEST_PREVIOUS_PATHS
+unset TEST_REST_PAGES
+
+# Fail closed again: a REST call that errors is not "no renames".
+TEST_REST_FAIL=1 TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" run_wrapper rename_out_of_scripts
+assert_eq 2 "$run_status" || true
+assert_contains "$run_stderr" 'could not fetch previous paths' || true
+unset TEST_REST_FAIL TEST_REST_PAGES
+
+# A pull request with no rename never calls REST at all.
+run_wrapper internal_ordinary_no_ack
+assert_eq 0 "$run_status" || true
+assert_not_contains "$(<"$tmpdir/gh-argv")" '/files' || true
 
 # Negative control: without the previous-path lookup the same rename merges as an ordinary PR.
 mutant_dir="$tmpdir/mutant-scripts"
@@ -429,11 +461,25 @@ perl -0pi -e 's/if \[ "\$renames" -gt 0 \]; then/if false; then/' "$mutant_dir/t
 if cmp -s "$mutant_dir/trusted-pr-merge.sh" "$wrapper"; then
   fail 'rename lookup mutation did not apply'
 else
-  TEST_PREVIOUS_PATHS='["scripts/some-check.sh"]' WRAPPER_UNDER_TEST="$mutant_dir/trusted-pr-merge.sh" \
-    run_wrapper rename_out_of_scripts
+  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" \
+    WRAPPER_UNDER_TEST="$mutant_dir/trusted-pr-merge.sh" run_wrapper rename_out_of_scripts
   assert_eq 0 "$run_status" || true
   assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
-  unset TEST_PREVIOUS_PATHS WRAPPER_UNDER_TEST
+  unset TEST_REST_PAGES WRAPPER_UNDER_TEST
+fi
+
+# Negative control on the FILTER itself: the recorded payload names the field, so a wrong field
+# name in the wrapper's --jq must red rather than silently yield no previous paths.
+cp "$wrapper" "$mutant_dir/filter-mutant.sh"
+perl -0pi -e 's/\.previous_filename/.not_a_real_field/g' "$mutant_dir/filter-mutant.sh"
+if cmp -s "$mutant_dir/filter-mutant.sh" "$wrapper"; then
+  fail 'previous-path filter mutation did not apply'
+else
+  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" \
+    WRAPPER_UNDER_TEST="$mutant_dir/filter-mutant.sh" run_wrapper rename_out_of_scripts
+  assert_eq 2 "$run_status" || true
+  assert_contains "$run_stderr" 'previous path could not be resolved' || true
+  unset TEST_REST_PAGES WRAPPER_UNDER_TEST
 fi
 
 # --- cch-31f: a denied name in the title or body is held before the squash publishes it ---------
@@ -447,7 +493,7 @@ printf '%s  # ClearName\n' "$(printf 'zzdeniedname' | shasum -a 256 | awk '{prin
   > "$trusted_dir/testdata/name-hashes.txt"
 
 for scenario in denied_name_in_title denied_name_in_body; do
-  WRAPPER_UNDER_TEST="$trusted_dir/trusted-pr-merge.sh" run_wrapper "$scenario"
+  WRAPPER_UNDER_TEST="$trusted_dir/trusted-pr-merge.sh" run_wrapper "$scenario" --merge
   assert_eq 20 "$run_status" || true
   assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=denied-name-in-title-or-body' || true
   assert_contains "$run_stderr" "denied token 'zzdeniedname'" || true

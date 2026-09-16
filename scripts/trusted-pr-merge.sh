@@ -192,7 +192,10 @@ load_pr() {
     if ! jq -e 'all(.data.repository.pullRequest.files.nodes[]?.path; type == "string")' >/dev/null <<<"$response"; then
       die 'GitHub returned a changed path with invalid metadata'
     fi
-    page_renames=$(jq -r '[.data.repository.pullRequest.files.nodes[]? | select(.changeType == "RENAMED" or .changeType == "COPIED")] | length' <<<"$response") \
+    # RENAMED only. A COPIED file leaves its original in place, so nothing moved out of a covered
+    # directory and there is no old side to classify; counting it here would hard-fail an ordinary
+    # pull request whenever REST reports no previous_filename for the copy.
+    page_renames=$(jq -r '[.data.repository.pullRequest.files.nodes[]? | select(.changeType == "RENAMED")] | length' <<<"$response") \
       || die 'could not read changed-file change types'
     case "$page_renames" in
       ''|*[!0-9]*) die 'GitHub returned an invalid change-type count' ;;
@@ -294,11 +297,14 @@ review_ack_ok() {  # review_ack_ok <pr-json>
   bash "$script_dir/review-ack-check.sh" "$ack" >/dev/null 2>&1
 }
 
-# A squash merge writes the pull-request title verbatim into the integration branch's commit
-# message, and publishes the body on the merge commit. Neither is a tracked file nor a commit
-# message until that moment, so scripts/name-hygiene.sh in the gate has never seen them: a denied
-# name in a title reaches the integration branch and then costs a history rewrite to remove.
-# Checked here, with the TRUSTED scanner and the trusted denylist, at both decision points.
+# What a squash merge publishes, measured on this repository (`gh api repos/gpxl/cc-harness`):
+# squash_merge_commit_title=COMMIT_OR_PR_TITLE, squash_merge_commit_message=COMMIT_MESSAGES. So a
+# MULTI-commit pull request's headline on the integration branch is the pull-request TITLE, which
+# is in no tracked file and no commit message and which the gate's name-hygiene scan therefore has
+# never seen; a single-commit one uses that commit's subject, which the gate does scan. The body
+# stays on the pull-request page either way, which is public too. This check over-scans rather than
+# under-scans on purpose: it runs on both, with the TRUSTED scanner and the trusted denylist, at
+# both decision points, so a title edited during the candidate gate buys nothing.
 enforce_name_hygiene() {  # enforce_name_hygiene <pr-json>
   local text_file out rc
   text_file=$(mktemp "${TMPDIR:-/tmp}/trusted-pr-merge-text.XXXXXX") || die 'could not create a scratch file'

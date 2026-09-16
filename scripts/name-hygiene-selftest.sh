@@ -294,7 +294,9 @@ expect_rc 'a missing text input is exit 2, not a pass' 2 \
 expect_rc 'a text input is scanned outside any repository' 0 \
   bash "$tool" --text-file "$text_dir/clean.txt" --root "$workdir" --denylist "$shipped_denylist"
 
-text_mutant="$root/scripts/.nh-text-mutant.sh"
+# Under $workdir, which the EXIT trap removes: a mutant written into the real checkout survives a
+# signal, and the next `git add -A` would stage it.
+text_mutant="$workdir/nh-text-mutant.sh"
 sed 's/^if text_file:$/if False:/' "$tool" > "$text_mutant"
 if cmp -s "$text_mutant" "$tool"; then
   fail 'text-input source mutation goes red' 'the mutation did not apply'

@@ -1,0 +1,10 @@
+[
+  {
+    "sha": "0000000000000000000000000000000000000004",
+    "filename": "docs/reference/moved-helper.sh",
+    "status": "renamed",
+    "additions": 2,
+    "deletions": 1,
+    "changes": 3
+  }
+]

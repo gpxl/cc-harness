@@ -50,10 +50,14 @@ than implying it, and `agents/commit.md` Step 8 is the primary check on a messag
 write. This is the backstop.
 
 A pull-request **title** is the surface neither half covers: it is in no file and in no commit
-message, and a squash merge writes it verbatim onto the integration branch. `scripts/name-hygiene.sh
---text-file <path>` scans one arbitrary text input with the same tokenizer and the same hashes, and
-`scripts/trusted-pr-merge.sh` runs it over the title and body before merging — at both decision
-points, so a title edited during the candidate gate buys nothing. Its denylist (`scripts/testdata/name-hashes.txt`) holds
+message. With this repository's squash settings (measured: `squash_merge_commit_title=
+COMMIT_OR_PR_TITLE`), a **multi-commit** pull request's headline on the integration branch *is* that
+title; a single-commit one uses the commit subject, which the gate already scans. The body stays on
+the pull-request page, which is public regardless. `scripts/name-hygiene.sh --text-file <path>` scans
+one arbitrary text input with the same tokenizer and the same hashes. `scripts/trusted-pr-merge.sh`
+runs it over the title and body at both decision points, so a title edited during the candidate gate
+buys nothing, and `agents/commit.md` Step 8 scans the title it is about to write — which is the only
+check on the plain `gh pr merge` path, where no wrapper runs. Its denylist (`scripts/testdata/name-hashes.txt`) holds
 SHA-256 hashes only — no plaintext — so it is safe to publish and works on any clone.
 
 **Those hashes are obfuscation, not secrecy.** Unsalted SHA-256 of a short name falls to a

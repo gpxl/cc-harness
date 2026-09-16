@@ -1,0 +1,19 @@
+[
+  {
+    "sha": "0000000000000000000000000000000000000001",
+    "filename": "docs/reference/moved-helper.sh",
+    "status": "renamed",
+    "additions": 2,
+    "deletions": 1,
+    "changes": 3,
+    "previous_filename": "scripts/some-check.sh"
+  },
+  {
+    "sha": "0000000000000000000000000000000000000002",
+    "filename": "docs/reference/notes.md",
+    "status": "modified",
+    "additions": 4,
+    "deletions": 0,
+    "changes": 4
+  }
+]
