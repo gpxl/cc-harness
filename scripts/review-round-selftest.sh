@@ -561,7 +561,6 @@ chmod +x "$tmp/bin/codex-dispatch.sh"
 
 # MAJOR: an unresolvable base must be named, not reported as an empty scope.
 reset_state
-run no-such-ref-xyz 2>/dev/null || true
 set +e
 (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_ACCEPTANCE='AC' bash "$tool" no-such-ref-xyz) > "$tmp/out" 2> "$tmp/err"
 rc=$?
@@ -573,7 +572,9 @@ else
 fi
 
 reset_state
-make_mutant 's/^git rev-parse --verify --quiet "$base^{commit}" >\/dev\/null || {/if false; then/'
+# `:` keeps the mutant parseable — a mutant that is a syntax error proves nothing, because the
+# absent message would then be absent for any file-breaking edit at all.
+make_mutant 's/^git rev-parse --verify --quiet "$base^{commit}" >\/dev\/null || {/: || {/'
 set +e
 (cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_ACCEPTANCE='AC' bash "$runner" no-such-ref-xyz) > "$tmp/out" 2> "$tmp/err"
 rc=$?
@@ -625,23 +626,62 @@ fi
 rm -f "$tmp/bin/bd"
 
 # MINOR: returning to a previously reviewed scope must not overwrite that scope's archive.
-reset_state
-run
-printf 'scope-b\n' > "$repo/file.txt"
-git -C "$repo" commit -am 'feat(core): scope B' -q
-seed_prior_findings 1
-run --scope-changed 'to B'
-git -C "$repo" revert --no-edit HEAD -q 2>/dev/null || git -C "$repo" revert --no-edit HEAD
-seed_prior_findings 1
-run --scope-changed 'back to A'
-printf 'scope-b-again\n' > "$repo/file.txt"
-git -C "$repo" commit -am 'feat(core): scope B again' -q
-seed_prior_findings 1
-run --scope-changed 'to B again'
-if [ "$(ls -d "$state".scope-* 2>/dev/null | wc -l | tr -d ' ')" = 3 ]; then
+# The scope must genuinely REPEAT for this to test anything. Reverting a commit adds a subject and
+# produces a third distinct stamp, so the acceptance text is toggled instead: A, B, A, B archives
+# stamp A twice and the second one must land beside the first.
+repeat_scopes() {  # repeat_scopes -> archive directory count
+  reset_state
+  RR_ACCEPTANCE='AC-ONE' run
+  printf '%s\n' 'first A findings' > "$state-r1-findings.md"
+  RR_ACCEPTANCE='AC-TWO' run --scope-changed 'to B'
+  printf '%s\n' 'first B findings' > "$state-r1-findings.md"
+  RR_ACCEPTANCE='AC-ONE' run --scope-changed 'back to A'
+  printf '%s\n' 'second A findings' > "$state-r1-findings.md"
+  RR_ACCEPTANCE='AC-TWO' run --scope-changed 'to B again'
+}
+
+repeat_scopes
+archives=$(ls -d "$state".scope-* 2>/dev/null || true)
+archive_count=$(printf '%s\n' "$archives" | grep -c . || true)
+first_a=$(cat "$state".scope-*/"$(basename "$state")"-r1-findings.md 2>/dev/null | grep -c 'first A findings' || true)
+second_a=$(cat "$state".scope-*/"$(basename "$state")"-r1-findings.md 2>/dev/null | grep -c 'second A findings' || true)
+if [ "$archive_count" = 3 ] && [ "$first_a" = 1 ] && [ "$second_a" = 1 ]; then
   pass 'a repeated scope archives beside its predecessor instead of overwriting it'
 else
-  fail 'a repeated scope archives beside its predecessor instead of overwriting it' "archives=$(ls -d "$state".scope-* 2>/dev/null || true)"
+  fail 'a repeated scope archives beside its predecessor instead of overwriting it' "count=$archive_count firstA=$first_a secondA=$second_a archives=$archives"
+fi
+
+make_mutant 's/^  while \[ -e "$archive" \]; do$/  while false; do/'
+repeat_scopes
+runner="$tool"
+archive_count=$(ls -d "$state".scope-* 2>/dev/null | grep -c . || true)
+first_a=$(cat "$state".scope-*/"$(basename "$state")"-r1-findings.md 2>/dev/null | grep -c 'first A findings' || true)
+if [ "$archive_count" != 3 ] || [ "$first_a" != 1 ]; then
+  pass 'archive-collision source mutation goes red'
+else
+  fail 'archive-collision source mutation goes red' "the mutant kept three archives and both A findings"
+fi
+
+# MINOR: --dry-run must report the counter on disk, not the value an accepted scope change zeroed.
+reset_state
+run
+printf 'dry\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): dry-run scope' -q
+seed_prior_findings 1
+run --scope-changed 'grew' --dry-run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 1 ] && grep -Fq 'Counter on disk: 1' "$tmp/out"; then
+  pass 'a dry run after a scope change reports the counter that is actually on disk'
+else
+  fail 'a dry run after a scope change reports the counter that is actually on disk' "rc=$rc counter=$(<"$state" 2>/dev/null || true) out=$(<"$tmp/out" 2>/dev/null || true)"
+fi
+
+make_mutant 's/    "$(read_round)" "$round"/    "$previous" "$round"/'
+run --scope-changed 'grew' --dry-run
+runner="$tool"
+if ! grep -Fq 'Counter on disk: 1' "$tmp/out"; then
+  pass 'dry-run counter source mutation goes red'
+else
+  fail 'dry-run counter source mutation goes red' "out=$(<"$tmp/out" 2>/dev/null || true)"
 fi
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi

@@ -413,7 +413,11 @@ if [ "$dry_run" = false ]; then
   prepare_round
 else
   prepare_round
-  printf 'REVIEW ROUND: dry run; counter remains %s\n' "$previous"
+  # `previous` is zeroed by an accepted scope change, so it is what the counter WOULD become, not
+  # what is on disk. An inspector whose only job is to report state without changing it must not
+  # state the state wrongly.
+  printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; next round would be %s\n' \
+    "$(read_round)" "$round"
   exit 0
 fi
 
