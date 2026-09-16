@@ -26,11 +26,16 @@ workdir=$(mktemp -d "${TMPDIR:-/tmp}/rules-index-selftest.XXXXXX") || exit 1
 # The index lives in a fenced block that also holds [Scripts], [Hooks] and the rest, so the read is
 # scoped to the [Rules] section: it starts at the [Rules] marker and stops at the next [Section].
 index_entries() {  # index_entries <claude-md> -> sorted rule filenames named in the index
-  sed -n '/^\[Rules\]/,/^\[[A-Z]/p' "$1" | sed -nE 's/^\|([A-Za-z0-9._-]+\.md):.*/\1/p' | sort -u
+  # Terminate on ANY following section, not only an uppercase-initial one: a terminator that does
+  # not fire reads a later section's lines as [Rules] entries and reports an unindexed rule as
+  # indexed, which is the silent pass this check exists to prevent.
+  sed -n '/^\[Rules\]/,/^\[[^]]/p' "$1" | sed -nE 's/^\|([A-Za-z0-9._-]+\.md):.*/\1/p' | sort -u
 }
 
-rule_files() {  # rule_files <rules-dir> -> sorted rule filenames present on disk
-  find "$1" -maxdepth 1 -name '*.md' -exec basename {} \; 2>/dev/null | sort -u
+rule_files() {  # rule_files <rules-dir> -> sorted rule paths on disk, relative to the directory
+  # No depth limit: a rule filed in a subdirectory is still a rule, and hiding it from both
+  # directions of this check would make it indexable and unindexed at the same time.
+  ( cd -- "$1" 2>/dev/null && find . -name '*.md' -type f | sed 's|^\./||' | sort -u )
 }
 
 # Prints every discrepancy, one per line, and returns 1 when there is at least one.
@@ -48,7 +53,8 @@ check_index() {  # check_index <rules-dir> <claude-md>
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     printf '%s\n' "$entries" | grep -Fqx "$name" || {
-      printf 'rules/%s has no entry in the [Rules] index — a rule that is not indexed is a file nothing loads\n' "$name"
+      printf 'rules/%s has no entry in the [Rules] index of %s — a rule that is not indexed is a file nothing loads.\n' "$name" "$claude_md"
+      printf '  Add a line of exactly this shape under [Rules]: |%s: <one line about it>\n' "$name"
       problems=$((problems + 1))
     }
   done <<EOF
@@ -113,6 +119,28 @@ expect 'an empty index is refused, not read as agreement' 1 'index is empty or u
 bleed="$workdir/bleed"; make_fixture "$bleed" alpha.md beta.md
 printf '%s\n' '|stray-rule.md: this line sits under [Scripts], not [Rules]' >> "$bleed/global/CLAUDE.md"
 expect 'an entry outside the [Rules] section is not counted' 0 '' "$bleed/rules" "$bleed/global/CLAUDE.md"
+
+# A section header that does not start with a capital must still end the [Rules] range.
+lower="$workdir/lower"; make_fixture "$lower" alpha.md beta.md
+python3 - "$lower/global/CLAUDE.md" <<'PYEOF'
+import sys
+p = sys.argv[1]
+text = open(p).read().replace('[Scripts]|root: scripts/', '[scripts]|root: scripts/\n|stray.md: lives under a lowercase section, not under [Rules]')
+open(p, 'w').write(text)
+PYEOF
+expect 'a lowercase section header still ends the [Rules] range' 0 '' "$lower/rules" "$lower/global/CLAUDE.md"
+# Asserted directly as well: with the old `^\[[A-Z]` terminator the range ran past the lowercase
+# header and stray.md was read as a [Rules] entry, which is how an unindexed rule reads as indexed.
+if index_entries "$lower/global/CLAUDE.md" | grep -Fqx 'stray.md'; then
+  fail 'an entry under a lowercase section is not read as a rule entry' 'stray.md was counted'
+else
+  pass 'an entry under a lowercase section is not read as a rule entry'
+fi
+
+# A rule filed in a subdirectory is visible to both directions.
+nested="$workdir/nested"; make_fixture "$nested" alpha.md beta.md
+mkdir -p "$nested/rules/sub"; printf 'rule\n' > "$nested/rules/sub/gamma.md"
+expect 'a rule in a subdirectory is not invisible' 1 'sub/gamma.md has no entry' "$nested/rules" "$nested/global/CLAUDE.md"
 
 expect 'a missing rules directory is refused' 1 'rules directory not found' "$workdir/absent" "$ok/global/CLAUDE.md"
 expect 'a missing index file is refused' 1 'index file not found' "$ok/rules" "$workdir/absent/CLAUDE.md"
