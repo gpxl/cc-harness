@@ -8,7 +8,11 @@ checker="$root/scripts/codex-routing-check.sh"
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-codex-routing.XXXXXX") || exit 1
 failures=0
 completed=0
-trap 'st=$?; rm -rf "$tmp_root"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
+routing_mutant=''
+# The mutant below is written beside the real script so it can be reached through the install
+# symlink; the trap removes it on every exit path, since an untracked file left in scripts/ would
+# change the tree= stamp the pipeline contract records.
+trap 'st=$?; rm -rf "$tmp_root"; [ -z "$routing_mutant" ] || rm -f "$routing_mutant"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
 
 fail() { printf '%s\n' "$*" >&2; return 1; }
 record() { "$@" || failures=$((failures + 1)); return 0; }
@@ -214,6 +218,59 @@ same_second_backups_preserve_each_payload() {
   cmp -s <(printf '%s\n' 'unrelated backup') "$codex/AGENTS.md.backup.20250101000000"
 }
 
+installed_entrypoint_resolves_the_repository() {
+  # Installed, both scripts are reached through ~/.claude/scripts -> <repo>/scripts. A logical
+  # `cd .../scripts/..` lands in ~/.claude, where none of the repository-relative paths exist, and
+  # the check then reports fabricated drift (cch-u9w). Everything here is fixture-local: its own
+  # HOME, its own codex dir, installed from this checkout, so the row says nothing about the
+  # developer's live environment and passes in a worktree or a fresh clone.
+  local home="$tmp_root/installed-home"
+  local claude="$home/.claude"
+  local codex="$home/.codex"
+  local link_dir="$claude/scripts"
+  local out rc mutant mutant_out
+  mkdir -p "$claude" "$codex/agents" || return 1
+  HOME="$home" CC_HARNESS_CLAUDE_DIR="$claude" CC_HARNESS_CODEX_DIR="$codex" \
+    bash "$root/install.sh" >"$tmp_root/installed-entry-install.out" 2>&1 || return 1
+  [ -L "$link_dir" ] || ln -sfn "$root/scripts" "$link_dir" || return 1
+
+  out=$(HOME="$home" bash "$link_dir/codex-routing-check.sh" --codex-dir "$codex" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "installed entrypoint: codex-routing-check exited $rc: $out" || return 1
+  case "$out" in
+    *"$root/codex/agents"*) ;;
+    *) fail "installed entrypoint: check resolved the wrong root: $out"; return 1 ;;
+  esac
+  case "$out" in
+    *"$claude/codex"*) fail "installed entrypoint: check still reads through the symlink parent: $out"; return 1 ;;
+  esac
+
+  out=$(HOME="$home" bash "$link_dir/sync-codex-agents.sh" --check 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "installed entrypoint: sync --check exited $rc: $out" || return 1
+
+  # NEGATIVE CONTROL: with the logical resolution restored, the same invocation must name the
+  # symlink's logical parent instead. The mutant has to be reached THROUGH the symlink for the
+  # difference to exist, so it lives beside the real script and the EXIT trap removes it too.
+  mutant="$root/scripts/.codex-routing-check-mutant.sh"
+  routing_mutant="$mutant"
+  sed 's|pwd -P)$|pwd)|' "$root/scripts/codex-routing-check.sh" > "$mutant" || return 1
+  if cmp -s "$mutant" "$root/scripts/codex-routing-check.sh"; then
+    rm -f "$mutant"; routing_mutant=''; fail 'installed entrypoint: mutation did not apply'; return 1
+  fi
+  mutant_out=$(HOME="$home" bash "$link_dir/.codex-routing-check-mutant.sh" --codex-dir "$codex" 2>&1) || true
+  rm -f "$mutant"; routing_mutant=''
+  # With the logical resolution the root becomes the symlink's parent, which holds none of the role
+  # sources, so every installed link is compared against a path that does not exist and the check
+  # reports drift and collisions that are not there — the fabricated drift cch-u9w is about.
+  case "$mutant_out" in
+    *"link drift"*|*"collision"*|*"missing managed role source"*) ;;
+    *) fail "installed entrypoint: mutation did not restore the wrong root: $mutant_out"; return 1 ;;
+  esac
+  case "$out" in
+    *"link drift"*|*"collision"*) fail "installed entrypoint: the fixed check still reports drift: $out"; return 1 ;;
+  esac
+  return 0
+}
+
 record roles_follow_routing_table
 record stale_generated_output_is_rejected
 record missing_role_template_is_rejected
@@ -224,6 +281,32 @@ record project_shadow_and_link_drift_are_reported
 record semantic_toml_collisions_and_defaults_are_rejected
 record nonempty_instruction_overrides_are_reported
 record same_second_backups_preserve_each_payload
+symlinked_repository_path_is_not_drift() {
+  # install.sh writes a LOGICAL source path into every link it creates, while the check resolves
+  # its own root physically. Installed from a symlinked view of this checkout the two spellings
+  # differ for the same file, and a string comparison calls that drift (cch-u9w round 1).
+  local home="$tmp_root/symlinked-home" repo_link="$tmp_root/repo-link"
+  local claude="$home/.claude" codex="$home/.codex"
+  local out rc
+  mkdir -p "$claude" "$codex/agents" || return 1
+  ln -sfn "$root" "$repo_link" || return 1
+  HOME="$home" CC_HARNESS_CLAUDE_DIR="$claude" CC_HARNESS_CODEX_DIR="$codex" \
+    bash "$repo_link/install.sh" >"$tmp_root/symlinked-install.out" 2>&1 || return 1
+  # The link really is spelled through the symlink — otherwise this row proves nothing.
+  case "$(readlink "$codex/AGENTS.md")" in
+    */repo-link/global/CLAUDE.md) ;;
+    *) fail "symlinked repo: install did not record the symlinked path: $(readlink "$codex/AGENTS.md")"; return 1 ;;
+  esac
+  out=$(HOME="$home" bash "$root/scripts/codex-routing-check.sh" --codex-dir "$codex" 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || { fail "symlinked repo: check exited $rc: $out"; return 1; }
+  case "$out" in
+    *"link drift"*|*"collision"*) fail "symlinked repo: check reported fabricated drift: $out"; return 1 ;;
+  esac
+  return 0
+}
+
+record installed_entrypoint_resolves_the_repository
+record symlinked_repository_path_is_not_drift
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX ROUTING SELFTEST: PASS'
