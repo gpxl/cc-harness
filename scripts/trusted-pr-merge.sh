@@ -3,6 +3,11 @@
 # This script intentionally lives in the trusted harness, not in a candidate checkout.
 set -euo pipefail
 
+# Resolved from this script's own location: every helper below must come from the TRUSTED
+# harness, never from the candidate checkout, whose contents are the thing under review.
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+readonly script_dir
+
 readonly HOLD_EXIT=20
 readonly HEAD_CHANGED_EXIT=21
 readonly CHECKOUT_HEAD_MISMATCH_EXIT=22
@@ -92,6 +97,18 @@ esac
 [ -n "$gate" ] || die '--gate is required'
 [ -d "$checkout" ] || die "candidate checkout is not a directory: $checkout"
 checkout=$(cd -- "$checkout" && pwd -P) || die "could not resolve candidate checkout: $checkout"
+# The whole point of this wrapper is that it is not the code it is judging. Running it from inside
+# the candidate would take both it and review-ack-check.sh from the branch under review, which
+# could ship a permissive copy of the validator that decides whether it may merge.
+case "$script_dir/" in
+  "$checkout"/*) die "this wrapper lives inside the candidate checkout ($checkout); run the trusted copy instead" ;;
+esac
+
+# Containment is not enough on its own: ~/.claude/scripts is commonly a symlink into a working
+# checkout of this very repository, so the wrapper and the acknowledgement checker can both come
+# from the branch under review while sitting outside the directory passed as --checkout. Refuse
+# when this script's own worktree is parked on the commit being judged.
+script_head=$(git -C "$script_dir" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true)
 case "$gate" in
   /*|..|../*|*/../*|*/..) die '--gate must be a candidate-relative path without ..' ;;
 esac
@@ -108,6 +125,7 @@ metadata_query='query($owner: String!, $repository: String!, $number: Int!, $aft
     pullRequest(number: $number) {
       id
       headRefOid
+      body
       author { login }
       authorAssociation
       labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
@@ -153,6 +171,7 @@ load_pr() {
       (.data.repository.pullRequest != null) and
       (.data.repository.pullRequest.id | type == "string") and
       (.data.repository.pullRequest.headRefOid | type == "string") and
+      ((.data.repository.pullRequest.body // "") | type == "string") and
       (.data.repository.pullRequest.files.pageInfo.hasNextPage | type == "boolean")
     ' >/dev/null <<<"$response"; then
       die 'GitHub returned incomplete or invalid pull-request metadata'
@@ -183,24 +202,75 @@ load_pr() {
   jq -cn --argjson pr "$pr_json" --argjson paths "$all_paths" '$pr + {paths: $paths}'
 }
 
-# Emits AGENT_AUTO or HUMAN_HOLD plus a stable reason. Unknown authors are deliberately
-# not treated as external: absence or a new association enum must stop for a human.
-classify_pr() {
-  jq -r '
-    def labels: [.labels.nodes[]?.name];
-    def internal_association:
-      .authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR";
-    def known_external_association:
-      .authorAssociation == "CONTRIBUTOR" or .authorAssociation == "FIRST_TIME_CONTRIBUTOR" or .authorAssociation == "FIRST_TIMER" or .authorAssociation == "NONE" or .authorAssociation == "MANNEQUIN";
+# The surfaces whose change triggers a Stage 2 branch-completion review by risk class: the
+# integrity of a check, or of the policy behind it, including the rules themselves
+# (rules/branch-completion-review.md). Shared by the external-contributor hold below and by the
+# review-acknowledgement requirement, so the two can never drift apart.
+readonly HIGH_RISK_PATH_FILTER='
     def high_risk_path:
-      . == "CLAUDE.md" or
+      . == "CLAUDE.md" or endswith("/CLAUDE.md") or
+      . == "install.sh" or . == "uninstall.sh" or
+      startswith("scripts/") or
+      startswith("hooks/") or
+      startswith("templates/") or
+      startswith("codex/") or
       startswith(".github/") or
       test("(^|/)(repository|workflow)[-_]?settings(\\.|/|$)") or
       startswith(".claude/rules/") or
       startswith(".claude/agents/") or
       startswith("rules/") or
       startswith("agents/") or
-      test("(^|/)\\.?(merge[-_]?gate|merge[-_]?policy|policy|gate)(\\..*)?$");
+      test("(^|/)\\.?(merge[-_]?gate|merge[-_]?policy|policy|gate)(\\..*)?$");'
+
+# true when the pull request touches a review-triggering surface.
+touches_review_trigger() {
+  jq -r "$HIGH_RISK_PATH_FILTER"'
+    if any(.paths[]?; high_risk_path) then "true" else "false" end
+  '
+}
+
+# A pull request that changes a check, or the policy behind it, merges only with a machine-readable
+# acknowledgement that the bounded review actually ran and what it concluded. Without this the
+# merge rests on the orchestrator'"'"'s own report of its own review — measured 2026-09-16, when a PR
+# that genuinely had a GO verdict merged with nothing confirming it.
+review_ack_ok() {  # review_ack_ok <pr-json>
+  local body ack
+  body=$(jq -r '.body // ""' <<<"$1") || return 1
+  # The acknowledgement is one line of the body, marked so it can be found without parsing prose.
+  # Fenced regions are stripped first: a pull request that DOCUMENTS this format — the likeliest
+  # kind of pull request to touch it — must not thereby satisfy it. The line must also be
+  # unindented and unquoted, so an illustration or a quoted reply does not count, and the LAST
+  # match wins so a template shown before the real acknowledgement does not shadow it.
+  ack=$(printf '%s\n' "$body" | awk '
+    # Tilde fences are ordinary Markdown, and a longer fence is closed only by one at least as
+    # long, so a quad-backtick block wrapping a triple-backtick example stays fenced throughout.
+    match($0, /^[[:space:]]*(`{3,}|~{3,})/) {
+      marker = $0
+      sub(/^[[:space:]]*/, "", marker)
+      sub(/[^`~].*$/, "", marker)
+      if (!fenced) { fenced = 1; open_marker = marker; next }
+      if (substr(marker, 1, 1) == substr(open_marker, 1, 1) && length(marker) >= length(open_marker)) {
+        fenced = 0; open_marker = ""
+      }
+      next
+    }
+    !fenced
+  ' | sed -nE 's/^REVIEW ACK:[[:space:]]*//p' | tail -1)
+  [ -n "$ack" ] || return 1
+  # The TRUSTED checker, resolved from this script's directory. A candidate checkout could ship a
+  # permissive copy of the validator it is being judged by.
+  bash "$script_dir/review-ack-check.sh" "$ack" >/dev/null 2>&1
+}
+
+# Emits AGENT_AUTO or HUMAN_HOLD plus a stable reason. Unknown authors are deliberately
+# not treated as external: absence or a new association enum must stop for a human.
+classify_pr() {
+  jq -r "$HIGH_RISK_PATH_FILTER"'
+    def labels: [.labels.nodes[]?.name];
+    def internal_association:
+      .authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR";
+    def known_external_association:
+      .authorAssociation == "CONTRIBUTOR" or .authorAssociation == "FIRST_TIME_CONTRIBUTOR" or .authorAssociation == "FIRST_TIMER" or .authorAssociation == "NONE" or .authorAssociation == "MANNEQUIN";
     if (labels | index("human/hold")) then
       "HUMAN_HOLD human-hold-label"
     elif ((.author.login? // "") | length == 0) or ((internal_association or known_external_association) | not) then
@@ -219,6 +289,27 @@ report_disposition() {
   printf 'DISPOSITION: %s reason=%s\n' "$disposition" "$reason"
 }
 
+# Applied at both decision points: a body edited during the gate must not buy a merge, and a
+# path added during the gate must not escape the requirement.
+enforce_review_ack() {  # enforce_review_ack <pr-json>
+  local touches
+  touches=$(touches_review_trigger <<<"$1") || die 'could not test changed paths for a review trigger'
+  case "$touches" in
+    true|false) ;;
+    *) die 'invalid review-trigger test result' ;;
+  esac
+  [ "$touches" = true ] || return 0
+  if ! review_ack_ok "$1"; then
+    report_disposition HUMAN_HOLD missing-review-ack
+    printf 'TRUSTED PR MERGE: this pull request changes a check or the policy behind it, so it merges\n' >&2
+    printf 'only with a line in its body of the form:\n' >&2
+    printf '  REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> user_decision="<words>" classes=<list>\n' >&2
+    printf 'validated by scripts/review-ack-check.sh. See rules/branch-completion-review.md.\n' >&2
+    exit "$HOLD_EXIT"
+  fi
+  printf 'TRUSTED PR MERGE: review acknowledgement accepted\n'
+}
+
 first_pr=$(load_pr)
 first_classification=$(classify_pr <<<"$first_pr") || die 'could not classify pull request'
 read -r first_disposition first_reason <<<"$first_classification"
@@ -230,8 +321,12 @@ case "$first_disposition" in
   AGENT_AUTO) report_disposition "$first_disposition" "$first_reason" ;;
   *) die 'invalid pull-request classification' ;;
 esac
+enforce_review_ack "$first_pr"
 
 verified_head=$(jq -er '.headRefOid' <<<"$first_pr") || die 'could not read verified head SHA'
+if [ -n "$script_head" ] && [ "$script_head" = "$verified_head" ]; then
+  die "this wrapper's own worktree ($script_dir) is at the pull request's head $verified_head; run a copy that is not the branch under review"
+fi
 checkout_head=$(git -C "$checkout" rev-parse --verify 'HEAD^{commit}') || die 'could not read candidate checkout HEAD'
 if [ "$checkout_head" != "$verified_head" ]; then
   printf 'TRUSTED PR MERGE: ERROR: candidate checkout HEAD does not match PR head: %s != %s\n' "$checkout_head" "$verified_head" >&2
@@ -261,6 +356,7 @@ case "$revalidated_disposition" in
   AGENT_AUTO) : ;;
   *) die 'invalid revalidated pull-request classification' ;;
 esac
+enforce_review_ack "$revalidated_pr"
 
 revalidated_head=$(jq -er '.headRefOid' <<<"$revalidated_pr") || die 'could not read revalidated head SHA'
 if [ "$verified_head" != "$revalidated_head" ]; then

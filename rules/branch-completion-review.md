@@ -237,6 +237,22 @@ mechanism — `docs/reference/review-round-scripts.md` has the detail. Print eve
 
 After R3 with open BLOCKERs, the orchestrator **STOPS** and escalates one paragraph to the user: merge with disclosure, authorize more budget, or shelve. R4 exists only after the user's explicit words in chat, quoted in the ack note.
 
+### The acknowledgement is what a merge gate can read
+
+The ack note is not only for the transcript. Write it into the pull-request body as one line:
+
+```
+REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<1-5 list> user_decision="<the owner's words>"
+```
+
+`scripts/review-ack-check.sh` validates it, and `scripts/trusted-pr-merge.sh` refuses to merge a
+pull request that changes a check or the policy behind it without one it accepts, re-checking
+after the candidate gate so a body edited mid-run buys nothing. `user_decision=` is required
+whenever the verdict is NO-GO or blockers are open, which is how "merge with disclosure" stays a
+decision someone actually made rather than a sentence in a summary. Until this was wired up the
+merge rested on the orchestrator's own report of its own review, which is the same shape of
+evidence this rule refuses everywhere else.
+
 ### Requesting rounds beyond the budget
 
 Every request to exceed the regular three-round budget, or to extend an already approved

@@ -137,6 +137,14 @@ gh pr merge $PR_NUMBER --squash --delete-branch
 
 Use the merge strategy from Agent Config if different from squash.
 
+**Check the project's merge policy before running that command.** A project may require a different
+merge path for some changed paths, and `auto_merge_labels` says so when it does. cc-harness routes
+any PR that changes a rule, an agent, a script, a hook, a template, a generated role or a gate
+through `scripts/trusted-pr-merge.sh`, which refuses the merge without a recorded review
+acknowledgement in the PR body. Merging such a PR with the plain command above skips that check
+entirely. When the project names a wrapper for the paths this PR touches, use the wrapper; if you
+cannot, output AWAITING_HUMAN with the reason rather than merging around it.
+
 After the merge succeeds (or you confirm GitHub auto-merge completed),
 proceed to Step 7 to reap local state. Only emit the `MERGED` result
 **after** Step 7 finishes — so the orchestrating agent can trust that

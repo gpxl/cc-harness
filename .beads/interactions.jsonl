@@ -49,3 +49,10 @@
 {"id":"int-85caa103","kind":"field_change","created_at":"2026-09-16T14:21:03.107017Z","actor":"Gerlando Piro","issue_id":"cch-q4c.2","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
 {"id":"int-18f08690","kind":"field_change","created_at":"2026-09-16T14:21:03.619375Z","actor":"Gerlando Piro","issue_id":"cch-q4c.3","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
 {"id":"int-966464c2","kind":"field_change","created_at":"2026-09-16T14:21:04.12639Z","actor":"Gerlando Piro","issue_id":"cch-q4c.6","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-3ccb5599","kind":"field_change","created_at":"2026-09-16T15:09:01.198528Z","actor":"Gerlando Piro","issue_id":"cch-q4c.1","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-f0f9c6d6","kind":"field_change","created_at":"2026-09-16T15:09:01.45957Z","actor":"Gerlando Piro","issue_id":"cch-q4c.2","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-d51cf0c5","kind":"field_change","created_at":"2026-09-16T15:09:01.72138Z","actor":"Gerlando Piro","issue_id":"cch-q4c.3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-ee969030","kind":"field_change","created_at":"2026-09-16T15:09:01.974423Z","actor":"Gerlando Piro","issue_id":"cch-q4c.6","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-810b13d0","kind":"field_change","created_at":"2026-09-16T15:17:38.704953Z","actor":"Gerlando Piro","issue_id":"cch-fb5.1","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-c10076fe","kind":"field_change","created_at":"2026-09-16T15:17:39.254986Z","actor":"Gerlando Piro","issue_id":"cch-fb5.2","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-89d9beda","kind":"field_change","created_at":"2026-09-16T15:17:39.80663Z","actor":"Gerlando Piro","issue_id":"cch-fb5.3","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}

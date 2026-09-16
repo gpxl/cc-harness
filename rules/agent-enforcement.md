@@ -74,7 +74,7 @@ that half of pr-monitor's job does not disappear along with it — it falls to t
 
 | After merging | Do |
 |---|---|
-| Remote branch | `gh pr merge <PR> --squash --delete-branch` when merging directly; `git push origin --delete <branch>` if it was merged some other way and the remote branch still exists |
+| Remote branch | `gh pr merge <PR> --squash --delete-branch` when merging directly; `git push origin --delete <branch>` if it was merged some other way and the remote branch still exists. **A project may require a different merge command for some paths** — cc-harness routes any PR that changes a rule, an agent, a script, a hook or a gate through `scripts/trusted-pr-merge.sh`, which refuses to merge it without a recorded review acknowledgement. Read the project's own merge policy before merging; it overrides this row. |
 | Local branch (main checkout, not a worktree) | Switch off it first if it's checked out (`git checkout <integration-branch> && git merge --ff-only origin/<integration-branch>`), then `git branch -d <branch>`. A **squash** merge leaves the branch tip unreachable from the new integration-branch commit, so `-d` correctly refuses with "not fully merged" — verify the content actually landed (e.g. `grep` for something the branch added, or diff the touched paths against the integration branch) before overriding with `git branch -D <branch>`. Don't force-delete on faith. |
 | Worktree, if the pipeline used one | Already handled by `agent-isolation.md`'s lifecycle (`trap ... EXIT` removes it on every exit path, and the orphan reaper catches anything a crash left behind) — nothing extra to do here |
 

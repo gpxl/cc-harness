@@ -155,6 +155,7 @@ if listed.returncode != 0:
     sys.exit(2)
 
 scanned = 0
+messages_scanned = 0
 deleted = 0
 for rel in dict.fromkeys(listed.stdout.split("\0")):
     if not rel:
@@ -192,6 +193,7 @@ if scan_history or scan_range:
         if not record:
             continue
         sha, _, message = record.partition("\x1f")
+        messages_scanned += 1
         scan(message, f"commit {sha[:9]}", hits)
 
 if hits:
@@ -204,10 +206,15 @@ if hits:
     sys.exit(1)
 
 if not quiet:
+    # The message count is reported separately, and 0 is said out loud: an empty range prints the
+    # same scope text as a scanned one, and "I read nothing" must not look like "I read them and
+    # they were clean" (rules/verification-integrity.md).
     if scan_range:
-        scope = f"tracked files and commit messages in {history_range}"
+        scope = f"tracked files and {messages_scanned} commit messages in {history_range}"
+    elif scan_history:
+        scope = f"tracked files and {messages_scanned} commit messages"
     else:
-        scope = "tracked files and commit messages" if scan_history else "tracked files"
+        scope = "tracked files"
     deleted_label = f", {deleted} deleted and skipped" if deleted else ""
     print(f"NAME HYGIENE: PASS ({scanned} {scope}{deleted_label}, {len(denied)} denied hashes)")
 sys.exit(0)

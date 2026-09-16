@@ -77,6 +77,9 @@ labels='[]'
 author_login='external-user'
 association='CONTRIBUTOR'
 path='src/ordinary.sh'
+body=''
+
+valid_ack='REVIEW ACK: rounds=2 verdict=GO open_blockers=0 classes=3'
 
 case "${TEST_SCENARIO:?}" in
   external_high_risk)
@@ -102,14 +105,78 @@ case "${TEST_SCENARIO:?}" in
     author_login=''
     association=''
     ;;
+  internal_rules_no_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    ;;
+  internal_rules_with_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n\n%s\n' 'Body text above the acknowledgement.' "$valid_ack")
+    ;;
+  internal_rules_bad_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body='REVIEW ACK: rounds=2 verdict=GO open_blockers=0'
+    ;;
+  internal_claude_md_with_ack)
+    association='OWNER'; author_login='owner-user'; path='CLAUDE.md'
+    body="$valid_ack"
+    ;;
+  internal_ordinary_no_ack)
+    association='OWNER'; author_login='owner-user'
+    ;;
+  internal_script_no_ack)
+    association='OWNER'; author_login='owner-user'; path='scripts/review-ack-check.sh'
+    ;;
+  internal_hook_no_ack)
+    association='OWNER'; author_login='owner-user'; path='hooks/selftest.sh'
+    ;;
+  internal_global_claude_md_no_ack)
+    association='OWNER'; author_login='owner-user'; path='global/CLAUDE.md'
+    ;;
+  internal_installer_no_ack)
+    association='OWNER'; author_login='owner-user'; path='install.sh'
+    ;;
+  external_script)
+    path='scripts/verify.sh'
+    ;;
+  internal_tilde_fenced_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Documenting the format:' '~~~' "$valid_ack" '~~~' 'No review was run.')
+    ;;
+  internal_nested_fence_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Showing the fence itself:' '````' '```' "$valid_ack" '```' '````')
+    ;;
+  internal_template_no_ack)
+    association='OWNER'; author_login='owner-user'; path='templates/review-fix-round.md'
+    ;;
+  internal_codex_role_no_ack)
+    association='OWNER'; author_login='owner-user'; path='codex/agents/harness_reviewer.toml'
+    ;;
+  internal_fenced_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Documenting the format:' '```' "$valid_ack" '```' 'No review was run.')
+    ;;
+  internal_quoted_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '> %s\n' "$valid_ack")
+    ;;
+  internal_template_then_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>' '' "$valid_ack")
+    ;;
+  ack_removed_after_gate)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    if [ "$count" -lt 2 ]; then body="$valid_ack"; fi
+    ;;
   *)
     printf 'unknown TEST_SCENARIO: %s\n' "$TEST_SCENARIO" >&2
     exit 92
     ;;
 esac
 
-printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
-  "$head" "$author_login" "$association" "$labels" "$path"
+body_json=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","body":%s,"author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
+  "$head" "$body_json" "$author_login" "$association" "$labels" "$path"
 EOF
 chmod +x "$tmpdir/bin/gh"
 
@@ -201,6 +268,105 @@ assert_contains "$(<"$tmpdir/gh-argv")" 'mergePullRequest' || true
 run_wrapper unknown_author
 assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=unknown-author-metadata' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+
+# --- the review acknowledgement (cch-fb5.3) -----------------------------------------------------
+# A pull request that changes a check, or the policy behind it, must carry a machine-readable
+# acknowledgement that the bounded review ran. The hold lands BEFORE the candidate gate executes,
+# so an unreviewed policy change never gets to run its own code.
+run_wrapper internal_rules_no_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_contains "$run_stderr" 'REVIEW ACK: rounds=' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+assert_file_absent "$tmpdir/merge-called" || true
+
+run_wrapper internal_rules_bad_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+run_wrapper internal_rules_with_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: DRY_RUN verified-head=head-sha-1' || true
+assert_file_present "$tmpdir/gate-ran" || true
+
+run_wrapper internal_claude_md_with_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+
+# A pull request that touches no review-triggering surface is untouched by the requirement.
+run_wrapper internal_ordinary_no_ack
+assert_eq 0 "$run_status" || true
+assert_not_contains "$run_stdout" 'review acknowledgement accepted' || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: DRY_RUN verified-head=head-sha-1' || true
+
+# The acknowledgement is revalidated after the gate: a body edited mid-run must not buy a merge.
+run_wrapper ack_removed_after_gate --merge
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_file_present "$tmpdir/gate-ran" || true
+assert_file_absent "$tmpdir/merge-called" || true
+
+
+# The gate must cover the CHECKS, not only the policy that describes them: a pull request that
+# guts the acknowledgement checker or removes a selftest from the gate list is exactly the change
+# least able to vouch for itself.
+for scenario in internal_script_no_ack internal_hook_no_ack internal_global_claude_md_no_ack internal_installer_no_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+  assert_file_absent "$tmpdir/gate-ran" || true
+done
+
+# The same widening must reach the pre-existing external-contributor hold, which shares the filter.
+run_wrapper external_script
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=external-high-risk-path' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+# An acknowledgement that is being ILLUSTRATED is not one that was made.
+run_wrapper internal_fenced_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+
+run_wrapper internal_quoted_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+
+# A template shown above the real acknowledgement must not shadow it.
+run_wrapper internal_template_then_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+
+
+# Markdown has more than one fence. Each of these is how a human would document the format.
+for scenario in internal_tilde_fenced_ack internal_nested_fence_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+done
+
+# Policy is carried by more than rules/: the fix-round template is routed to by the review rule,
+# and the generated Codex roles define the reviewer itself.
+for scenario in internal_template_no_ack internal_codex_role_no_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+done
+
+# The wrapper must refuse to be the candidate it is judging.
+rm -f "$tmpdir/gate-ran"
+set +e
+TEST_TMP="$tmpdir" TEST_SCENARIO=internal_rules_with_ack TEST_LOCAL_HEAD='head-sha-1' PATH="$tmpdir/bin:$PATH" \
+  bash "$wrapper" --repo octo/example --pr 42 --checkout "$(dirname -- "$wrapper")/.." --gate gate \
+  > "$tmpdir/stdout" 2> "$tmpdir/stderr"
+inside_status=$?
+set -e
+assert_eq 2 "$inside_status" || true
+assert_contains "$(<"$tmpdir/stderr")" 'lives inside the candidate checkout' || true
 assert_file_absent "$tmpdir/gate-ran" || true
 
 if [ "$failures" -eq 0 ]; then
