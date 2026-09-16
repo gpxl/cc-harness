@@ -44,7 +44,10 @@ fails the same gate as a broken test. The gate scans the tracked tree plus the c
 **current branch** adds, and no further back: all of history would be red for reasons no current
 change can fix, while the tree alone would leave messages to the commit agent's diligence, and a
 message is as public as a file. The branch range is the part a leak can still be amended out of,
-so it is the part the gate refuses. Its denylist (`scripts/testdata/name-hashes.txt`) holds
+so it is the part the gate refuses. The gate runs before the commit agent writes the branch's
+commits, so at gate time that range is often empty; the scan says how many messages it read rather
+than implying it, and `agents/commit.md` Step 8 is the primary check on a message it is about to
+write. This is the backstop. Its denylist (`scripts/testdata/name-hashes.txt`) holds
 SHA-256 hashes only — no plaintext — so it is safe to publish and works on any clone.
 
 **Those hashes are obfuscation, not secrecy.** Unsalted SHA-256 of a short name falls to a

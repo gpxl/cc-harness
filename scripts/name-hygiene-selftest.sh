@@ -245,10 +245,22 @@ else
   # The reported scope is asserted, not just the verdict: a silent revert to --no-history would
   # still exit 0 here while no longer reading a single commit message.
   if [ "$real_rc" -eq 0 ] && printf '%s' "$real_output" | grep -Fq "commit messages in $gate_base..HEAD"; then
-    pass 'this repository is clean, tree and branch commit messages'
+    pass "this repository is clean, tree and commit messages in $gate_base..HEAD"
   else
-    fail 'this repository is clean, tree and branch commit messages' "rc=$real_rc output=$real_output"
+    fail "this repository is clean, tree and commit messages in $gate_base..HEAD" "rc=$real_rc output=$real_output"
   fi
+  # Which base resolved is part of the result, not an implementation detail: main can lag the
+  # remote, and a range measured against a stale base silently covers fewer commits.
+  if [ "$gate_base" = 'origin/main' ]; then
+    pass 'the branch range is measured against origin/main'
+  else
+    fail 'the branch range is measured against origin/main' "resolved $gate_base instead; run 'git fetch origin main'"
+  fi
+  # The gate runs BEFORE the commit agent writes this branch's commits, so at gate time the range
+  # is usually empty. That is legitimate and it is why the count is printed rather than implied:
+  # agents/commit.md Step 8 is the primary check on a message, this is the backstop that catches
+  # anything already committed.
+  printf 'gate scope: %s\n' "$(printf '%s' "$real_output" | tail -1)"
 fi
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'NAME HYGIENE SELFTEST: PASS'; completed=1; exit 0; fi
