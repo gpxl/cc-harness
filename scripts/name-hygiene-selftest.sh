@@ -272,5 +272,43 @@ else
   printf 'gate scope: %s\n' "$(printf '%s' "$real_output" | tail -1)"
 fi
 
+# --- --text-file: a surface that is neither a tracked file nor a commit message ----------------
+# A pull-request title is published verbatim by a squash merge while living in neither, so the
+# scanner takes one arbitrary text input with the same tokenizer and the same hashes.
+text_dir="$workdir/text"
+mkdir -p "$text_dir"
+printf 'fix(review): tighten the bounded review loop\n\nNothing private here.\n' > "$text_dir/clean.txt"
+printf 'fix(%s): tighten the loop\n' "$canary" > "$text_dir/denied.txt"
+
+expect_rc_and_text 'clean text input passes and says what it scanned' 0 'pull-request title and body' \
+  bash "$tool" --text-file "$text_dir/clean.txt" --label 'pull-request title and body' \
+  --denylist "$shipped_denylist"
+expect_rc_and_text 'denied token in a text input fails and names it' 1 "denied token '$canary'" \
+  bash "$tool" --text-file "$text_dir/denied.txt" --label 'pull-request title and body' \
+  --denylist "$shipped_denylist"
+# An instrument that cannot see must not report clean: a missing input is a setup error, not a pass.
+expect_rc 'a missing text input is exit 2, not a pass' 2 \
+  bash "$tool" --text-file "$text_dir/does-not-exist.txt" --denylist "$shipped_denylist"
+# --text-file scans that text and nothing else: it must not fall through to the repository scan,
+# whose git calls would be meaningless for a title that is in no repository.
+expect_rc 'a text input is scanned outside any repository' 0 \
+  bash "$tool" --text-file "$text_dir/clean.txt" --root "$workdir" --denylist "$shipped_denylist"
+
+# Under $workdir, which the EXIT trap removes: a mutant written into the real checkout survives a
+# signal, and the next `git add -A` would stage it.
+text_mutant="$workdir/nh-text-mutant.sh"
+sed 's/^if text_file:$/if False:/' "$tool" > "$text_mutant"
+if cmp -s "$text_mutant" "$tool"; then
+  fail 'text-input source mutation goes red' 'the mutation did not apply'
+else
+  out=$(bash "$text_mutant" --text-file "$text_dir/denied.txt" --denylist "$shipped_denylist" 2>&1); rc=$?
+  if [ "$rc" -ne 1 ] || ! printf '%s' "$out" | grep -Fq "denied token '$canary'"; then
+    pass 'text-input source mutation goes red'
+  else
+    fail 'text-input source mutation goes red' "the mutant still reported the token: $out"
+  fi
+fi
+rm -f "$text_mutant"
+
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'NAME HYGIENE SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'NAME HYGIENE SELFTEST: FAIL'; completed=1; exit 1

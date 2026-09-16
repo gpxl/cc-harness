@@ -1,0 +1,11 @@
+[
+  {
+    "sha": "0000000000000000000000000000000000000005",
+    "filename": "src/new-name.txt",
+    "status": "renamed",
+    "additions": 0,
+    "deletions": 0,
+    "changes": 0,
+    "previous_filename": "src/old-name.txt"
+  }
+]

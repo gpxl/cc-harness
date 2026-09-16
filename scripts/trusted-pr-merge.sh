@@ -125,12 +125,13 @@ metadata_query='query($owner: String!, $repository: String!, $number: Int!, $aft
     pullRequest(number: $number) {
       id
       headRefOid
+      title
       body
       author { login }
       authorAssociation
       labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
       files(first: 100, after: $after) {
-        nodes { path }
+        nodes { path changeType }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -163,6 +164,9 @@ load_pr() {
   local page_paths='[]'
   local all_paths='[]'
   local has_next='false'
+  local renames=0
+  local page_renames=0
+  local previous_paths='[]'
 
   while :; do
     response=$(fetch_page "$after") || die 'GitHub metadata request failed'
@@ -172,6 +176,7 @@ load_pr() {
       (.data.repository.pullRequest.id | type == "string") and
       (.data.repository.pullRequest.headRefOid | type == "string") and
       ((.data.repository.pullRequest.body // "") | type == "string") and
+      ((.data.repository.pullRequest.title // "") | type == "string") and
       (.data.repository.pullRequest.files.pageInfo.hasNextPage | type == "boolean")
     ' >/dev/null <<<"$response"; then
       die 'GitHub returned incomplete or invalid pull-request metadata'
@@ -187,6 +192,15 @@ load_pr() {
     if ! jq -e 'all(.data.repository.pullRequest.files.nodes[]?.path; type == "string")' >/dev/null <<<"$response"; then
       die 'GitHub returned a changed path with invalid metadata'
     fi
+    # RENAMED only. A COPIED file leaves its original in place, so nothing moved out of a covered
+    # directory and there is no old side to classify; counting it here would hard-fail an ordinary
+    # pull request whenever REST reports no previous_filename for the copy.
+    page_renames=$(jq -r '[.data.repository.pullRequest.files.nodes[]? | select(.changeType == "RENAMED")] | length' <<<"$response") \
+      || die 'could not read changed-file change types'
+    case "$page_renames" in
+      ''|*[!0-9]*) die 'GitHub returned an invalid change-type count' ;;
+    esac
+    renames=$((renames + page_renames))
     all_paths=$(jq -cn --argjson existing "$all_paths" --argjson page "$page_paths" '$existing + $page') || die 'could not combine changed paths'
     has_next=$(jq -r '.data.repository.pullRequest.files.pageInfo.hasNextPage' <<<"$response") || die 'could not read changed-path pagination'
     case "$has_next" in
@@ -198,6 +212,27 @@ load_pr() {
     fi
     after=$(jq -er '.data.repository.pullRequest.files.pageInfo.endCursor | strings | select(length > 0)' <<<"$response") || die 'GitHub returned an invalid changed-path cursor'
   done
+
+  # The GraphQL files connection exposes the NEW path only — PullRequestChangedFile has no
+  # previous-path field (schema introspection, 2026-09-16: additions, changeType, deletions, path,
+  # viewerViewedState). So a rename that moves a check OUT of scripts/ or rules/ would present as
+  # an ordinary path and escape the high-risk classification entirely. REST does carry
+  # previous_filename, so the old paths are fetched there and classified alongside the new ones.
+  if [ "$renames" -gt 0 ]; then
+    previous_paths=$(gh api "repos/$owner/$repository/pulls/$pr_number/files" --paginate \
+      --jq '[.[] | select(.previous_filename != null) | .previous_filename]' 2>/dev/null \
+      | jq -cs 'add // []') || die 'could not fetch previous paths for a renamed file'
+    if ! jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null <<<"$previous_paths"; then
+      die 'GitHub returned invalid previous-path metadata'
+    fi
+    # Fail closed: fewer previous paths than renames means the old side of some rename is unknown,
+    # and an unknown path cannot be classified as safe.
+    if [ "$(jq -r 'length' <<<"$previous_paths")" -lt "$renames" ]; then
+      die 'GitHub reported a rename whose previous path could not be resolved'
+    fi
+    all_paths=$(jq -cn --argjson existing "$all_paths" --argjson prev "$previous_paths" '$existing + $prev') \
+      || die 'could not combine previous paths'
+  fi
 
   jq -cn --argjson pr "$pr_json" --argjson paths "$all_paths" '$pr + {paths: $paths}'
 }
@@ -262,6 +297,42 @@ review_ack_ok() {  # review_ack_ok <pr-json>
   bash "$script_dir/review-ack-check.sh" "$ack" >/dev/null 2>&1
 }
 
+# What a squash merge publishes, measured on this repository (`gh api repos/gpxl/cc-harness`):
+# squash_merge_commit_title=COMMIT_OR_PR_TITLE, squash_merge_commit_message=COMMIT_MESSAGES. So a
+# MULTI-commit pull request's headline on the integration branch is the pull-request TITLE, which
+# is in no tracked file and no commit message and which the gate's name-hygiene scan therefore has
+# never seen; a single-commit one uses that commit's subject, which the gate does scan. The body
+# stays on the pull-request page either way, which is public too. This check over-scans rather than
+# under-scans on purpose: it runs on both, with the TRUSTED scanner and the trusted denylist, at
+# both decision points, so a title edited during the candidate gate buys nothing.
+enforce_name_hygiene() {  # enforce_name_hygiene <pr-json>
+  local text_file out rc
+  text_file=$(mktemp "${TMPDIR:-/tmp}/trusted-pr-merge-text.XXXXXX") || die 'could not create a scratch file'
+  jq -r '((.title // "") + "\n" + (.body // ""))' <<<"$1" > "$text_file" || {
+    rm -f "$text_file"
+    die 'could not read the pull-request title and body'
+  }
+  # `set -e` is on: capture the scanner's real status without letting a non-zero one abort here,
+  # because a denied name must produce a HOLD with a reason, not a bare exit 1.
+  rc=0
+  out=$(bash "$script_dir/name-hygiene.sh" --denylist "$script_dir/testdata/name-hashes.txt" \
+    --text-file "$text_file" --label 'pull-request title and body' 2>&1) || rc=$?
+  rm -f "$text_file"
+  case "$rc" in
+    0) return 0 ;;
+    1)
+      report_disposition HUMAN_HOLD denied-name-in-title-or-body
+      printf '%s\n' "$out" >&2
+      printf 'TRUSTED PR MERGE: a squash merge publishes this title verbatim; rewrite it before merging.\n' >&2
+      exit "$HOLD_EXIT"
+      ;;
+    *)
+      printf '%s\n' "$out" >&2
+      die 'the name-hygiene scanner could not read the title and body'
+      ;;
+  esac
+}
+
 # Emits AGENT_AUTO or HUMAN_HOLD plus a stable reason. Unknown authors are deliberately
 # not treated as external: absence or a new association enum must stop for a human.
 classify_pr() {
@@ -321,6 +392,7 @@ case "$first_disposition" in
   AGENT_AUTO) report_disposition "$first_disposition" "$first_reason" ;;
   *) die 'invalid pull-request classification' ;;
 esac
+enforce_name_hygiene "$first_pr"
 enforce_review_ack "$first_pr"
 
 verified_head=$(jq -er '.headRefOid' <<<"$first_pr") || die 'could not read verified head SHA'
@@ -356,6 +428,7 @@ case "$revalidated_disposition" in
   AGENT_AUTO) : ;;
   *) die 'invalid revalidated pull-request classification' ;;
 esac
+enforce_name_hygiene "$revalidated_pr"
 enforce_review_ack "$revalidated_pr"
 
 revalidated_head=$(jq -er '.headRefOid' <<<"$revalidated_pr") || die 'could not read revalidated head SHA'

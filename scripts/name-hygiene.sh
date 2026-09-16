@@ -7,6 +7,11 @@
 # (rules/public-surface-hygiene.md says where).
 #
 # Usage: scripts/name-hygiene.sh [--root <dir>] [--denylist <file>] [--range <git-range>] [--no-history] [--quiet]
+#        scripts/name-hygiene.sh --text-file <path> [--label <what it is>] [--denylist <file>]
+#
+# --text-file scans one arbitrary text input instead of the repository: a pull-request title and
+# body, for example, which are published verbatim by a squash merge but live in no file and no
+# commit message until it is too late to take them back.
 # Exit: 0 clean · 1 a denied token was found · 2 setup error (no denylist, not a git repo).
 #
 # A missing denylist is exit 2, never 0: an instrument that cannot see must not report "clean"
@@ -19,6 +24,8 @@ denylist=''
 scan_history=true
 history_range=''
 quiet=false
+text_file=''
+text_label='text input'
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -26,8 +33,10 @@ while [ $# -gt 0 ]; do
     --denylist) denylist=${2:-}; shift 2 || exit 2 ;;
     --range) history_range=${2:-}; shift 2 || exit 2 ;;
     --no-history) scan_history=false; shift ;;
+    --text-file) text_file=${2:-}; shift 2 || exit 2 ;;
+    --label) text_label=${2:-}; shift 2 || exit 2 ;;
     --quiet) quiet=true; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) printf 'NAME HYGIENE: unknown argument %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -38,7 +47,11 @@ if [ ! -f "$denylist" ]; then
   printf 'NAME HYGIENE: FAIL (denylist not found at %s — cannot report clean without one)\n' "$denylist" >&2
   exit 2
 fi
-if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+if [ -n "$text_file" ] && [ ! -f "$text_file" ]; then
+  printf 'NAME HYGIENE: FAIL (text input not found at %s — cannot report clean without it)\n' "$text_file" >&2
+  exit 2
+fi
+if [ -z "$text_file" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'NAME HYGIENE: FAIL (%s is not a git repository)\n' "$root" >&2
   exit 2
 fi
@@ -52,10 +65,10 @@ fi
 quiet_arg=--loud
 [ "$quiet" = false ] || quiet_arg=--quiet
 
-python3 - "$root" "$denylist" "$history_arg" "$quiet_arg" "$history_range" <<'PY'
+python3 - "$root" "$denylist" "$history_arg" "$quiet_arg" "$history_range" "$text_file" "$text_label" <<'PY'
 import hashlib, os, re, subprocess, sys
 
-root, denylist_path, history_arg, quiet_arg, history_range = sys.argv[1:6]
+root, denylist_path, history_arg, quiet_arg, history_range, text_file, text_label = sys.argv[1:8]
 scan_history = history_arg == "--history"
 scan_range = history_arg == "--range"
 quiet = quiet_arg == "--quiet"
@@ -147,6 +160,31 @@ def git(*args):
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
 
 hits = []
+
+def report(hits):
+    print("NAME HYGIENE: FAIL")
+    for where, lineno, token, pseudonym in hits:
+        label = f" — use {pseudonym}" if pseudonym else ""
+        print(f"  {where}:{lineno}: denied token '{token}'{label}")
+    print("")
+    print("  Substitute the pseudonym from your private mapping; see rules/public-surface-hygiene.md.")
+
+# One text input, scanned with the same tokenizer and the same hashes as a file. No git call at
+# all: the caller holds text that is not in the repository yet, which is the whole point.
+if text_file:
+    try:
+        with open(text_file, encoding="utf-8") as fh:
+            scan(fh.read(), text_label, hits)
+    except (UnicodeDecodeError, OSError) as exc:
+        print(f"NAME HYGIENE: FAIL (cannot scan {text_file}: {exc})", file=sys.stderr)
+        sys.exit(2)
+    if hits:
+        report(hits)
+        sys.exit(1)
+    if not quiet:
+        print(f"NAME HYGIENE: PASS ({text_label}, {len(denied)} denied hashes)")
+    sys.exit(0)
+
 # Tracked AND untracked-but-not-ignored: a fresh leak lands in a new file, which is untracked
 # right up until the commit agent stages it. Same set `git add -A` would take.
 listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
@@ -197,12 +235,7 @@ if scan_history or scan_range:
         scan(message, f"commit {sha[:9]}", hits)
 
 if hits:
-    print("NAME HYGIENE: FAIL")
-    for where, lineno, token, pseudonym in hits:
-        label = f" — use {pseudonym}" if pseudonym else ""
-        print(f"  {where}:{lineno}: denied token '{token}'{label}")
-    print("")
-    print("  Substitute the pseudonym from your private mapping; see rules/public-surface-hygiene.md.")
+    report(hits)
     sys.exit(1)
 
 if not quiet:

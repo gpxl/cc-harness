@@ -15,6 +15,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 
 [Scripts]|root: scripts/
 |review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run]`|
+|name-hygiene.sh: Refuses denied names on any public surface — tracked files, commit messages, or one arbitrary text input; run `bash scripts/name-hygiene.sh [--range <git-range>] [--no-history] [--text-file <path> [--label <what>]]`|
 |review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate, and is what `trusted-pr-merge.sh` calls before merging a PR that changes a check or its policy; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
 |retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
 
@@ -70,6 +71,7 @@ Every agent-authored PR carries **EXACTLY ONE** merge label, chosen by the commi
 - Use `agent/review` for anything in between that warrants a glance but no human gate.
 - **A PR that changes a check, or the policy behind it, merges only with a review acknowledgement.** On the first row of the table above, `scripts/trusted-pr-merge.sh` holds the PR unless its body carries an unindented, unquoted line of the form `REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>` that `scripts/review-ack-check.sh` accepts. A line inside a fenced code block does not count, so a PR that documents the format does not thereby satisfy it. The acknowledgement is validated with the trusted harness copy of the checker, never one from the branch under review, and re-checked after the candidate gate so a body edited mid-run buys nothing. Before this existed the merge rested on the orchestrator's own report of its own review.
 - Treat an unlabelled PR as `human/hold` in the legacy monitor. The trusted host wrapper may classify an ordinary unlabelled PR as `agent/auto`, but only after it has held unknown authors and external high-risk paths, run the candidate gate, revalidated the metadata, and bound the merge to the verified head SHA.
+- The wrapper also scans the PR **title and body** against the denylist before merging — a squash merge publishes the title verbatim on the integration branch, where removing a name costs a history rewrite — and classifies a renamed file by its **previous** path as well as its new one, since GitHub's GraphQL files connection reports only the destination and a check moved out of `scripts/` or `rules/` would otherwise read as an ordinary path.
 
 If a label is missing from the repo, recreate it:
 

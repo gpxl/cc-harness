@@ -345,6 +345,9 @@ scripts/name-hygiene.sh --quiet --range "$INTEGRATION_REF..HEAD" # if shipped; e
 A hit is `COMMIT RESULT: FAIL`. Substitute the pseudonym and amend — never add the name to an
 allowlist to get past the check.
 
+The pull-request title and body are scanned too, but in Step 10 where they actually exist — see
+**Scan the title and body before creating the PR** there.
+
 Run `scripts/name-hygiene.sh --quiet` only as a separate, deliberate full-history audit; outgoing
 commits cannot remediate historical hits.
 
@@ -362,6 +365,30 @@ Do **not** force-push if rejected. Output `COMMIT RESULT: FAIL` with
 instructions.
 
 ## Step 10 — Open pull request
+
+**Scan the title and body before creating the PR.** Neither is a tracked file nor a commit message,
+so Step 8's range scan cannot see them; on a multi-commit PR the title becomes the squash headline
+on the integration branch. Write the exact strings you are about to pass to `gh pr create` into a
+file first — not a placeholder, and not an unset variable, which would scan an empty file and report
+clean:
+
+```bash
+pr_text=$(mktemp "${TMPDIR:-/tmp}/pr-text.XXXXXX") || exit 1
+cat > "$pr_text" <<'PRTEXT'
+<the exact PR title>
+<the exact PR body>
+PRTEXT
+scripts/name-hygiene.sh --quiet --text-file "$pr_text" --label 'pull-request title and body'
+status=$?
+rm -f "$pr_text"
+[ "$status" -eq 0 ] || printf 'COMMIT RESULT: FAIL — name-hygiene exit %s on the PR title/body\n' "$status"
+```
+
+Exit 1 is a denied token; exit **2** is a setup error (a missing file, an unreadable denylist) and
+is equally a `COMMIT RESULT: FAIL` — an instrument that could not look must never read as clean.
+Rewrite the title or body and re-run. On the paths that merge through
+`scripts/trusted-pr-merge.sh` the wrapper checks this again at merge time; on the plain
+`gh pr merge` path this is the only check.
 
 ```bash
 gh pr create --title "<PR title>" --body "$(cat <<'EOF'
