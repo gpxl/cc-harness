@@ -54,11 +54,13 @@ fi
 # items G and H).
 gate_list() {  # gate_list <claude-md> -> one selftest path per line, from the section's bullets
   awk '
+    /^```/          { fenced = !fenced; next }
+    fenced          { next }
     /^### The gate/ { inside = 1; next }
-    inside && /^#/  { exit }
-    inside && /^- `[^`]+\.sh`/ {
+    inside && /^#+[[:space:]]/ { exit }
+    inside && /^[[:space:]]*[-*][[:space:]]+`[^`]+\.sh`[[:space:]]*$/ {
       line = $0
-      sub(/^- `/, "", line)
+      sub(/^[^`]*`/, "", line)
       sub(/`.*$/, "", line)
       print line
     }
@@ -73,14 +75,22 @@ else
   fail 'default list matches CLAUDE.md gate list' "CLAUDE.md: $(printf '%s' "$listed" | tr '\n' ' ') | verify.sh: $(printf '%s' "$defaults" | tr '\n' ' ')"
 fi
 
-# 6. The parse reads bullets, not prose: a section that mentions a bare selftest path in a sentence,
-# and a later section that lists one, must both be invisible to it.
+# 6. The parse reads the section's bullets and nothing else: prose mentions, a fenced block whose
+# contents look like headings, a bullet carrying trailing prose, and a later section's bullets are
+# all invisible to it; ordinary Markdown bullet spellings are not.
 cat > "$tmp/claude-fixture.md" <<'FIXTURE'
 ### The gate
 
 Prose that names scripts/prose-only-selftest.sh and `scripts/also-prose-selftest.sh` inline.
 
+```bash
+# scripts/fenced-selftest.sh — a comment whose line starts with a hash
+```
+
 - `hooks/selftest.sh`
+*  `scripts/star-selftest.sh`
+  - `scripts/indented-selftest.sh`
+- `install.sh` is described here rather than listed
 - `scripts/verify-selftest.sh`
 
 Merge only when every listed selftest reports PASS at the PR's HEAD.
@@ -90,22 +100,30 @@ Merge only when every listed selftest reports PASS at the PR's HEAD.
 - `scripts/not-the-gate-selftest.sh`
 FIXTURE
 parsed=$(gate_list "$tmp/claude-fixture.md")
-if [ "$parsed" = "$(printf '%s\n' 'hooks/selftest.sh' 'scripts/verify-selftest.sh')" ]; then
+if [ "$parsed" = "$(printf '%s\n' 'hooks/selftest.sh' 'scripts/star-selftest.sh' \
+  'scripts/indented-selftest.sh' 'scripts/verify-selftest.sh')" ]; then
   pass 'gate-list parse reads bullets only, and stops at the next section'
 else
   fail 'gate-list parse reads bullets only, and stops at the next section' "parsed=$(printf '%s' "$parsed" | tr '\n' ' ')"
 fi
 
 # 7. The gate's length is pinned to a literal, so a selftest dropped from the default list fails the
-# gate instead of shrinking a green. Negative control: a copy with one entry removed must FAIL
-# before it runs anything.
+# gate instead of shrinking a green. Negative control: a copy with its FIRST entry removed must FAIL
+# before it runs anything. Both counts are derived, never written down — a hardcoded 17 here would
+# red this row on the next correct addition, pointing at the wrong file.
+expected_count=$(bash "$verify" --list | wc -l | tr -d ' ')
 mutant=$tmp/verify-mutant.sh
-sed 's| scripts/verify-selftest.sh"| "|' "$verify" > "$mutant"
+sed 's/^default_tests="[^ ]* /default_tests="/' "$verify" > "$mutant"
 if cmp -s "$mutant" "$verify"; then
   fail 'dropping a selftest from the default list fails the gate' 'the mutation did not apply'
+elif [ "$(CC_HARNESS_SELFTESTS= bash "$mutant" --list | wc -l | tr -d ' ')" -ne "$((expected_count - 1))" ]; then
+  fail 'dropping a selftest from the default list fails the gate' 'the mutation did not drop exactly one entry'
 else
-  out=$(CC_HARNESS_VERIFY_LOG_DIR="$tmp/l7" bash "$mutant" 2>&1); rc=$?
-  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -Fq 'the default gate list holds 16 selftests, expected 17'; then
+  # The override is pinned empty, not inherited: an ambient CC_HARNESS_SELFTESTS would skip the
+  # guard this row is named after and fail it for an unrelated reason.
+  out=$(CC_HARNESS_SELFTESTS= CC_HARNESS_VERIFY_LOG_DIR="$tmp/l7" bash "$mutant" 2>&1); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$out" \
+    | grep -Fq "the default gate list holds $((expected_count - 1)) selftests, expected $expected_count"; then
     pass 'dropping a selftest from the default list fails the gate'
   else
     fail 'dropping a selftest from the default list fails the gate' "rc=$rc out=$out"

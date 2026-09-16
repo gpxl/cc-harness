@@ -22,9 +22,10 @@ mkdir -p "$log_dir" || exit 1
 set -- ${CC_HARNESS_SELFTESTS:-$default_tests}
 expected=$#
 # The gate's own length, written as a literal. `expected=$#` can only ever agree with the list it
-# was counted from, so it cannot notice a selftest quietly dropped from that list — the one way a
-# green shrinks without anyone reading a diff line. A deliberate add or removal updates this number
-# in the same edit; an accidental one fails the gate (cch-x1q item I).
+# was counted from, so it cannot notice a selftest dropped from that list. verify-selftest.sh's
+# CLAUDE.md comparison catches a drop from ONE of the two places; this literal is what catches a
+# drop from both in the same commit, where the two agree with each other and the gate silently runs
+# fewer tests. A deliberate add or removal updates this number in the same edit (cch-x1q item I).
 default_test_count=17
 if [ "$expected" -eq 0 ]; then
   printf 'CC-HARNESS VERIFY: FAIL (no selftests resolved — CC_HARNESS_SELFTESTS is set but empty)\n'
