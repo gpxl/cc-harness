@@ -5,8 +5,21 @@ set -uo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 verify=$root/scripts/verify.sh
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-verify-selftest.XXXXXX") || exit 1
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+# The mutant lives beside the real script, not under $tmp: a copy elsewhere resolves its own $root
+# to that directory, so every relative selftest path goes missing and the mutant exits 1 for a
+# reason that has nothing to do with the guard under test.
+mutant=$root/scripts/.verify-mutant.sh
+trap 'rm -rf "$tmp"; rm -f "$mutant"' EXIT HUP INT TERM
 failures=0
+
+# Row 7 runs a mutant of verify.sh whose guard is supposed to BLOCK. A mutant that only warned
+# would go on to run the whole gate list, which includes THIS script, whose copy would build its own
+# mutant — unbounded. The marker makes such a nested run exit immediately. It exits 1, not 0, so a
+# marker left set in the ambient environment fails the gate loudly instead of quietly skipping it.
+if [ -n "${CC_HARNESS_VERIFY_SELFTEST_NESTED:-}" ]; then
+  printf '%s\n' 'VERIFY SELFTEST RESULT: FAIL (nested run — CC_HARNESS_VERIFY_SELFTEST_NESTED is set)'
+  exit 1
+fi
 
 pass() { printf '%s: PASS\n' "$1"; }
 fail() { printf '%s: FAIL — %s\n' "$1" "$2" >&2; failures=$((failures + 1)); }
@@ -52,6 +65,10 @@ fi
 # terminated (correct only while The gate is the last section) and it counted prose mentions —
 # rewording `bash scripts/verify.sh` to a bare path would have false-reddened the gate (cch-x1q
 # items G and H).
+# Fail-closed by construction: a spelling this misses (a ~~~ fence, a setext heading, a bolded
+# path, an unclosed fence) yields a list that DIFFERS from verify.sh's, so the comparison below
+# reds. None of them can drop an entry and still compare equal, which is the only failure that
+# would matter.
 gate_list() {  # gate_list <claude-md> -> one selftest path per line, from the section's bullets
   awk '
     /^```/          { fenced = !fenced; next }
@@ -111,22 +128,27 @@ fi
 # gate instead of shrinking a green. Negative control: a copy with its FIRST entry removed must FAIL
 # before it runs anything. Both counts are derived, never written down — a hardcoded 17 here would
 # red this row on the next correct addition, pointing at the wrong file.
+# --list is handled before verify.sh reads CC_HARNESS_SELFTESTS, so it always prints the default
+# list; no override pin is needed here (the one on the run below is what matters).
 expected_count=$(bash "$verify" --list | wc -l | tr -d ' ')
-mutant=$tmp/verify-mutant.sh
 sed 's/^default_tests="[^ ]* /default_tests="/' "$verify" > "$mutant"
 if cmp -s "$mutant" "$verify"; then
   fail 'dropping a selftest from the default list fails the gate' 'the mutation did not apply'
-elif [ "$(CC_HARNESS_SELFTESTS= bash "$mutant" --list | wc -l | tr -d ' ')" -ne "$((expected_count - 1))" ]; then
+elif [ "$(bash "$mutant" --list | wc -l | tr -d ' ')" -ne "$((expected_count - 1))" ]; then
   fail 'dropping a selftest from the default list fails the gate' 'the mutation did not drop exactly one entry'
 else
   # The override is pinned empty, not inherited: an ambient CC_HARNESS_SELFTESTS would skip the
   # guard this row is named after and fail it for an unrelated reason.
-  out=$(CC_HARNESS_SELFTESTS= CC_HARNESS_VERIFY_LOG_DIR="$tmp/l7" bash "$mutant" 2>&1); rc=$?
-  if [ "$rc" -eq 1 ] && printf '%s' "$out" \
+  out=$(CC_HARNESS_SELFTESTS= CC_HARNESS_VERIFY_SELFTEST_NESTED=1 CC_HARNESS_VERIFY_LOG_DIR="$tmp/l7" \
+    bash "$mutant" 2>&1); rc=$?
+  # The guard must BLOCK, not merely warn: a mutant that printed the message and carried on would
+  # have run the shortened list, so require that no per-test result line was emitted at all.
+  ran=$(printf '%s\n' "$out" | grep -cE '^[A-Za-z0-9_.-]+: (PASS|FAIL)' || true)
+  if [ "$rc" -eq 1 ] && [ "$ran" -eq 0 ] && printf '%s' "$out" \
     | grep -Fq "the default gate list holds $((expected_count - 1)) selftests, expected $expected_count"; then
     pass 'dropping a selftest from the default list fails the gate'
   else
-    fail 'dropping a selftest from the default list fails the gate' "rc=$rc out=$out"
+    fail 'dropping a selftest from the default list fails the gate' "rc=$rc ran=$ran out=$out"
   fi
 fi
 
