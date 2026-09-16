@@ -64,6 +64,12 @@ if [[ "$arguments" == */pulls/*/files* ]]; then
   # The REST files endpoint, answered from RECORDED payload pages. The wrapper's own --jq filter is
   # applied here, once per page, exactly as `gh --paginate --jq` does — so the filter expression and
   # the page slurp on the wrapper's side are under test, not stubbed out.
+  # The target is verified, not just the shape: a wrapper that asked a different repository or a
+  # different pull request would otherwise classify paths that belong to neither.
+  case "$arguments" in
+    *"repos/octo/example/pulls/42/files"*) ;;
+    *) printf 'gh stub: unexpected REST target: %s\n' "$arguments" >&2; exit 92 ;;
+  esac
   [ "${TEST_REST_FAIL:-0}" = 1 ] && exit 1
   filter=''
   previous_arg=''
@@ -72,8 +78,11 @@ if [[ "$arguments" == */pulls/*/files* ]]; then
     previous_arg=$argument
   done
   [ -n "$filter" ] || { printf 'gh stub: no --jq filter given\n' >&2; exit 91; }
+  # Without --paginate, real gh returns the FIRST page only. Honoured here so a caller that drops
+  # the flag sees one page, as it would against GitHub.
   for page in ${TEST_REST_PAGES:-}; do
     jq -c "$filter" "$page" || exit 90
+    [[ "$arguments" == *" --paginate "* ]] || break
   done
   exit 0
 fi
@@ -416,12 +425,13 @@ assert_file_absent "$tmpdir/gate-ran" || true
 # --jq filter run over them. A check deleted by moving it to docs/ must still demand an ack.
 rest_pages="$script_dir/testdata/pr-files-rename-page1.json $script_dir/testdata/pr-files-rename-page2.json"
 
-TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" run_wrapper rename_out_of_scripts
+TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page2.json" run_wrapper rename_out_of_scripts
 assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
 unset TEST_REST_PAGES
 
-# Two pages: the wrapper slurps every page, so a rename on the SECOND one is classified too.
+# Two pages, with the covered old path on the SECOND one and only an ordinary rename on the first.
+# The verdict therefore depends on the page slurp: drop --paginate and this row reds.
 TEST_REST_PAGES="$rest_pages" run_wrapper rename_out_of_scripts
 assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
@@ -441,7 +451,7 @@ assert_file_absent "$tmpdir/gate-ran" || true
 unset TEST_REST_PAGES
 
 # Fail closed again: a REST call that errors is not "no renames".
-TEST_REST_FAIL=1 TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" run_wrapper rename_out_of_scripts
+TEST_REST_FAIL=1 TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page2.json" run_wrapper rename_out_of_scripts
 assert_eq 2 "$run_status" || true
 assert_contains "$run_stderr" 'could not fetch previous paths' || true
 unset TEST_REST_FAIL TEST_REST_PAGES
@@ -461,7 +471,7 @@ perl -0pi -e 's/if \[ "\$renames" -gt 0 \]; then/if false; then/' "$mutant_dir/t
 if cmp -s "$mutant_dir/trusted-pr-merge.sh" "$wrapper"; then
   fail 'rename lookup mutation did not apply'
 else
-  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" \
+  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page2.json" \
     WRAPPER_UNDER_TEST="$mutant_dir/trusted-pr-merge.sh" run_wrapper rename_out_of_scripts
   assert_eq 0 "$run_status" || true
   assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
@@ -475,7 +485,7 @@ perl -0pi -e 's/\.previous_filename/.not_a_real_field/g' "$mutant_dir/filter-mut
 if cmp -s "$mutant_dir/filter-mutant.sh" "$wrapper"; then
   fail 'previous-path filter mutation did not apply'
 else
-  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page1.json" \
+  TEST_REST_PAGES="$script_dir/testdata/pr-files-rename-page2.json" \
     WRAPPER_UNDER_TEST="$mutant_dir/filter-mutant.sh" run_wrapper rename_out_of_scripts
   assert_eq 2 "$run_status" || true
   assert_contains "$run_stderr" 'previous path could not be resolved' || true

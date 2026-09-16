@@ -1,11 +1,11 @@
 [
   {
     "sha": "0000000000000000000000000000000000000003",
-    "filename": "docs/reference/moved-rule.md",
+    "filename": "docs/reference/moved-helper.sh",
     "status": "renamed",
     "additions": 0,
     "deletions": 0,
     "changes": 0,
-    "previous_filename": "rules/some-rule.md"
+    "previous_filename": "scripts/some-check.sh"
   }
 ]

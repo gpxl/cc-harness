@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
     --text-file) text_file=${2:-}; shift 2 || exit 2 ;;
     --label) text_label=${2:-}; shift 2 || exit 2 ;;
     --quiet) quiet=true; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) printf 'NAME HYGIENE: unknown argument %s\n' "$1" >&2; exit 2 ;;
   esac
 done
