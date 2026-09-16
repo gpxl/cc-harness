@@ -45,7 +45,7 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | branch_pattern | <type>/<description> |
 | deploy_model | discrete |
 | pr_merge_strategy | squash |
-| auto_merge_labels | `agent/auto` (default), `agent/review` — both merged by an agent via `gh pr merge <PR> --squash --delete-branch`. **Never `--auto`** (no required status check to wait on) |
+| auto_merge_labels | `agent/auto` (default), `agent/review` — both merged by an agent, but **the command depends on what the PR touches**: a PR changing `rules/`, `agents/`, `scripts/`, `hooks/`, `templates/`, `codex/`, any `CLAUDE.md`, `.github/`, `install.sh`, `uninstall.sh`, or a merge-gate or policy path merges via `scripts/trusted-pr-merge.sh` (which requires the review acknowledgement); everything else via `gh pr merge <PR> --squash --delete-branch`. See § Merge policy for the table. **Never `--auto`** (no required status check to wait on) |
 | human_merge_labels | `human/hold` — never auto-merges. Repo settings, branch protection, `.github/`, or anything needing a person. The legacy pr-monitor treats an **unlabelled PR as this**; `scripts/trusted-pr-merge.sh` can allow an ordinary unlabelled PR only after host-side author/path classification and revalidation. |
 | pr_review_gate | (none) |
 | ci | none — no server-side CI; the gate is the repo's selftests run locally |
@@ -62,10 +62,10 @@ Every agent-authored PR carries **EXACTLY ONE** merge label, chosen by the commi
 
 | The PR touches | Merge with |
 |---|---|
-| `rules/`, `agents/`, `scripts/`, `hooks/`, any `CLAUDE.md`, `.github/`, `install.sh`, `uninstall.sh`, or a merge-gate or policy path | `scripts/trusted-pr-merge.sh --repo gpxl/cc-harness --pr <PR> --checkout <dir> --gate scripts/verify.sh --merge`, run from a checkout **outside** the branch under review |
+| `rules/`, `agents/`, `scripts/`, `hooks/`, `templates/`, `codex/`, any `CLAUDE.md`, `.github/`, `install.sh`, `uninstall.sh`, or a merge-gate or policy path | `scripts/trusted-pr-merge.sh --repo gpxl/cc-harness --pr <PR> --checkout <dir> --gate scripts/verify.sh --merge`, run from a checkout **outside** the branch under review |
 | anything else | `gh pr merge <PR> --squash --delete-branch` |
 
-  The wrapper is not a formality on the first row: it is what requires the review acknowledgement below, and it refuses to run if it finds itself inside the candidate checkout.
+  The wrapper is not a formality on the first row: it is what requires the review acknowledgement below. It refuses to run from inside the candidate checkout, and refuses when its own worktree is parked on the PR's head commit — `~/.claude/scripts` is a symlink into a checkout of this repository, so "a different directory" and "not the branch under review" are not the same condition.
 - `human/hold` is required for changes to `.github/`, branch protection or repo settings, anything touching credentials, and `install.sh` or `uninstall.sh` changes that alter what is linked into `~/.claude`, because they mutate the user's live environment on next install.
 - Use `agent/review` for anything in between that warrants a glance but no human gate.
 - **A PR that changes a check, or the policy behind it, merges only with a review acknowledgement.** On the first row of the table above, `scripts/trusted-pr-merge.sh` holds the PR unless its body carries an unindented, unquoted line of the form `REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>` that `scripts/review-ack-check.sh` accepts. A line inside a fenced code block does not count, so a PR that documents the format does not thereby satisfy it. The acknowledgement is validated with the trusted harness copy of the checker, never one from the branch under review, and re-checked after the candidate gate so a body edited mid-run buys nothing. Before this existed the merge rested on the orchestrator's own report of its own review.

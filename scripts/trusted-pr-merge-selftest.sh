@@ -138,6 +138,20 @@ case "${TEST_SCENARIO:?}" in
   external_script)
     path='scripts/verify.sh'
     ;;
+  internal_tilde_fenced_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Documenting the format:' '~~~' "$valid_ack" '~~~' 'No review was run.')
+    ;;
+  internal_nested_fence_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Showing the fence itself:' '````' '```' "$valid_ack" '```' '````')
+    ;;
+  internal_template_no_ack)
+    association='OWNER'; author_login='owner-user'; path='templates/review-fix-round.md'
+    ;;
+  internal_codex_role_no_ack)
+    association='OWNER'; author_login='owner-user'; path='codex/agents/harness_reviewer.toml'
+    ;;
   internal_fenced_ack)
     association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
     body=$(printf '%s\n' 'Documenting the format:' '```' "$valid_ack" '```' 'No review was run.')
@@ -326,6 +340,22 @@ assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack
 run_wrapper internal_template_then_ack
 assert_eq 0 "$run_status" || true
 assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+
+
+# Markdown has more than one fence. Each of these is how a human would document the format.
+for scenario in internal_tilde_fenced_ack internal_nested_fence_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+done
+
+# Policy is carried by more than rules/: the fix-round template is routed to by the review rule,
+# and the generated Codex roles define the reviewer itself.
+for scenario in internal_template_no_ack internal_codex_role_no_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+done
 
 # The wrapper must refuse to be the candidate it is judging.
 rm -f "$tmpdir/gate-ran"

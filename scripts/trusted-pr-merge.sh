@@ -103,6 +103,12 @@ checkout=$(cd -- "$checkout" && pwd -P) || die "could not resolve candidate chec
 case "$script_dir/" in
   "$checkout"/*) die "this wrapper lives inside the candidate checkout ($checkout); run the trusted copy instead" ;;
 esac
+
+# Containment is not enough on its own: ~/.claude/scripts is commonly a symlink into a working
+# checkout of this very repository, so the wrapper and the acknowledgement checker can both come
+# from the branch under review while sitting outside the directory passed as --checkout. Refuse
+# when this script's own worktree is parked on the commit being judged.
+script_head=$(git -C "$script_dir" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true)
 case "$gate" in
   /*|..|../*|*/../*|*/..) die '--gate must be a candidate-relative path without ..' ;;
 esac
@@ -206,6 +212,8 @@ readonly HIGH_RISK_PATH_FILTER='
       . == "install.sh" or . == "uninstall.sh" or
       startswith("scripts/") or
       startswith("hooks/") or
+      startswith("templates/") or
+      startswith("codex/") or
       startswith(".github/") or
       test("(^|/)(repository|workflow)[-_]?settings(\\.|/|$)") or
       startswith(".claude/rules/") or
@@ -234,7 +242,18 @@ review_ack_ok() {  # review_ack_ok <pr-json>
   # unindented and unquoted, so an illustration or a quoted reply does not count, and the LAST
   # match wins so a template shown before the real acknowledgement does not shadow it.
   ack=$(printf '%s\n' "$body" | awk '
-    /^[[:space:]]*```/ { fenced = !fenced; next }
+    # Tilde fences are ordinary Markdown, and a longer fence is closed only by one at least as
+    # long, so a quad-backtick block wrapping a triple-backtick example stays fenced throughout.
+    match($0, /^[[:space:]]*(`{3,}|~{3,})/) {
+      marker = $0
+      sub(/^[[:space:]]*/, "", marker)
+      sub(/[^`~].*$/, "", marker)
+      if (!fenced) { fenced = 1; open_marker = marker; next }
+      if (substr(marker, 1, 1) == substr(open_marker, 1, 1) && length(marker) >= length(open_marker)) {
+        fenced = 0; open_marker = ""
+      }
+      next
+    }
     !fenced
   ' | sed -nE 's/^REVIEW ACK:[[:space:]]*//p' | tail -1)
   [ -n "$ack" ] || return 1
@@ -305,6 +324,9 @@ esac
 enforce_review_ack "$first_pr"
 
 verified_head=$(jq -er '.headRefOid' <<<"$first_pr") || die 'could not read verified head SHA'
+if [ -n "$script_head" ] && [ "$script_head" = "$verified_head" ]; then
+  die "this wrapper's own worktree ($script_dir) is at the pull request's head $verified_head; run a copy that is not the branch under review"
+fi
 checkout_head=$(git -C "$checkout" rev-parse --verify 'HEAD^{commit}') || die 'could not read candidate checkout HEAD'
 if [ "$checkout_head" != "$verified_head" ]; then
   printf 'TRUSTED PR MERGE: ERROR: candidate checkout HEAD does not match PR head: %s != %s\n' "$checkout_head" "$verified_head" >&2
