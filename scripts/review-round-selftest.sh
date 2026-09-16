@@ -872,5 +872,55 @@ fi
 
 reset_state
 
+# --- a pre-split bare-digest stamp must not cost an in-flight branch its counter ---------------
+
+legacy_stamp() {  # legacy_stamp <acceptance> -> the digest format written before the split
+  { printf '%s\n' "$1"; printf -- '---\n'; git -C "$repo" log --format=%s "$base..HEAD" \
+      | grep -vaE '^(fix|test|docs|chore)(\([^)]*\))?!?:'; } | shasum -a 256 | awk '{print $1}'
+}
+
+seed_legacy_scope() {  # seed_legacy_scope <acceptance-used-for-the-stamp>
+  reset_state
+  mkdir -p "$(dirname "$state")"
+  printf '1\n' > "$state"
+  printf '%s\n' 'MAJOR: retained r1 finding' 'VERDICT: NO-GO' 'Dispositions: fix it' > "$state-r1-findings.md"
+  printf '%s\n' "$(legacy_stamp "$1")" > "$state.scope"
+}
+
+seed_legacy_scope 'Ship the bounded review changes.'
+run
+if [ "$rc" -eq 0 ] \
+  && printf '%s' "$output" | grep -Fq 'scope stamp upgraded from the pre-split format' \
+  && [ "$(<"$state")" = 2 ] \
+  && grep -Fq 'acceptance=' "$state.scope"; then
+  pass 'an unchanged pre-split scope stamp is upgraded, not charged a restart'
+else
+  fail 'an unchanged pre-split scope stamp is upgraded, not charged a restart' \
+    "rc=$rc round=$(<"$state" 2>/dev/null || true) out=$output err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+seed_legacy_scope 'Ship the bounded review changes.'
+make_mutant 's/legacy_scope_stamp "\$goal"/"no-such-digest"/'
+run
+runner="$tool"
+if [ "$rc" -ne 0 ] && grep -Fq 'refused' "$tmp/err"; then
+  pass 'pre-split stamp upgrade source mutation goes red'
+else
+  fail 'pre-split stamp upgrade source mutation goes red' "rc=$rc out=$output"
+fi
+
+seed_legacy_scope 'A different definition of done entirely.'
+run
+if [ "$rc" -ne 0 ] \
+  && grep -Fq 'What moved: unknown' "$tmp/err" \
+  && ! grep -Fq 'What moved: the scope-changing commits below.' "$tmp/err"; then
+  pass 'a pre-split stamp that really moved refuses without claiming which half moved'
+else
+  fail 'a pre-split stamp that really moved refuses without claiming which half moved' \
+    "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'REVIEW ROUND SELFTEST: FAIL'; completed=1; exit 1

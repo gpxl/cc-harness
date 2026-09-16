@@ -214,7 +214,11 @@ rounds is not on its second look at the same code, it is on its first look at di
 `fix`/`test`/`docs`/`chore`) and refuses the next round when that stamp moves, until
 `--scope-changed "<what changed>"` declares it; the prior rounds are then archived and the counter
 restarts. Restating what done means for the enlarged branch is the point of that declaration, but
-the script cannot check that you did — it only requires the flag and a non-empty reason. The stamp
+the script cannot check that you did — it only requires the flag and a non-empty reason. The two
+halves of the stamp are recorded separately, so the refusal names which one moved; when only the
+acceptance *wording* changed and no scope-changing commit was added, `--acceptance-reworded "<why>"`
+accepts the new text and **keeps** the counter, because the same code is being judged by the same
+criteria in different words and a typo fix must not buy three more rounds. The stamp
 reads commit *subjects*, so amending a commit's body or its diff moves nothing; declare a scope
 change yourself when the code grew under an unchanged subject. Prefer one tracker item per PR — the 6-round branch measured on
 2026-09-16 carried six, and its reviewed diff went 856 → 6,685 → 9,339 lines while the counter

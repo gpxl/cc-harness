@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
   printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
   printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
@@ -172,9 +172,18 @@ stamp_field() {  # stamp_field <stamp> <acceptance|subjects> -> that half, empty
   printf '%s' "$1" | sed -nE "s/.*(^|[[:space:]])$2=([0-9a-f]+).*/\2/p"
 }
 
+legacy_scope_stamp() {  # legacy_scope_stamp <acceptance> -> the pre-split combined digest
+  # Branches that were mid-review when the halves were split still carry a bare digest. Recomputing
+  # the old formula tells an unchanged scope from a genuinely changed one, so an in-flight branch
+  # does not lose its counter and its findings to a format migration.
+  { printf '%s\n' "$1"; printf -- '---\n'; scope_subjects; } | sha256_hex
+}
+
 archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
   local base_dir archive n=1 f
-  base_dir="$counter.scope-${1:0:12}"
+  # Keyed by a digest of the whole stamp, not a prefix of it: the stamp's own first characters are
+  # the constant literal "acceptance=", which would give every scope on a branch the same directory.
+  base_dir="$counter.scope-$(printf '%s' "$1" | sha256_hex | cut -c1-12)"
   archive="$base_dir"
   # A branch can return to a scope it reviewed before (revert, then re-land), which would key a
   # second archive to the same stamp. Both documents promise "archived, not deleted", so never
@@ -404,15 +413,27 @@ prepare_round() {
   if [ -e "$scope_file" ]; then
     recorded_stamp=$(tr -d '\n' < "$scope_file")
   fi
-  local recorded_acceptance='' recorded_subjects=''
+  local recorded_acceptance='' recorded_subjects='' unattributable=false
   if [ -n "$recorded_stamp" ]; then
     recorded_acceptance=$(stamp_field "$recorded_stamp" acceptance)
     recorded_subjects=$(stamp_field "$recorded_stamp" subjects)
-    # A stamp written before the halves were recorded separately is a bare digest. It cannot be
-    # attributed, so say that rather than guessing which half moved.
     if [ -z "$recorded_acceptance" ] && [ -z "$recorded_subjects" ]; then
-      recorded_acceptance='(unattributable)'
-      recorded_subjects='(unattributable)'
+      # A stamp written before the halves were recorded separately is a bare digest. Recompute the
+      # old formula first: when it matches, the scope did not move at all and the record is simply
+      # in the older format, so upgrade it in place rather than charging the branch a restart.
+      if [ "$recorded_stamp" = "$(legacy_scope_stamp "$goal")" ]; then
+        printf 'REVIEW ROUND: scope stamp upgraded from the pre-split format; the scope is unchanged\n'
+        printf '%s\n' "$stamp" > "$scope_file"
+        recorded_stamp=$stamp
+        recorded_acceptance=$(stamp_field "$stamp" acceptance)
+        recorded_subjects=$(stamp_field "$stamp" subjects)
+      else
+        # It really did move, but a combined digest cannot say which half. Say that, rather than
+        # printing an attribution the record does not support.
+        unattributable=true
+        recorded_acceptance='(unattributable)'
+        recorded_subjects='(unattributable)'
+      fi
     fi
   fi
   if [ -n "$recorded_stamp" ] && [ "$recorded_stamp" != "$stamp" ] && [ "$previous" -gt 0 ]; then
@@ -441,11 +462,19 @@ prepare_round() {
       exit 1
     else
       printf 'review-round: refused — the reviewed scope changed since round %s\n' "$previous" >&2
-      if [ "$subjects_moved" = true ]; then
-        printf '%s\n' 'What moved: the scope-changing commits below.' >&2
-      fi
-      if [ "$acceptance_moved" = true ]; then
-        printf '%s\n' 'What moved: the acceptance text, as well as the commits.' >&2
+      if [ "$unattributable" = true ]; then
+        printf '%s\n' 'What moved: unknown — the recorded stamp predates the split into an acceptance' >&2
+        printf '%s\n' 'half and a commits half, so it can only say that something changed.' >&2
+      elif [ "$subjects_moved" = false ] && [ "$acceptance_moved" = false ]; then
+        printf '%s\n' 'What moved: neither half — the recorded stamp is not in the format this script' >&2
+        printf '%s\n' 'writes, so it cannot be compared field by field.' >&2
+      else
+        if [ "$subjects_moved" = true ]; then
+          printf '%s\n' 'What moved: the scope-changing commits below.' >&2
+        fi
+        if [ "$acceptance_moved" = true ]; then
+          printf '%s\n' 'What moved: the acceptance text, as well as the commits.' >&2
+        fi
       fi
       printf '%s\n' 'Scope-changing commits now in this branch (fix/test/docs/chore excluded):' >&2
       scope_subjects | sed 's/^/  /' >&2
