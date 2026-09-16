@@ -221,19 +221,34 @@ expect_rc 'the bare namespace word alone does not false-positive' 0 \
   bash "$tool" --root "$ticket" --denylist "$tk_denylist" --no-history
 
 # THE GATE ITSELF. Everything above proves the checker can go red against fixtures; this runs it
-# against THIS repository's tracked tree, which is what makes registering the selftest in
-# scripts/verify.sh actually gate anything. Without it the suite is green while the tree leaks
-# (measured: a planted name passed a full verify run — rules/verification-integrity.md).
+# against THIS repository, which is what makes registering the selftest in scripts/verify.sh
+# actually gate anything. Without it the suite is green while the tree leaks (measured: a planted
+# name passed a full verify run — rules/verification-integrity.md).
 #
-# Tree only, deliberately. The three surfaces are covered in three places and this is the daily
-# one: new commit messages are checked by the commit agent before push (agents/commit.md Step 8),
-# and full history is checked once, at a history rewrite. A gate that scanned all history would be
-# red for reasons no current change can fix.
-real_output=$(bash "$tool" --root "$root" --no-history 2>&1); real_rc=$?
-if [ "$real_rc" -eq 0 ]; then
-  pass 'this repository'\''s tracked tree is clean'
+# Tracked tree plus the commit messages THIS BRANCH adds, and no further back. Scanning all
+# history would be red for reasons no current change can fix, which is a gate nobody can act on;
+# scanning the tree alone leaves commit messages to the commit agent's own diligence
+# (agents/commit.md Step 8), and a message is as public as a file. The branch range is the part a
+# leak can still be removed from by amending, so it is the part worth refusing.
+gate_base=''
+for candidate in origin/main main; do
+  if git -C "$root" rev-parse --verify --quiet "$candidate^{commit}" >/dev/null 2>&1; then
+    gate_base=$candidate
+    break
+  fi
+done
+if [ -z "$gate_base" ]; then
+  # An instrument that cannot resolve its own baseline must not report clean.
+  fail 'this repository is clean' "neither origin/main nor main resolves in $root, so the branch's commit messages cannot be scoped; run 'git fetch origin main' and re-run"
 else
-  fail 'this repository'\''s tracked tree is clean' "$real_output"
+  real_output=$(bash "$tool" --root "$root" --range "$gate_base..HEAD" 2>&1); real_rc=$?
+  # The reported scope is asserted, not just the verdict: a silent revert to --no-history would
+  # still exit 0 here while no longer reading a single commit message.
+  if [ "$real_rc" -eq 0 ] && printf '%s' "$real_output" | grep -Fq "commit messages in $gate_base..HEAD"; then
+    pass 'this repository is clean, tree and branch commit messages'
+  else
+    fail 'this repository is clean, tree and branch commit messages' "rc=$real_rc output=$real_output"
+  fi
 fi
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'NAME HYGIENE SELFTEST: PASS'; completed=1; exit 0; fi

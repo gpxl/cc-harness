@@ -40,7 +40,11 @@ a lesson.
 
 `scripts/name-hygiene.sh` scans tracked files and commit messages and fails naming the token, file
 and line. It is wired into `scripts/verify.sh` through the gate list in `CLAUDE.md`, so a leak
-fails the same gate as a broken test. Its denylist (`scripts/testdata/name-hashes.txt`) holds
+fails the same gate as a broken test. The gate scans the tracked tree plus the commit messages the
+**current branch** adds, and no further back: all of history would be red for reasons no current
+change can fix, while the tree alone would leave messages to the commit agent's diligence, and a
+message is as public as a file. The branch range is the part a leak can still be amended out of,
+so it is the part the gate refuses. Its denylist (`scripts/testdata/name-hashes.txt`) holds
 SHA-256 hashes only — no plaintext — so it is safe to publish and works on any clone.
 
 **Those hashes are obfuscation, not secrecy.** Unsalted SHA-256 of a short name falls to a
