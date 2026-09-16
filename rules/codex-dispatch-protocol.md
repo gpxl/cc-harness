@@ -37,7 +37,10 @@ Two blind spots in the companion's own `status`, both measured:
   path a harness kill reaches is a *foreground* task, and wrapping that in `setsid` would be worse
   (a detached worker whose completion nobody records). Long work → `--background`; the PID + log
   rule is what makes that safe.
-- **Check it isn't already running** (`codex-jobs.sh --active`) before launching; never a second copy.
+- **Check it isn't already running** before launching; never a second copy. Use `scripts/codex-dispatch.sh`,
+  or the **unfiltered** `codex-jobs.sh --json`: `--active` is the human-facing view and drops orphaned
+  queued/running records, which are exactly the ones a second worker would double-apply partial work
+  over (`codex-job-status-integrity.md` §4). It says so on stderr; the guard must not need to read that.
 - **Verify placement immediately**: `codex.sh status --json --cwd <ws>` must list the job as
   `queued`/`running` with `workspaceRoot` == the intended directory and a live pid. Anything
   rooted elsewhere: `codex.sh cancel <id> --cwd <that root>`, then re-dispatch. Half of
@@ -58,9 +61,12 @@ rounds takes the slot, and `--resume` on the next round resumes the FIX thread, 
 Claude session — with **no** session id in the environment it falls back to *all* jobs, so the same
 command resumes different threads depending on how it was launched. It then takes
 `findLatestResumableTaskJob`: the newest record that is `jobClass === "task"`, carries a `threadId`,
-and is **not** `queued`/`running`. So an in-flight job is never a resume target (`--resume` starts
-fresh instead of erroring), a job from another session is invisible to it, and a non-task record is
-skipped. Record the thread id you intend to continue and compare it before resuming; do not infer
+and is **not** `queued`/`running`. An in-flight same-session task does not merely fail to match —
+it makes `--resume` **fail**: `resolveLatestTrackedTaskThread` throws `Task <id> is still running.
+Use /codex:status before continuing it.`, and `executeTaskRun` does not catch it, so the task is
+lost rather than started fresh. A `--resume` that matches nothing fails the same way (`No previous
+Codex task thread was found for this repository.`). A job from another session is invisible to the
+search, and a non-task record is skipped. Record the thread id you intend to continue and compare it before resuming; do not infer
 it from "the last thing I dispatched".
 
 Consequences, both already wired: `review-round.sh` resumes only when the newest tracked thread is
