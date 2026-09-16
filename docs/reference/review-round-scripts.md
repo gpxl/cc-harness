@@ -14,7 +14,7 @@ without dispatching or changing state.
 | `--acceptance-reworded "<words>"` | Declare that only the wording of the acceptance text changed — same commits, same criteria; the round counter is kept |
 | `--user-approved "<words>"` | The owner's words authorising a round beyond three |
 | `--self-check` | Dispatch the author's own pre-round pass over the same diff, acceptance and evidence. Spends no round: no counter, scope stamp or reviewer thread is written, and it is refused once round 1 has been dispatched |
-| `--collect <job-id> --round 0` | Record that pass as `<branch-slug>-r0-self-review.md`; round 1's prompt inlines it, and says so when it is absent |
+| `--collect <job-id> --round 0` | Record that pass as `<branch-slug>-r0-self-review.md`; every later round's prompt inlines it, and says so when it is absent. Collecting the same job twice is idempotent; a second, later self-check is refused rather than silently discarded |
 
 State is local to the repository and independent of the project:
 

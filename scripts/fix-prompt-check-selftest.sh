@@ -30,7 +30,7 @@ run() {  # run <file> [args...] -> sets run_status, run_output
 # section deliberately QUOTES the phrases under test, so scanning the whole template would be a
 # test of the wrong text.
 clean="$tmp_root/clean-prompt.md"
-awk '/^## Worked example$/ { inside = 1; next } inside { print }' "$template" > "$clean"
+awk '/^## Worked example$/ { inside = 1; next } inside && /^## / { exit } inside { print }' "$template" > "$clean"
 [ -s "$clean" ] || { fail 'could not extract the worked example from the template'; completed=1; exit 1; }
 run "$clean" --label 'template worked example'
 [ "$run_status" -eq 0 ] || fail "a prompt written from the template was rejected (exit $run_status): $run_output"
@@ -46,7 +46,30 @@ cases=(
   '2|We are out of rounds after this.'
   '2|The review budget is nearly gone.'
   '2|This is your last chance to fix it.'
+  '2|Round 3/3 — finish everything.'
+  '2|This is round 3/3.'
+  '2|Rounds remaining: 1'
+  '2|Only one review round remains.'
+  '2|There is very little budget left.'
+  '2|We cannot afford another review round.'
+  '2|This is the final pass before we ship.'
+  '2|This is your last shot at this.'
+  '2|Round 3 of three.'
 )
+
+# Ordinary fix-prompt prose that names a round without applying pressure must stay clean — a check
+# that fires on "round 2 findings" would be unusable in the prompt it exists to guard.
+clean_lines=(
+  'You are closing branch-review round 2 findings on feat/x.'
+  'These findings came from round 2 of the review.'
+  'Report the mutation that proves each test can go red.'
+)
+for line in "${clean_lines[@]}"; do
+  ok="$tmp_root/ok.md"
+  printf '%s\n' "$line" > "$ok"
+  run "$ok"
+  [ "$run_status" -eq 0 ] || fail "ordinary prose was rejected: [$line] -> $run_output"
+done
 for case_row in "${cases[@]}"; do
   expected_line=${case_row%%|*}
   text=${case_row#*|}
@@ -75,6 +98,12 @@ case "$run_output" in
   *'1 line(s) apply'*) ;;
   *) fail "a line matching two patterns was not counted once: $run_output" ;;
 esac
+
+# An empty input is exit 2 as well: a scan over no bytes is a green that could never be red.
+empty="$tmp_root/empty.md"
+: > "$empty"
+run "$empty"
+[ "$run_status" -eq 2 ] || fail "an empty prompt file did not exit 2 (exit $run_status): $run_output"
 
 # A missing input is exit 2, never a clean bill (rules/verification-integrity.md).
 run "$tmp_root/not-there.md"

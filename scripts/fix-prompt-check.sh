@@ -19,7 +19,9 @@ prompt_file=''
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --label) label=${2:-}; shift 2 || exit 2 ;;
+    --label)
+      [ "$#" -ge 2 ] || { printf 'FIX PROMPT CHECK: --label needs a value\n' >&2; exit 2; }
+      label=$2; shift 2 ;;
     -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     -*) printf 'FIX PROMPT CHECK: unknown argument %s\n' "$1" >&2; exit 2 ;;
     *)
@@ -31,8 +33,15 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$prompt_file" ] || { printf 'FIX PROMPT CHECK: no prompt file given\n' >&2; exit 2; }
+
 if [ ! -f "$prompt_file" ]; then
   printf 'FIX PROMPT CHECK: FAIL (prompt file not found at %s — cannot report clean without it)\n' "$prompt_file" >&2
+  exit 2
+fi
+# An empty file is the same class as a missing one: a PASS over nothing is a green that could
+# never have been red (rules/verification-integrity.md).
+if [ ! -s "$prompt_file" ]; then
+  printf 'FIX PROMPT CHECK: FAIL (prompt file %s is empty — a scan of nothing is not a clean scan)\n' "$prompt_file" >&2
   exit 2
 fi
 
@@ -40,14 +49,19 @@ fi
 # are what the failure prints, so the author reads WHICH kind of pressure the line applies rather
 # than a regex. Add a row rather than widening one: a row that matches two things cannot say which.
 patterns=(
-  'countdown|round[[:space:]]+[0-9]+[[:space:]]+(of|/)[[:space:]]*[0-9]+'
+  'countdown|round[[:space:]]+[0-9]+[[:space:]]*(of|/)[[:space:]]*([0-9]+|one|two|three)'
   'last-round|(this[[:space:]]+is[[:space:]]+the[[:space:]]+)?(last|final)([[:space:]]+(allowed|permitted|available))?[[:space:]]+round'
   'rounds-left|[0-9]+[[:space:]]+(more[[:space:]]+)?rounds?[[:space:]]+(left|remaining)'
   'rounds-left|(no|one|two|three)[[:space:]]+(more[[:space:]]+)?rounds?[[:space:]]+(left|remaining)'
   'out-of-rounds|(out[[:space:]]+of|no[[:space:]]+more)[[:space:]]+rounds'
   'budget|(review|round)[[:space:]]+budget'
   'budget|budget[[:space:]]+(is[[:space:]]+)?(nearly[[:space:]]+)?(gone|exhausted|spent|up)'
-  'last-chance|last[[:space:]]+chance'
+  'last-chance|last[[:space:]]+(chance|shot|attempt|pass)'
+  'rounds-left|rounds?[[:space:]]+(remaining|left)[[:space:]]*:'
+  'rounds-left|(only[[:space:]]+)?(one|1|a[[:space:]]+single)[[:space:]]+(review[[:space:]]+)?round[[:space:]]+(remains|is[[:space:]]+left)'
+  'budget|budget[[:space:]]+(left|remaining)'
+  'budget|(cannot|can.t|could[[:space:]]+not)[[:space:]]+afford[[:space:]]+another[[:space:]]+(review[[:space:]]+)?round'
+  'last-round|(final|last)[[:space:]]+(pass|review)[[:space:]]+before'
 )
 
 # Two patterns can match one line (a "review budget" row and a "budget is gone" row both fire on

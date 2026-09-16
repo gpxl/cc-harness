@@ -6,6 +6,9 @@ root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 tool="$root/scripts/review-round.sh"
 sample_log="$root/scripts/testdata/review-job-sample.log"
 coverage_log="$root/scripts/testdata/review-job-coverage-sample.log"
+coverage_loose_log="$root/scripts/testdata/review-job-coverage-loose-sample.log"
+coverage_inline_log="$root/scripts/testdata/review-job-coverage-inline-sample.log"
+coverage_partial_log="$root/scripts/testdata/review-job-coverage-partial-sample.log"
 bullets_log="$root/scripts/testdata/review-job-bullets-sample.log"
 runner="$tool"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/review-round-selftest.XXXXXX") || exit 1
@@ -145,6 +148,25 @@ else
     "rc=$rc file=$(<"$self_review_state" 2>/dev/null || echo absent) counter=$(<"$state" 2>/dev/null || echo absent)"
 fi
 
+# A re-collect of the SAME job is idempotent; a SECOND self-check is refused rather than silently
+# handing back the first pass's file, which is how a pre-fix self-review reached round 1 while the
+# second pass's findings vanished (round 1 of this branch, MAJOR 3).
+run_subcommand --collect review-job --round 0
+if [ "$rc" -eq 0 ]; then
+  pass 'collecting the same self-check twice is idempotent'
+else
+  fail 'collecting the same self-check twice is idempotent' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+printf 'second-self-check-job\n' > "$state.self-check.job"
+run_subcommand --collect second-self-check-job --round 0
+if [ "$rc" -ne 0 ] && grep -Fq 'already holds an earlier self-check' "$tmp/err"; then
+  pass 'a second self-check will not silently overwrite the first record'
+else
+  fail 'a second self-check will not silently overwrite the first record' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+printf 'review-job\n' > "$state.self-check.job"
+
 # Round 1 must actually READ it — an r0 file nothing inlines is a file nobody wrote for a reason.
 run
 if [ "$rc" -eq 0 ] &&
@@ -153,6 +175,25 @@ if [ "$rc" -eq 0 ] &&
   pass 'round 1 inlines the recorded self-review'
 else
   fail 'round 1 inlines the recorded self-review' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# Round-flags mean nothing to a self-check and are refused rather than ignored.
+reset_state
+write_job_log
+run --self-check --user-approved 'the owner said so'
+if [ "$rc" -ne 0 ] && grep -Fq 'mean nothing to a self-check' "$tmp/err"; then
+  pass 'self-check refuses flags that only a budgeted round can honour'
+else
+  fail 'self-check refuses flags that only a budgeted round can honour' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+write_job_log
+run --self-check --dry-run
+if [ "$rc" -eq 0 ] && printf '%s' "$output" | grep -Fq 'which is not a round' && ! printf '%s' "$output" | grep -Fq 'next round would be 0'; then
+  pass 'a dry-run self-check does not report itself as round 0'
+else
+  fail 'a dry-run self-check does not report itself as round 0' "rc=$rc output=$output"
 fi
 
 # Absent, it is a STATED gap, not silence.
@@ -217,7 +258,7 @@ cp "$coverage_findings" "$coverage_findings_fixture"
 
 reset_state
 use_coverage_log
-make_mutant 's|in_final && /\^COVERAGE:/|in_final \&\& /^NEVER-MATCHES:/|'
+make_mutant 's|COVERAGE:/|NEVER-MATCHES:/|'
 run_subcommand --collect review-job --round 1
 if [ "$rc" -ne 0 ] || ! grep -Fqx 'COVERAGE:' "$state-r1-findings.md" 2>/dev/null; then
   pass 'coverage-extraction source mutation goes red'
@@ -225,6 +266,59 @@ else
   fail 'coverage-extraction source mutation goes red' "rc=$rc findings=$(<"$state-r1-findings.md" 2>/dev/null || true)"
 fi
 runner="$tool"
+
+# Shapes a real reviewer writes that the first parser dropped SILENTLY while keeping the header,
+# so the next round was told nobody recorded a gap (round 1 of this branch, MAJOR 1).
+reset_state
+cp "$coverage_loose_log" "$job_log"
+run_subcommand --collect review-job --round 1
+loose_findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] &&
+  grep -q '^traced=scripts/review-round.sh' "$loose_findings" &&
+  grep -q '^not-traced=docs/reference/review-round-scripts.md' "$loose_findings" &&
+  grep -q 'out of reach from this diff' "$loose_findings" &&
+  ! grep -q 'none recorded' "$loose_findings"; then
+  pass 'a map with blank lines and a wrapped field survives collection'
+else
+  fail 'a map with blank lines and a wrapped field survives collection' "rc=$rc findings=$(<"$loose_findings" 2>/dev/null || true)"
+fi
+
+reset_state
+cp "$coverage_inline_log" "$job_log"
+run_subcommand --collect review-job --round 1
+inline_findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] &&
+  grep -q '^traced=scripts/review-round.sh' "$inline_findings" &&
+  grep -q '^not-traced=docs/reference/review-round-scripts.md' "$inline_findings"; then
+  pass 'a one-line coverage map is split into its fields'
+else
+  fail 'a one-line coverage map is split into its fields' "rc=$rc findings=$(<"$inline_findings" 2>/dev/null || true)"
+fi
+
+# A header with no fields is a PARTIAL map. Keying the backstop on the header let it read as a
+# complete one, which is how "the reviewer named no gap" and "the parser lost it" became the same
+# answer — the instrument failure this feature exists to remove.
+reset_state
+cp "$coverage_partial_log" "$job_log"
+run_subcommand --collect review-job --round 1
+partial_findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] && grep -q 'COVERAGE: (incomplete' "$partial_findings"; then
+  pass 'a coverage header with no fields is recorded as incomplete'
+else
+  fail 'a coverage header with no fields is recorded as incomplete' "rc=$rc findings=$(<"$partial_findings" 2>/dev/null || true)"
+fi
+
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf '%s\n' 'MAJOR: hand-written r1 finding' 'VERDICT: NO-GO' 'Dispositions: fixed' > "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] && grep -Fq 'round 1: no coverage map was recorded' "$tmp/dispatched-prompt"; then
+  pass 'a hand-written findings file reads as unknown gaps, not as no gaps'
+else
+  fail 'a hand-written findings file reads as unknown gaps, not as no gaps' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
 
 # A recorded gap becomes the NEXT round's target; that is the whole point of recording it.
 reset_state
@@ -631,6 +725,26 @@ if compgen -G "$state.scope-*/$slug-r1-findings.md" > /dev/null && compgen -G "$
   pass 'the archived scope keeps its counter and findings'
 else
   fail 'the archived scope keeps its counter and findings' "archive=$(ls -d "$state".scope-* 2>/dev/null || true)"
+fi
+
+# The self-check's record archives with the rest. Its file name does not match the findings glob,
+# so leaving it behind handed the NEW scope's round 1 a pass over a diff that no longer exists
+# (round 1 of this branch, MAJOR 2).
+printf '%s\n' 'MAJOR: stale self-review from the old scope' 'VERDICT: NO-GO' > "$state-r0-self-review.md"
+printf 'old-self-check-job\n' > "$state.self-check.job"
+printf 'old-self-check-job\n' > "$state.r0-collected.job"
+printf 'grown again\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): add a third capability to the branch' -q
+seed_prior_findings 1
+run --scope-changed 'third capability added; acceptance restated'
+if [ "$rc" -eq 0 ] &&
+  [ ! -e "$state-r0-self-review.md" ] && [ ! -e "$state.self-check.job" ] && [ ! -e "$state.r0-collected.job" ] &&
+  compgen -G "$state.scope-*/$slug-r0-self-review.md" > /dev/null &&
+  ! grep -Fq 'stale self-review from the old scope' "$tmp/dispatched-prompt"; then
+  pass 'a scope change archives the self-review instead of inlining it into the new scope'
+else
+  fail 'a scope change archives the self-review instead of inlining it into the new scope' \
+    "rc=$rc live=$(ls "$state"-r0-self-review.md "$state".self-check.job 2>/dev/null || echo gone)"
 fi
 
 reset_state

@@ -197,8 +197,8 @@ exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 classes over the author's own diff with the same acceptance criteria and evidence the reviewer will
 get, and lists every finding it expects an adversary to raise. It spends **no** round: it writes no
 counter, no scope stamp and no reviewer thread, and it is refused once round 1 has been dispatched.
-`--collect <job-id> --round 0` records it as `<slug>-r0-self-review.md`, which round 1's prompt
-inlines — so the reviewer re-checks those claims and targets what the self-check did not cover, and
+`--collect <job-id> --round 0` records it as `<slug>-r0-self-review.md`, which every later round's
+prompt inlines — so the reviewer re-checks those claims and targets what the self-check did not cover, and
 its absence is stated rather than silent.
 
 Why it exists: first deliveries reach round 1 with no adversarial pass at all, and round 1 then
