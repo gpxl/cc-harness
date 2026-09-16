@@ -100,6 +100,9 @@ be safe, which is how a fix round grows into the thing the next round has to rev
 branch the round-3 fix prompt carried exactly that sentence, and rounds 4 and 5 each found a fresh
 defect inside what it produced.
 
+When the prompt is written to a file, `scripts/fix-prompt-check.sh <file>` says whether it carries
+any of that phrasing, naming the line. A rule nothing checks is a rule the next tired author breaks.
+
 ---
 
 ## Worked example

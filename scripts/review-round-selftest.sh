@@ -5,6 +5,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 tool="$root/scripts/review-round.sh"
 sample_log="$root/scripts/testdata/review-job-sample.log"
+coverage_log="$root/scripts/testdata/review-job-coverage-sample.log"
 bullets_log="$root/scripts/testdata/review-job-bullets-sample.log"
 runner="$tool"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/review-round-selftest.XXXXXX") || exit 1
@@ -112,11 +113,164 @@ if [ "$rc" -eq 0 ] && [ "$(<"$findings")" = "$(printf '%s\n' \
   '### MAJOR — Required AudioApp migration is explicitly deferred' \
   'VERDICT: NO-GO' \
   'OPEN BLOCKERS: 2' \
+  "COVERAGE: (none recorded — this round's report carried no coverage map, so its gaps are unknown)" \
   'Dispositions:')" ]; then
   pass 'collect writes the expected findings from the captured job log'
 else
   fail 'collect writes the expected findings from the captured job log' "rc=$rc findings=$(<"$findings" 2>/dev/null || true)"
 fi
+
+# ---- pre-review self-check (cch-q4c.4) -------------------------------------------------------
+# It must spend no budget, write no round state, and hand round 1 what it found.
+reset_state
+write_job_log
+run --self-check
+self_review_state="$state-r0-self-review.md"
+if [ "$rc" -eq 0 ] &&
+  grep -Fq 'PRE-REVIEW SELF-CHECK' "$tmp/dispatched-prompt" &&
+  grep -Fq 'five risk classes' "$tmp/dispatched-prompt" &&
+  [ ! -e "$state" ] && [ ! -e "$state.scope" ] && [ ! -e "$state.thread" ] &&
+  [ -f "$state.self-check.job" ]; then
+  pass 'self-check dispatches an author-side pass and writes no round state'
+else
+  fail 'self-check dispatches an author-side pass and writes no round state' \
+    "rc=$rc counter=$(<"$state" 2>/dev/null || echo absent) prompt=$(head -3 "$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+run_subcommand --collect review-job --round 0
+if [ "$rc" -eq 0 ] && [ -f "$self_review_state" ] && [ ! -e "$state" ]; then
+  pass 'collect --round 0 records the self-review without touching the counter'
+else
+  fail 'collect --round 0 records the self-review without touching the counter' \
+    "rc=$rc file=$(<"$self_review_state" 2>/dev/null || echo absent) counter=$(<"$state" 2>/dev/null || echo absent)"
+fi
+
+# Round 1 must actually READ it — an r0 file nothing inlines is a file nobody wrote for a reason.
+run
+if [ "$rc" -eq 0 ] &&
+  grep -Fq 'Author self-review and dispositions' "$tmp/dispatched-prompt" &&
+  grep -Fq 'MAJOR — Fresh R2/R3 reviewers receive no prior findings' "$tmp/dispatched-prompt"; then
+  pass 'round 1 inlines the recorded self-review'
+else
+  fail 'round 1 inlines the recorded self-review' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# Absent, it is a STATED gap, not silence.
+reset_state
+write_job_log
+run
+if [ "$rc" -eq 0 ] && grep -Fq 'No author self-check was recorded' "$tmp/dispatched-prompt"; then
+  pass 'a missing self-check is stated in the round-1 prompt'
+else
+  fail 'a missing self-check is stated in the round-1 prompt' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# The self-check is a PRE-round pass: once a round has been dispatched it is refused, so it can
+# never be used to reset or launder a branch already under review.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf '%s\n' 'MAJOR: seeded r1 finding' 'VERDICT: NO-GO' 'Dispositions: fixed' > "$state-r1-findings.md"
+run --self-check
+if [ "$rc" -ne 0 ]; then
+  pass 'self-check is refused once a round has been dispatched'
+else
+  fail 'self-check is refused once a round has been dispatched' "rc=$rc"
+fi
+
+reset_state
+write_job_log
+make_mutant 's/Author self-review and dispositions/Author self-review absent/'
+run_subcommand --collect review-job --round 0 >/dev/null 2>&1 || true
+run
+if [ "$rc" -ne 0 ] || ! grep -Fq 'Author self-review and dispositions' "$tmp/dispatched-prompt" 2>/dev/null; then
+  pass 'self-review inlining source mutation goes red'
+else
+  fail 'self-review inlining source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# ---- coverage map round-trip (cch-q4c.5) ----------------------------------------------------
+# The sample is the same captured reviewer log as above with a COVERAGE block added by hand: the
+# contract is new, so no reviewer has yet been prompted for one. What is real is the log shape
+# around it — the Final output framing, the trailing verdict lines — which is what the extractor
+# actually has to survive.
+use_coverage_log() { cp "$coverage_log" "$job_log"; }
+
+reset_state
+use_coverage_log
+run_subcommand --collect review-job --round 1
+coverage_findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] &&
+  grep -Fqx 'COVERAGE:' "$coverage_findings" &&
+  grep -q '^traced=scripts/review-round.sh' "$coverage_findings" &&
+  grep -q '^not-traced=docs/reference/review-round-scripts.md' "$coverage_findings"; then
+  pass 'collect carries the coverage map into the findings file'
+else
+  fail 'collect carries the coverage map into the findings file' "rc=$rc findings=$(<"$coverage_findings" 2>/dev/null || true)"
+fi
+# Keep what collect actually produced: the later rows then feed the NEXT round exactly the file
+# this pipeline writes, not a hand-made stand-in that could drift from it.
+coverage_findings_fixture="$tmp/r1-coverage-findings.md"
+cp "$coverage_findings" "$coverage_findings_fixture"
+
+reset_state
+use_coverage_log
+make_mutant 's|in_final && /\^COVERAGE:/|in_final \&\& /^NEVER-MATCHES:/|'
+run_subcommand --collect review-job --round 1
+if [ "$rc" -ne 0 ] || ! grep -Fqx 'COVERAGE:' "$state-r1-findings.md" 2>/dev/null; then
+  pass 'coverage-extraction source mutation goes red'
+else
+  fail 'coverage-extraction source mutation goes red' "rc=$rc findings=$(<"$state-r1-findings.md" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# A recorded gap becomes the NEXT round's target; that is the whole point of recording it.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+cp "$coverage_findings_fixture" "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] &&
+  grep -Fq 'What earlier rounds recorded as NOT traced' "$tmp/dispatched-prompt" &&
+  grep -Fq 'round 1: not-traced=docs/reference/review-round-scripts.md' "$tmp/dispatched-prompt"; then
+  pass 'R2 prompt targets what round 1 did not trace'
+else
+  fail 'R2 prompt targets what round 1 did not trace' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+cp "$coverage_findings_fixture" "$state-r1-findings.md"
+make_mutant "s|grep -i '\^\[\[:space:\]\]\*not-traced|grep -i '^[[:space:]]*no-such-field|"
+run
+if [ "$rc" -ne 0 ] || ! grep -Fq 'round 1: not-traced=docs/reference' "$tmp/dispatched-prompt" 2>/dev/null; then
+  pass 'not-traced carry-forward source mutation goes red'
+else
+  fail 'not-traced carry-forward source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# A round that recorded NO map must not read as "nothing was skipped".
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf '%s\n' 'MAJOR: seeded r1 finding' 'VERDICT: NO-GO' \
+  "COVERAGE: (none recorded — this round's report carried no coverage map, so its gaps are unknown)" \
+  'Dispositions: fixed' > "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] && grep -Fq 'round 1: no coverage map was recorded' "$tmp/dispatched-prompt"; then
+  pass 'a round with no coverage map is stated as an unknown gap, not silence'
+else
+  fail 'a round with no coverage map is stated as an unknown gap, not silence' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+write_job_log
 
 reset_state
 make_mutant 's/in_final = 1/in_final = 0/'
