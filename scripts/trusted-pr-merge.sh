@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Resolved from this script's own location: every helper below must come from the TRUSTED
 # harness, never from the candidate checkout, whose contents are the thing under review.
-script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 readonly script_dir
 
 readonly HOLD_EXIT=20
@@ -97,6 +97,12 @@ esac
 [ -n "$gate" ] || die '--gate is required'
 [ -d "$checkout" ] || die "candidate checkout is not a directory: $checkout"
 checkout=$(cd -- "$checkout" && pwd -P) || die "could not resolve candidate checkout: $checkout"
+# The whole point of this wrapper is that it is not the code it is judging. Running it from inside
+# the candidate would take both it and review-ack-check.sh from the branch under review, which
+# could ship a permissive copy of the validator that decides whether it may merge.
+case "$script_dir/" in
+  "$checkout"/*) die "this wrapper lives inside the candidate checkout ($checkout); run the trusted copy instead" ;;
+esac
 case "$gate" in
   /*|..|../*|*/../*|*/..) die '--gate must be a candidate-relative path without ..' ;;
 esac
@@ -196,7 +202,10 @@ load_pr() {
 # review-acknowledgement requirement, so the two can never drift apart.
 readonly HIGH_RISK_PATH_FILTER='
     def high_risk_path:
-      . == "CLAUDE.md" or
+      . == "CLAUDE.md" or endswith("/CLAUDE.md") or
+      . == "install.sh" or . == "uninstall.sh" or
+      startswith("scripts/") or
+      startswith("hooks/") or
       startswith(".github/") or
       test("(^|/)(repository|workflow)[-_]?settings(\\.|/|$)") or
       startswith(".claude/rules/") or
@@ -220,7 +229,14 @@ review_ack_ok() {  # review_ack_ok <pr-json>
   local body ack
   body=$(jq -r '.body // ""' <<<"$1") || return 1
   # The acknowledgement is one line of the body, marked so it can be found without parsing prose.
-  ack=$(printf '%s\n' "$body" | sed -nE 's/^[[:space:]]*(>[[:space:]]*)?REVIEW ACK:[[:space:]]*//p' | head -1)
+  # Fenced regions are stripped first: a pull request that DOCUMENTS this format — the likeliest
+  # kind of pull request to touch it — must not thereby satisfy it. The line must also be
+  # unindented and unquoted, so an illustration or a quoted reply does not count, and the LAST
+  # match wins so a template shown before the real acknowledgement does not shadow it.
+  ack=$(printf '%s\n' "$body" | awk '
+    /^[[:space:]]*```/ { fenced = !fenced; next }
+    !fenced
+  ' | sed -nE 's/^REVIEW ACK:[[:space:]]*//p' | tail -1)
   [ -n "$ack" ] || return 1
   # The TRUSTED checker, resolved from this script's directory. A candidate checkout could ship a
   # permissive copy of the validator it is being judged by.

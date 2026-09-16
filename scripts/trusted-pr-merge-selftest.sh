@@ -123,6 +123,33 @@ case "${TEST_SCENARIO:?}" in
   internal_ordinary_no_ack)
     association='OWNER'; author_login='owner-user'
     ;;
+  internal_script_no_ack)
+    association='OWNER'; author_login='owner-user'; path='scripts/review-ack-check.sh'
+    ;;
+  internal_hook_no_ack)
+    association='OWNER'; author_login='owner-user'; path='hooks/selftest.sh'
+    ;;
+  internal_global_claude_md_no_ack)
+    association='OWNER'; author_login='owner-user'; path='global/CLAUDE.md'
+    ;;
+  internal_installer_no_ack)
+    association='OWNER'; author_login='owner-user'; path='install.sh'
+    ;;
+  external_script)
+    path='scripts/verify.sh'
+    ;;
+  internal_fenced_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'Documenting the format:' '```' "$valid_ack" '```' 'No review was run.')
+    ;;
+  internal_quoted_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '> %s\n' "$valid_ack")
+    ;;
+  internal_template_then_ack)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body=$(printf '%s\n' 'REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>' '' "$valid_ack")
+    ;;
   ack_removed_after_gate)
     association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
     if [ "$count" -lt 2 ]; then body="$valid_ack"; fi
@@ -268,6 +295,49 @@ assert_eq 20 "$run_status" || true
 assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
 assert_file_present "$tmpdir/gate-ran" || true
 assert_file_absent "$tmpdir/merge-called" || true
+
+
+# The gate must cover the CHECKS, not only the policy that describes them: a pull request that
+# guts the acknowledgement checker or removes a selftest from the gate list is exactly the change
+# least able to vouch for itself.
+for scenario in internal_script_no_ack internal_hook_no_ack internal_global_claude_md_no_ack internal_installer_no_ack; do
+  run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+  assert_file_absent "$tmpdir/gate-ran" || true
+done
+
+# The same widening must reach the pre-existing external-contributor hold, which shares the filter.
+run_wrapper external_script
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=external-high-risk-path' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+# An acknowledgement that is being ILLUSTRATED is not one that was made.
+run_wrapper internal_fenced_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+
+run_wrapper internal_quoted_ack
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+
+# A template shown above the real acknowledgement must not shadow it.
+run_wrapper internal_template_then_ack
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+
+# The wrapper must refuse to be the candidate it is judging.
+rm -f "$tmpdir/gate-ran"
+set +e
+TEST_TMP="$tmpdir" TEST_SCENARIO=internal_rules_with_ack TEST_LOCAL_HEAD='head-sha-1' PATH="$tmpdir/bin:$PATH" \
+  bash "$wrapper" --repo octo/example --pr 42 --checkout "$(dirname -- "$wrapper")/.." --gate gate \
+  > "$tmpdir/stdout" 2> "$tmpdir/stderr"
+inside_status=$?
+set -e
+assert_eq 2 "$inside_status" || true
+assert_contains "$(<"$tmpdir/stderr")" 'lives inside the candidate checkout' || true
+assert_file_absent "$tmpdir/gate-ran" || true
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'TRUSTED PR MERGE SELFTEST: PASS'
