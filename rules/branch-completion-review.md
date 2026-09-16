@@ -211,9 +211,12 @@ It runs under a **three-round budget** per branch — not per commit, not per fi
 **Round budget: 3, per reviewed scope.** Not per branch: a branch that grows a feature between
 rounds is not on its second look at the same code, it is on its first look at different code.
 `review-round.sh` stamps the scope at R1 (the acceptance text plus every commit subject that is not
-`fix`/`test`/`docs`/`chore`) and refuses the next round when that stamp moves, until the acceptance
-criteria are restated and `--scope-changed "<what changed>"` declares it; the prior rounds are then
-archived and the counter restarts. Prefer one tracker item per PR — the 6-round branch measured on
+`fix`/`test`/`docs`/`chore`) and refuses the next round when that stamp moves, until
+`--scope-changed "<what changed>"` declares it; the prior rounds are then archived and the counter
+restarts. Restating what done means for the enlarged branch is the point of that declaration, but
+the script cannot check that you did — it only requires the flag and a non-empty reason. The stamp
+reads commit *subjects*, so amending a commit's body or its diff moves nothing; declare a scope
+change yourself when the code grew under an unchanged subject. Prefer one tracker item per PR — the 6-round branch measured on
 2026-09-16 carried six, and its reviewed diff went 856 → 6,685 → 9,339 lines while the counter
 climbed as though nothing had changed (rounds per branch then ran at a median of 3 against a target
 of ≤2, which is the metric this edit moves).

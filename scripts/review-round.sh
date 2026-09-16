@@ -82,6 +82,8 @@ case "$thread_wait_seconds" in
 esac
 [ "$thread_wait_seconds" -le 30 ] || { printf '%s\n' 'review-round: REVIEW_ROUND_THREAD_WAIT_SECONDS must be at most 30' >&2; exit 2; }
 
+archive_pending=''
+
 dispatcher=${REVIEW_ROUND_DISPATCH:-}
 if [ -z "$dispatcher" ]; then
   dispatcher=$(command -v codex-dispatch.sh 2>/dev/null || printf '%s' "$script_dir/codex-dispatch.sh")
@@ -111,9 +113,12 @@ resolve_acceptance() {  # -> acceptance text on stdout, empty when none could be
   [ -n "$bead" ] || return 0
   command -v bd >/dev/null 2>&1 || return 0
   shown=$(bd show "$bead" 2>/dev/null) || return 0
+  # Terminate on the NEXT bd show section heading, not on any all-caps line: criteria bodies
+  # legitimately contain them ("MUST NOT REGRESS"), and the old terminator silently dropped
+  # everything after the first one — two-thirds of a definition of done, with no indication.
   printf '%s\n' "$shown" | awk '
     /^ACCEPTANCE CRITERIA$/ { found = 1; next }
-    found && /^[A-Z][A-Z _-]+$/ { exit }
+    found && /^(DESCRIPTION|DESIGN|NOTES|ACCEPTANCE CRITERIA|PARENT|CHILDREN|DEPENDS ON|BLOCKS|RELATED|LABELS|COMMENTS|ATTACHMENTS|HISTORY)[[:space:]]*$/ { exit }
     found && NF { print }
   '
 }
@@ -137,20 +142,42 @@ refuse_without_acceptance() {
 # refactor commit makes the next round a first look at different code, which the per-branch counter
 # used to charge against the old budget.
 scope_subjects() {
-  git log --format=%s "$base..HEAD" 2>/dev/null \
-    | grep -vaE '^(fix|test|docs|chore)(\([^)]*\))?!?:' || true
+  local subjects
+  # Capture git's own status before any filter touches it: a pipeline would report grep's status,
+  # and `|| true` would erase the difference between "git failed" and "no scope-changing commits"
+  # (rules/verification-integrity.md). A bad base must not read as an empty scope.
+  subjects=$(git log --format=%s "$base..HEAD") || {
+    printf 'review-round: cannot list commits in %s..HEAD\n' "$base" >&2
+    exit 2
+  }
+  [ -n "$subjects" ] || return 0
+  printf '%s\n' "$subjects" | grep -vaE '^(fix|test|docs|chore)(\([^)]*\))?!?:' || true
 }
 
 scope_stamp() {  # scope_stamp <acceptance> -> hex digest of acceptance + scope-changing subjects
   { printf '%s\n' "$1"; printf -- '---\n'; scope_subjects; } | sha256_hex
 }
 
-archive_scope_state() {  # archive_scope_state <old-stamp>
-  local stamp=$1 archive="$counter.scope-${1:0:12}" f
+archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
+  local base_dir archive n=1 f
+  base_dir="$counter.scope-${1:0:12}"
+  archive="$base_dir"
+  # A branch can return to a scope it reviewed before (revert, then re-land), which would key a
+  # second archive to the same stamp. Both documents promise "archived, not deleted", so never
+  # reuse a directory that already holds rounds.
+  while [ -e "$archive" ]; do
+    n=$((n + 1))
+    archive="$base_dir-$n"
+  done
   mkdir -p "$archive"
   for f in "$counter" "$thread_file" "$job_file" "$scope_file" "$state_dir/$slug"-r*-findings.md; do
     [ -e "$f" ] || continue
-    mv "$f" "$archive/" 2>/dev/null || true
+    # A half-archive leaves stale findings the next round would read as this scope's, so a failed
+    # move is fatal rather than skipped.
+    mv "$f" "$archive/" || {
+      printf 'review-round: could not archive %s into %s\n' "$f" "$archive" >&2
+      exit 1
+    }
   done
   printf '%s\n' "$archive"
 }
@@ -311,7 +338,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 prepare_round() {
-  local recorded_stamp='' archive
+  local recorded_stamp=''
 
   goal=$(resolve_acceptance)
   [ -n "$(printf '%s' "$goal" | tr -d '[:space:]')" ] || refuse_without_acceptance
@@ -333,8 +360,13 @@ prepare_round() {
       printf '%s\n' 'The counter restarts at round 1; the prior rounds are archived, not deleted.' >&2
       exit 1
     fi
-    archive=$(archive_scope_state "$recorded_stamp")
-    printf 'REVIEW ROUND: scope changed since round %s; archived to %s\n' "$previous" "$archive"
+    # Do NOT archive here. Everything between this point and a successful dispatch can fail —
+    # a bad base ref, mktemp, the dispatcher itself — and an archive performed early would leave
+    # the branch with no counter and no findings, so the NEXT run would dispatch as a fresh round 1
+    # with "(none — this is the first round)". That is the silent placeholder this script exists to
+    # remove, reintroduced by its own repair. Archive with the new round's state instead.
+    archive_pending=$recorded_stamp
+    printf 'REVIEW ROUND: scope changed since round %s; archiving on dispatch\n' "$previous"
     printf 'REVIEW ROUND: scope change accepted — %s\n' "$scope_changed"
     previous=0
   fi
@@ -364,6 +396,11 @@ prepare_round() {
 
   goal_line=$(printf '%s' "$goal" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
   printf 'GOAL: %s | ROUND %s/3 | OPEN BLOCKERS ? | NEXT: wait for verdict\n' "$goal_line" "$round"
+}
+
+git rev-parse --verify --quiet "$base^{commit}" >/dev/null || {
+  printf 'review-round: %s is not a commit this worktree can resolve\n' "$base" >&2
+  exit 2
 }
 
 if [ "$dry_run" = false ]; then
@@ -492,6 +529,10 @@ wait_command=$(decode "$wait_command_b64")
 [ -n "$job_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId' >&2; exit 1; }
 
 # Persist launch state before resolving asynchronous reviewer metadata.
+if [ -n "$archive_pending" ]; then
+  archive=$(archive_scope_state "$archive_pending")
+  printf 'REVIEW ROUND: prior scope archived to %s\n' "$archive"
+fi
 printf '%s\n' "$round" > "$counter"
 printf '%s\n' "$job_id" > "$job_file"
 printf '%s\n' "$stamp" > "$scope_file"

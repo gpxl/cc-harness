@@ -23,6 +23,17 @@ You are closing branch-review round `<n>` findings on `<branch>`. Worktree: `<ab
 > makes a defect here matter. Name the files to read first. Do not summarise the findings here —
 > they get their own section, verbatim.
 
+### Acceptance criteria (verbatim)
+
+> The branch's definition of done, copied from the tracker item or `REVIEW_ROUND_ACCEPTANCE`
+> exactly as `review-round.sh` gave it to the reviewer. It is the boundary the Constraints section
+> below refers to, so it has to actually appear in the prompt — a constraint that points at text
+> the task was never shown is not a constraint.
+
+```
+<the acceptance criteria, verbatim>
+```
+
 ### 1. FINDINGS
 
 > The reviewer's findings **verbatim**, each with the orchestrator's disposition. Verbatim matters:
@@ -103,6 +114,13 @@ You are closing branch-review round 2 findings on `feat/cache-eviction`. Worktre
 Entries are evicted when the byte budget is exceeded. The product bar: a stale entry served after
 invalidation is a correctness bug, not a performance one. Read `src/cache/store.ts`,
 `src/cache/eviction.ts` and their tests first.
+
+**Acceptance criteria (verbatim)**
+
+```
+Entries are evicted when the byte budget is exceeded, and no entry is served after it has been
+invalidated.
+```
 
 **1. FINDINGS**
 

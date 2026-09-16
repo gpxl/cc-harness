@@ -314,10 +314,10 @@ fi
 reset_state
 RR_ACCEPTANCE='   
 	 ' run
-if [ "$rc" -ne 0 ] && [ ! -e "$state" ]; then
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && grep -Fq 'no acceptance criteria resolved' "$tmp/err"; then
   pass 'whitespace-only acceptance criteria refuse the round'
 else
-  fail 'whitespace-only acceptance criteria refuse the round' "rc=$rc"
+  fail 'whitespace-only acceptance criteria refuse the round' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
 reset_state
@@ -366,7 +366,9 @@ mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
 make_mutant 's/\[ -n "$missing" \]/false/'
 run
-if ! grep -Fq 'no findings recorded for round(s)' "$tmp/err"; then
+# Without the guard the run gets past the refusal and dies reading the absent findings file, so
+# assert BOTH that the refusal is gone and that the failure moved to the unguarded read.
+if ! grep -Fq 'no findings recorded for round(s)' "$tmp/err" && grep -Fq 'r1-findings.md' "$tmp/err"; then
   pass 'missing-prior-findings refusal source mutation goes red'
 else
   fail 'missing-prior-findings refusal source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
@@ -394,10 +396,10 @@ fi
 
 reset_state
 run --evidence-file "$tmp/does-not-exist.txt"
-if [ "$rc" -ne 0 ] && [ ! -e "$state" ]; then
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && grep -Fq 'does not exist' "$tmp/err"; then
   pass 'a missing evidence file refuses rather than reporting no records'
 else
-  fail 'a missing evidence file refuses rather than reporting no records' "rc=$rc"
+  fail 'a missing evidence file refuses rather than reporting no records' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
 reset_state
@@ -489,6 +491,158 @@ else
   fail 'scope-change refusal source mutation goes red' "rc=$rc counter=$(<"$state" 2>/dev/null || true)"
 fi
 runner="$tool"
+
+# --- round 1 review fixes -----------------------------------------------------------------------
+
+# BLOCKER: a dispatch failure after an accepted scope change must not destroy the live record.
+reset_state
+run
+printf 'grown\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): grow the branch again' -q
+seed_prior_findings 1
+cat > "$tmp/bin/codex-dispatch.sh" <<'DISPATCH'
+#!/usr/bin/env bash
+exit 7
+DISPATCH
+chmod +x "$tmp/bin/codex-dispatch.sh"
+run --scope-changed 'grown, acceptance restated'
+if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 1 ] && [ -f "$state-r1-findings.md" ] && ! compgen -G "$state.scope-*" > /dev/null; then
+  pass 'a failed dispatch after a scope change leaves the live counter and findings in place'
+else
+  fail 'a failed dispatch after a scope change leaves the live counter and findings in place' "rc=$rc counter=$(<"$state" 2>/dev/null || true) archive=$(ls -d "$state".scope-* 2>/dev/null || true)"
+fi
+cat > "$tmp/bin/codex-dispatch.sh" <<'DISPATCH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$RR_TMP/dispatch-argv"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--prompt-file' ]; then
+    cp "$2" "$RR_TMP/dispatched-prompt"
+    break
+  fi
+  shift
+done
+printf '{"jobId":"review-job","logFile":"%s","waitCommand":"scripts/codex-wait.sh review-job --cwd /repo"}\n' "$RR_JOB_LOG"
+DISPATCH
+chmod +x "$tmp/bin/codex-dispatch.sh"
+
+reset_state
+run
+printf 'grown-two\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): grow once more' -q
+seed_prior_findings 1
+make_mutant 's/^    archive_pending=$recorded_stamp$/    archive_pending=$recorded_stamp; archive_scope_state "$recorded_stamp" >\/dev\/null/'
+cat > "$tmp/bin/codex-dispatch.sh" <<'DISPATCH'
+#!/usr/bin/env bash
+exit 7
+DISPATCH
+chmod +x "$tmp/bin/codex-dispatch.sh"
+run --scope-changed 'grown'
+runner="$tool"
+if [ -f "$state" ] || [ -f "$state-r1-findings.md" ]; then
+  fail 'deferred-archive source mutation goes red' "the mutant kept the live record after a failed dispatch"
+else
+  pass 'deferred-archive source mutation goes red'
+fi
+cat > "$tmp/bin/codex-dispatch.sh" <<'DISPATCH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$RR_TMP/dispatch-argv"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--prompt-file' ]; then
+    cp "$2" "$RR_TMP/dispatched-prompt"
+    break
+  fi
+  shift
+done
+printf '{"jobId":"review-job","logFile":"%s","waitCommand":"scripts/codex-wait.sh review-job --cwd /repo"}\n' "$RR_JOB_LOG"
+DISPATCH
+chmod +x "$tmp/bin/codex-dispatch.sh"
+
+# MAJOR: an unresolvable base must be named, not reported as an empty scope.
+reset_state
+run no-such-ref-xyz 2>/dev/null || true
+set +e
+(cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_ACCEPTANCE='AC' bash "$tool" no-such-ref-xyz) > "$tmp/out" 2> "$tmp/err"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && grep -Fq 'is not a commit this worktree can resolve' "$tmp/err"; then
+  pass 'an unresolvable base ref is refused by name'
+else
+  fail 'an unresolvable base ref is refused by name' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+make_mutant 's/^git rev-parse --verify --quiet "$base^{commit}" >\/dev\/null || {/if false; then/'
+set +e
+(cd "$repo" && PATH="$tmp/bin:$PATH" RR_TMP="$tmp" RR_JOB_LOG="$job_log" REVIEW_ROUND_JOB_RECORD="$job_record" REVIEW_ROUND_ACCEPTANCE='AC' bash "$runner" no-such-ref-xyz) > "$tmp/out" 2> "$tmp/err"
+rc=$?
+set -e
+runner="$tool"
+if ! grep -Fq 'is not a commit this worktree can resolve' "$tmp/err"; then
+  pass 'base-validation source mutation goes red'
+else
+  fail 'base-validation source mutation goes red' "err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+# MAJOR: the --bead path is the documented primary input; it had no coverage at all.
+cat > "$tmp/bin/bd" <<'BD'
+#!/usr/bin/env bash
+case "$2" in
+  bead-with)
+    printf '%s\n' 'DESCRIPTION' 'Some description.' 'ACCEPTANCE CRITERIA' 'The gate refuses a blind dispatch.' 'MUST NOT REGRESS' 'The counter stays per scope.' 'NOTES' 'unrelated trailing note' ;;
+  bead-without)
+    printf '%s\n' 'DESCRIPTION' 'Some description.' 'NOTES' 'no criteria here' ;;
+esac
+BD
+chmod +x "$tmp/bin/bd"
+
+reset_state
+RR_ACCEPTANCE= run --bead bead-with
+if [ "$rc" -eq 0 ] && grep -Fq 'The gate refuses a blind dispatch.' "$tmp/dispatched-prompt" && grep -Fq 'The counter stays per scope.' "$tmp/dispatched-prompt" && ! grep -Fq 'unrelated trailing note' "$tmp/dispatched-prompt"; then
+  pass 'bead acceptance criteria survive an all-caps line inside the body'
+else
+  fail 'bead acceptance criteria survive an all-caps line inside the body' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+reset_state
+RR_ACCEPTANCE= run --bead bead-without
+if [ "$rc" -ne 0 ] && [ ! -e "$state" ] && grep -Fq 'no acceptance criteria resolved' "$tmp/err"; then
+  pass 'a bead with no acceptance section refuses the round'
+else
+  fail 'a bead with no acceptance section refuses the round' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+make_mutant 's/found \&\& \/\^(DESCRIPTION|DESIGN|NOTES|ACCEPTANCE CRITERIA|PARENT|CHILDREN|DEPENDS ON|BLOCKS|RELATED|LABELS|COMMENTS|ATTACHMENTS|HISTORY)\[\[:space:\]\]\*\$\//found \&\& \/^[A-Z][A-Z _-]+$\//'
+RR_ACCEPTANCE= run --bead bead-with
+runner="$tool"
+if [ "$rc" -eq 0 ] && ! grep -Fq 'The counter stays per scope.' "$tmp/dispatched-prompt"; then
+  pass 'bead-heading terminator source mutation goes red'
+else
+  fail 'bead-heading terminator source mutation goes red' "rc=$rc"
+fi
+rm -f "$tmp/bin/bd"
+
+# MINOR: returning to a previously reviewed scope must not overwrite that scope's archive.
+reset_state
+run
+printf 'scope-b\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): scope B' -q
+seed_prior_findings 1
+run --scope-changed 'to B'
+git -C "$repo" revert --no-edit HEAD -q 2>/dev/null || git -C "$repo" revert --no-edit HEAD
+seed_prior_findings 1
+run --scope-changed 'back to A'
+printf 'scope-b-again\n' > "$repo/file.txt"
+git -C "$repo" commit -am 'feat(core): scope B again' -q
+seed_prior_findings 1
+run --scope-changed 'to B again'
+if [ "$(ls -d "$state".scope-* 2>/dev/null | wc -l | tr -d ' ')" = 3 ]; then
+  pass 'a repeated scope archives beside its predecessor instead of overwriting it'
+else
+  fail 'a repeated scope archives beside its predecessor instead of overwriting it' "archives=$(ls -d "$state".scope-* 2>/dev/null || true)"
+fi
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'REVIEW ROUND SELFTEST: FAIL'; completed=1; exit 1

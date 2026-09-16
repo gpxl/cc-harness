@@ -40,12 +40,13 @@ looking). Each is now a refusal with a named remedy.
 |---|---|
 | No acceptance criteria resolved | `bd update <id> --acceptance=...`, a `--bead` that has them, or `REVIEW_ROUND_ACCEPTANCE=...` |
 | Round `N` dispatched while round `k < N` has no findings file | `--collect <job-id> --round <k>`, or write that file by hand with each finding's disposition |
-| The reviewed scope changed since the recorded round | Restate what done means for the enlarged branch, then `--scope-changed "<what changed>"` |
+| The reviewed scope changed since the recorded round | Restate what done means for the enlarged branch, then `--scope-changed "<what changed>"` — the script requires the flag and a non-empty reason, and cannot check that the criteria really were restated |
 
 The **scope stamp** is a digest of the acceptance text plus the branch's commit subjects excluding
 `fix`, `test`, `docs` and `chore`. Those four land *because of* a round; anything else makes the next
 round a first look at different code, which the per-branch counter used to charge against the old
-budget. A declared scope change archives the previous rounds rather than deleting them.
+budget. It reads subjects only, so amending a commit in place moves no stamp; declare the change
+yourself when a branch grows under an unchanged subject. A declared scope change archives the previous rounds rather than deleting them.
 
 Absent gate evidence is **not** a refusal — a branch can legitimately be reviewed before its gate
 record exists — but the prompt then says so plainly and tells the reviewer to treat verification
