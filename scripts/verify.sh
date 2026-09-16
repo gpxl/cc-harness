@@ -21,8 +21,18 @@ mkdir -p "$log_dir" || exit 1
 # shellcheck disable=SC2086 — word-splitting the list is the point
 set -- ${CC_HARNESS_SELFTESTS:-$default_tests}
 expected=$#
+# The gate's own length, written as a literal. `expected=$#` can only ever agree with the list it
+# was counted from, so it cannot notice a selftest quietly dropped from that list — the one way a
+# green shrinks without anyone reading a diff line. A deliberate add or removal updates this number
+# in the same edit; an accidental one fails the gate (cch-x1q item I).
+default_test_count=17
 if [ "$expected" -eq 0 ]; then
   printf 'CC-HARNESS VERIFY: FAIL (no selftests resolved — CC_HARNESS_SELFTESTS is set but empty)\n'
+  exit 1
+fi
+if [ -z "${CC_HARNESS_SELFTESTS:-}" ] && [ "$expected" -ne "$default_test_count" ]; then
+  printf 'CC-HARNESS VERIFY: FAIL (the default gate list holds %s selftests, expected %s — change default_test_count in the same edit that changes the list)\n' \
+    "$expected" "$default_test_count"
   exit 1
 fi
 
@@ -46,10 +56,6 @@ for t in "$@"; do
   tail -5 "$log_dir/$name.log" | sed 's/^/    /'
 done
 
-if [ "$count" -ne "$expected" ] || [ "$count" -eq 0 ]; then
-  printf 'CC-HARNESS VERIFY: FAIL (ran %s of %s selftests)\n' "$count" "$expected"
-  exit 1
-fi
 if [ "$failures" -eq 0 ]; then
   printf 'CC-HARNESS VERIFY: PASS (%s selftests)\n' "$count"
   exit 0
