@@ -91,9 +91,25 @@ function pidAlive(pid) {
     return error.code === "EPERM" ? true : false;
   }
 }
+// Liveness is the PID *and* the log mtime (rules/codex-dispatch-protocol.md §1); the pid alone
+// answers only half the question. A live pid that has written nothing for the cancellation window
+// is a stall, and a dead pid over a log written seconds ago is a record contradicting itself —
+// both are reported rather than folded into "live" or "gone".
+const staleSeconds = Number(process.env.CC_HARNESS_CODEX_LOG_STALE_SECONDS || 900);
+function logAgeSeconds(logFile) {
+  if (typeof logFile !== "string" || logFile === "") return null;
+  try {
+    return Math.max(0, Math.round((Date.now() - fs.statSync(logFile).mtimeMs) / 1000));
+  } catch {
+    return null;  // no log to read — unverified, never "fresh"
+  }
+}
 const jobs = [];
 let orphaned = 0;
 let unverifiable = 0;
+let stalled = 0;
+let unlogged = 0;
+let contradictory = 0;
 for (const stateFile of stateFiles) {
   try {
     const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
@@ -101,11 +117,16 @@ for (const stateFile of stateFiles) {
     for (const job of state.jobs) {
       if (!job || typeof job !== "object") continue;
       const alive = pidAlive(job.pid);
-      const annotated = { ...job, pidAlive: alive };
+      const age = logAgeSeconds(job.logFile);
+      const fresh = age !== null && age <= staleSeconds;
+      const annotated = { ...job, pidAlive: alive, logAgeSeconds: age, logFresh: fresh };
       if (activeOnly) {
         if (job.status !== "queued" && job.status !== "running") continue;
-        if (alive === false) { orphaned += 1; continue; }
-        if (alive === null) { unverifiable += 1; }
+        if (alive === false && !fresh) { orphaned += 1; continue; }
+        if (alive === false) { contradictory += 1; }
+        else if (alive === null) { unverifiable += 1; }
+        else if (age === null) { unlogged += 1; }
+        else if (!fresh) { stalled += 1; }
       }
       jobs.push(annotated);
     }
@@ -129,9 +150,18 @@ function reportOmissions(stream) {
   if (unverifiable > 0) {
     stream.write(`CODEX JOBS: ${unverifiable} record(s) listed with no usable pid — liveness unverified\n`);
   }
+  if (contradictory > 0) {
+    stream.write(`CODEX JOBS: ${contradictory} record(s) listed whose pid is gone but whose log was written within ${staleSeconds}s — the record contradicts itself, inspect before reusing (codex-job-status-integrity.md)\n`);
+  }
+  if (unlogged > 0) {
+    stream.write(`CODEX JOBS: ${unlogged} record(s) alive by pid only — no readable log to date the work\n`);
+  }
+  if (stalled > 0) {
+    stream.write(`CODEX JOBS: ${stalled} record(s) alive by pid only — no log write in over ${staleSeconds}s (codex-dispatch-protocol.md §4)\n`);
+  }
   if (jobs.length === 0) {
     stream.write(orphaned > 0
-      ? "CODEX JOBS: no live work (every queued/running record is orphaned)\n"
+      ? "CODEX JOBS: no live work (every queued/running record is orphaned — dead pid, no recent log write)\n"
       : "CODEX JOBS: no live work\n");
   }
 }
@@ -145,6 +175,7 @@ if (outputMode === "json") {
       String(job.status ?? "-"),
       String(job.phase ?? "-"),
       pidState(job.pid),
+      job.logAgeSeconds === null ? "log:-" : `log:${job.logAgeSeconds}s`,
       String(job.sessionId ?? "-").slice(0, 8) || "-",
       String(job.updatedAt ?? "-"),
       String(job.workspaceRoot ?? "-")

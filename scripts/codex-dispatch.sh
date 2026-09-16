@@ -132,20 +132,30 @@ fi
 workspace=$(real_path "$cwd") || fail "invalid workspace: $cwd" 2
 
 if [ "$force" = false ]; then
-  active_jobs=$("$jobs_sh" --cwd "$workspace" --active --json)
+  # The unfiltered listing on purpose: --active DROPS orphaned queued/running records, and a
+  # dropped record is exactly the one this guard must not dispatch over. An orphan may already
+  # have written files to this workspace (codex-job-status-integrity.md §4), so a second worker
+  # is how partial work gets double-applied. Refuse both, with different words, and let --force
+  # say the operator looked.
+  all_jobs=$("$jobs_sh" --cwd "$workspace" --json)
   active_fields=$(node -e '
 const jobs = JSON.parse(process.argv[1]);
 if (!Array.isArray(jobs)) process.exit(1);
 for (const job of jobs) {
   if (!job || (job.status !== "queued" && job.status !== "running") || job.jobClass !== "task") continue;
-  const values = [job.id, job.status];
+  const live = job.pidAlive === false && job.logFresh !== true ? "orphaned" : "live";
+  const values = [job.id, job.status, live];
   console.log(values.map((value) => `x${Buffer.from(String(value ?? ""), "utf8").toString("base64")}`).join("\t"));
 }
-' "$active_jobs" 2>/dev/null) || fail 'active-job check returned invalid JSON' 1
-  while IFS=$'\t' read -r encoded_active_id encoded_active_status; do
+' "$all_jobs" 2>/dev/null) || fail 'active-job check returned invalid JSON' 1
+  while IFS=$'\t' read -r encoded_active_id encoded_active_status encoded_active_liveness; do
     [ -n "${encoded_active_id:-}" ] || continue
     active_id=$(decode_field "$encoded_active_id")
     active_status=$(decode_field "$encoded_active_status")
+    active_liveness=$(decode_field "$encoded_active_liveness")
+    if [ "$active_liveness" = 'orphaned' ]; then
+      fail "refused — $active_id is recorded $active_status but its worker is gone; account for its partial work before re-dispatching (codex-job-status-integrity.md), or pass --force" 3
+    fi
     fail "refused — $active_id is already $active_status in this workspace" 3
   done <<< "$active_fields"
 fi

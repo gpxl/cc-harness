@@ -15,6 +15,21 @@ legacy_roles=(explorer runner worker analyst reviewer)
 failures=0
 
 usage() { printf '%s\n' 'Usage: scripts/codex-routing-check.sh [--codex-dir <path>] [--project <path>]'; }
+# install.sh records a LOGICAL source path (`cd "$(dirname "$0")" && pwd`) inside every link it
+# writes, while this script resolves its own root physically. For a repository reached through a
+# symlink the two spellings differ and a string comparison reports drift that does not exist, so
+# the links are compared by what they point AT, not by how they are spelled.
+resolve_path() {  # resolve_path <path> -> physical directory + final component
+  local dir base
+  dir=$(dirname -- "$1"); base=$(basename -- "$1")
+  if dir=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P); then printf '%s/%s\n' "$dir" "$base"; else printf '%s\n' "$1"; fi
+}
+link_points_at() {  # link_points_at <symlink> <expected source>
+  local target
+  target=$(readlink "$1") || return 1
+  case "$target" in /*) ;; *) target="$(dirname -- "$1")/$target" ;; esac
+  [ "$(resolve_path "$target")" = "$(resolve_path "$2")" ]
+}
 issue() { printf 'CODEX ROUTING CHECK: %s\n' "$1" >&2; failures=$((failures + 1)); }
 role_name() { python3 "$root/scripts/codex-toml-inspect.py" role-name "$1"; }
 routing_defaults() { python3 "$root/scripts/codex-toml-inspect.py" routing-defaults "$1"; }
@@ -49,7 +64,7 @@ inspect_agent_identities() {
       [ "$name" = "$role" ] || continue
       if [ "$scope" = global ]; then
         expected="$codex_dir/agents/$role.toml"
-        if [ "$agent" != "$expected" ] || [ ! -L "$expected" ] || [ "$(readlink "$expected")" != "$root/codex/agents/$role.toml" ]; then
+        if [ "$agent" != "$expected" ] || [ ! -L "$expected" ] || ! link_points_at "$expected" "$root/codex/agents/$role.toml"; then
           issue "semantic role collision: $agent declares $name"
         fi
       else
@@ -72,7 +87,7 @@ if [ -s "$codex_dir/AGENTS.override.md" ]; then
 fi
 if [ ! -L "$global_target" ]; then
   issue "missing managed global instruction link: $global_target"
-elif [ "$(readlink "$global_target")" != "$global_source" ]; then
+elif ! link_points_at "$global_target" "$global_source"; then
   issue "managed global instruction link drift: $global_target"
 elif [ ! -f "$global_source" ]; then
   issue "missing managed global instruction source: $global_source"
@@ -87,7 +102,7 @@ for role in "${roles[@]}"; do
     issue "missing managed role source: $source"
   elif [ ! -L "$target" ]; then
     issue "missing managed role link: $target"
-  elif [ "$(readlink "$target")" != "$source" ]; then
+  elif ! link_points_at "$target" "$source"; then
     issue "managed role link drift: $target"
   fi
 done

@@ -52,6 +52,17 @@ passes a caller-supplied thread id. Re-verified against plugin **1.0.6**: `execu
 `resumeThreadId` argument, no command line reaches it. So a fix task dispatched between two review
 rounds takes the slot, and `--resume` on the next round resumes the FIX thread, not the reviewer's.
 
+**"Newest" is also scoped, in two ways that decide what `--resume` can even see** (1.0.6,
+`codex-companion.mjs`): `resolveLatestTrackedTaskThread` first passes the workspace's jobs through
+`filterJobsForCurrentClaudeSession`, which keeps only records whose `sessionId` matches the current
+Claude session — with **no** session id in the environment it falls back to *all* jobs, so the same
+command resumes different threads depending on how it was launched. It then takes
+`findLatestResumableTaskJob`: the newest record that is `jobClass === "task"`, carries a `threadId`,
+and is **not** `queued`/`running`. So an in-flight job is never a resume target (`--resume` starts
+fresh instead of erroring), a job from another session is invisible to it, and a non-task record is
+skipped. Record the thread id you intend to continue and compare it before resuming; do not infer
+it from "the last thing I dispatched".
+
 Consequences, both already wired: `review-round.sh` resumes only when the newest tracked thread is
 the one it recorded, and otherwise dispatches a fresh reviewer and says so; the prior findings file,
 not the thread, is what carries continuity (`branch-completion-review.md`). Do not build anything

@@ -96,11 +96,27 @@ cat > "$tmpdir/codex-jobs.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" > "$TEST_TMP/jobs-argv"
-if [ "$TEST_MODE" = duplicate ]; then
-  printf '%s\n' '[{"id":"job-duplicate","status":"running","jobClass":"task"}]'
-else
+# The stub filters the way the real codex-jobs.sh does, so a guard that asks for --active gets
+# the SAME omission it would get in production: the orphan simply is not there to refuse on.
+active=false
+for arg in "$@"; do [ "$arg" = --active ] && active=true; done
+if [ "$active" = true ] && [ "$TEST_MODE" = orphan ]; then
   printf '%s\n' '[]'
+  exit 0
 fi
+case "$TEST_MODE" in
+  duplicate)
+    printf '%s\n' '[{"id":"job-duplicate","status":"running","jobClass":"task","pidAlive":true,"logFresh":true}]'
+    ;;
+  orphan)
+    # What --active would have DROPPED: the record still claims running, the worker is gone, and
+    # the log has not moved. The guard only ever sees this if it asks for the unfiltered list.
+    printf '%s\n' '[{"id":"job-orphan","status":"running","jobClass":"task","pidAlive":false,"logFresh":false}]'
+    ;;
+  *)
+    printf '%s\n' '[]'
+    ;;
+esac
 EOF
 chmod +x "$tmpdir/codex.sh" "$tmpdir/codex-jobs.sh"
 
@@ -123,14 +139,30 @@ assert_eq 0 "$run_status" || true
 assert_contains "$run_stdout" "CODEX DISPATCH: job-123 queued in $real_workspace" || true
 assert_contains "$run_stdout" "CODEX DISPATCH: wait with scripts/codex-wait.sh job-123 --cwd $real_workspace" || true
 assert_file_contains "$tmpdir/task-argv" --write || true
-assert_file_contains "$tmpdir/jobs-argv" --active || true
+# NOT --active: that filter drops orphaned records, which are the ones the guard must refuse on.
+assert_file_omits "$tmpdir/jobs-argv" --active || true
 assert_file_contains "$tmpdir/jobs-argv" --json || true
 
 rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
 run_dispatch duplicate --cwd "$workspace" --prompt-file "$prompt_file"
 assert_eq 3 "$run_status" || true
 [ ! -e "$tmpdir/launch-called" ] || fail 'duplicate job launched a task'
+assert_contains "$run_stderr" 'job-duplicate is already running' || true
 
+rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
+run_dispatch orphan --cwd "$workspace" --prompt-file "$prompt_file"
+assert_eq 3 "$run_status" || true
+[ ! -e "$tmpdir/launch-called" ] || fail 'orphaned job launched a task'
+# A distinct message, because the operator's next step differs: a live duplicate means wait, an
+# orphan means account for the partial work first (rules/codex-job-status-integrity.md §4).
+assert_contains "$run_stderr" 'job-orphan is recorded running but its worker is gone' || true
+
+rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
+run_dispatch orphan --cwd "$workspace" --force --prompt-file "$prompt_file"
+assert_eq 0 "$run_status" || true
+[ -e "$tmpdir/launch-called" ] || fail '--force did not dispatch over an orphaned record'
+
+rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
 set +e
 TEST_TMP="$tmpdir" TEST_MODE=happy TEST_WORKSPACE="$workspace" TEST_OTHER_WORKSPACE="$other_workspace" \
   CODEX_DISPATCH_CODEX_SH="$tmpdir/codex.sh" CODEX_DISPATCH_JOBS_SH="$tmpdir/codex-jobs.sh" \

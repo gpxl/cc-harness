@@ -46,7 +46,10 @@ fi
 # real one that has exited, so the check is against the live process table, not a sentinel value.
 dead_root="$tmp_root/dead-data"
 mkdir -p "$dead_root/codex-inline/state/ws-c-3333"
-dead_pid=$( (exec bash -c 'exit 0') & printf '%s' "$!" ); wait "$dead_pid" 2>/dev/null || true
+# Reaped in THIS shell: launched from a command substitution the pid would be a child of the
+# subshell, and `wait` in the parent would return immediately without the process having exited.
+bash -c 'exit 0' & dead_pid=$!
+wait "$dead_pid" 2>/dev/null || true
 live_pid=$$
 printf '{"jobs":[{"id":"job-dead","status":"running","pid":%s,"sessionId":"s3","updatedAt":"2026-01-01T00:00:03Z","workspaceRoot":"/c"},{"id":"job-live","status":"running","pid":%s,"sessionId":"s4","updatedAt":"2026-01-01T00:00:04Z","workspaceRoot":"/c"}]}\n' \
   "$dead_pid" "$live_pid" > "$dead_root/codex-inline/state/ws-c-3333/state.json"
@@ -67,7 +70,7 @@ fi
 # Without --active the same record is still listed, annotated dead: the filter is for --active only.
 all_dead="$tmp_root/dead-all.out"
 CLAUDE_PLUGIN_DATA="$dead_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$tool" --all-workspaces > "$all_dead" 2>&1 || true
-grep -q "^job-dead running - $dead_pid(dead) " "$all_dead" || {
+grep -q "^job-dead running - $dead_pid(dead) log:- " "$all_dead" || {
   printf 'full listing lost the dead record or its annotation: %s\n' "$(cat "$all_dead")" >&2; failures=$((failures + 1)); }
 
 # --json carries the liveness verdict and applies the same filter, since codex-dispatch.sh's
@@ -83,10 +86,54 @@ if (jobs.find((job) => job.id === "job-live").pidAlive !== true) process.exit(1)
   printf -- '--active --json wrong: %s\n' "$(cat "$dead_json")" >&2; failures=$((failures + 1))
 fi
 
+# Case 5: liveness is the pid AND the log mtime (rules/codex-dispatch-protocol.md §1). A live pid
+# that has written nothing is a stall, and a dead pid over a log written seconds ago is a record
+# contradicting itself — neither may be reported as plain "live" or silently dropped.
+log_root="$tmp_root/log-data"
+mkdir -p "$log_root/codex-inline/state/ws-d-4444" "$tmp_root/logs"
+stale_log="$tmp_root/logs/stale.log"; fresh_log="$tmp_root/logs/fresh.log"
+: > "$stale_log"; : > "$fresh_log"
+touch -t 200001010000 "$stale_log"
+printf '{"jobs":[{"id":"job-stalled","status":"running","pid":%s,"logFile":"%s","sessionId":"s5","updatedAt":"2026-01-01T00:00:05Z","workspaceRoot":"/d"},{"id":"job-contradictory","status":"running","pid":%s,"logFile":"%s","sessionId":"s6","updatedAt":"2026-01-01T00:00:06Z","workspaceRoot":"/d"}]}\n' \
+  "$live_pid" "$stale_log" "$dead_pid" "$fresh_log" > "$log_root/codex-inline/state/ws-d-4444/state.json"
+
+log_out="$tmp_root/log-active.out"
+CLAUDE_PLUGIN_DATA="$log_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$tool" --all-workspaces --active > "$log_out" 2>&1 || true
+grep -q '^job-stalled ' "$log_out" || {
+  printf 'a stalled job was dropped instead of flagged: %s\n' "$(cat "$log_out")" >&2; failures=$((failures + 1)); }
+grep -q 'alive by pid only' "$log_out" || {
+  printf 'no stall reported for a live pid with an old log: %s\n' "$(cat "$log_out")" >&2; failures=$((failures + 1)); }
+# The dead pid is NOT dropped here: something wrote that log a moment ago, so "orphaned" would be
+# a claim the evidence does not support.
+grep -q '^job-contradictory ' "$log_out" || {
+  printf 'a dead pid over a fresh log was dropped as orphaned: %s\n' "$(cat "$log_out")" >&2; failures=$((failures + 1)); }
+grep -q 'contradicts itself' "$log_out" || {
+  printf 'no contradiction reported for a dead pid over a fresh log: %s\n' "$(cat "$log_out")" >&2; failures=$((failures + 1)); }
+
+# NEGATIVE CONTROLS, one per direction: read every log as stale and the contradictory record is
+# dropped as an orphan; read every log as fresh and the stall goes unreported. Each half of the
+# log-mtime rule is pinned by the mutation that removes only that half.
+log_mutate() {  # log_mutate <sed expression> <file>
+  sed "$1" "$tool" > "$2"
+  if cmp -s "$2" "$tool"; then
+    printf 'log-liveness mutation did not apply: %s\n' "$1" >&2; failures=$((failures + 1)); return 1
+  fi
+  CLAUDE_PLUGIN_DATA="$log_root/codex-inline" TMPDIR="$tmp_root/emptytmp" bash "$2" --all-workspaces --active > "$2.out" 2>&1 || true
+  return 0
+}
+if log_mutate 's|const fresh = age !== null && age <= staleSeconds;|const fresh = false;|' "$tmp_root/codex-jobs-stale-mutant.sh"; then
+  grep -q '^job-contradictory ' "$tmp_root/codex-jobs-stale-mutant.sh.out" && {
+    printf 'always-stale mutation still kept the contradictory record: %s\n' "$(cat "$tmp_root/codex-jobs-stale-mutant.sh.out")" >&2; failures=$((failures + 1)); }
+fi
+if log_mutate 's|const fresh = age !== null && age <= staleSeconds;|const fresh = true;|' "$tmp_root/codex-jobs-fresh-mutant.sh"; then
+  grep -q 'alive by pid only' "$tmp_root/codex-jobs-fresh-mutant.sh.out" && {
+    printf 'always-fresh mutation still reported the stall: %s\n' "$(cat "$tmp_root/codex-jobs-fresh-mutant.sh.out")" >&2; failures=$((failures + 1)); }
+fi
+
 # NEGATIVE CONTROL: without the liveness filter the dead record comes back, so the rows above
 # cannot be passing for some other reason.
 mutant="$tmp_root/codex-jobs-mutant.sh"
-sed 's/if (alive === false) { orphaned += 1; continue; }/if (false) { orphaned += 1; continue; }/' "$tool" > "$mutant"
+sed 's/if (alive === false \&\& !fresh) { orphaned += 1; continue; }/if (false) { orphaned += 1; continue; }/' "$tool" > "$mutant"
 if cmp -s "$mutant" "$tool"; then
   printf 'liveness-filter mutation did not apply\n' >&2; failures=$((failures + 1))
 else
