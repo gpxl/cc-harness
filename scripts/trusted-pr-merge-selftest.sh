@@ -60,6 +60,11 @@ set -euo pipefail
 
 printf '%s\n' "$@" >> "$TEST_TMP/gh-argv"
 arguments=" $* "
+if [[ "$arguments" == */pulls/*/files* ]]; then
+  # The REST files endpoint, already reduced by the wrapper's --jq to a list of previous paths.
+  printf '%s\n' "${TEST_PREVIOUS_PATHS:-[]}"
+  exit 0
+fi
 if [[ "$arguments" == *mergePullRequest* ]]; then
   : > "$TEST_TMP/merge-called"
   printf '%s\n' '{"data":{"mergePullRequest":{"pullRequest":{"merged":true,"mergeCommit":{"oid":"merge-sha"}}}}}'
@@ -78,6 +83,8 @@ author_login='external-user'
 association='CONTRIBUTOR'
 path='src/ordinary.sh'
 body=''
+title='fix(example): an ordinary title'
+change_type='MODIFIED'
 
 valid_ack='REVIEW ACK: rounds=2 verdict=GO open_blockers=0 classes=3'
 
@@ -164,6 +171,25 @@ case "${TEST_SCENARIO:?}" in
     association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
     body=$(printf '%s\n' 'REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> classes=<list>' '' "$valid_ack")
     ;;
+  rename_out_of_scripts)
+    association='OWNER'; author_login='owner-user'
+    path='docs/reference/moved-helper.sh'; change_type='RENAMED'
+    ;;
+  rename_within_ordinary)
+    association='OWNER'; author_login='owner-user'
+    path='src/new-name.txt'; change_type='RENAMED'
+    ;;
+  denied_name_in_title)
+    association='OWNER'; author_login='owner-user'
+    title='fix(zzdeniedname): tighten the loop'
+    ;;
+  denied_name_in_body)
+    association='OWNER'; author_login='owner-user'
+    body='Raised while working on zzdeniedname last week.'
+    ;;
+  clean_title_and_body)
+    association='OWNER'; author_login='owner-user'
+    ;;
   ack_removed_after_gate)
     association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
     if [ "$count" -lt 2 ]; then body="$valid_ack"; fi
@@ -175,8 +201,9 @@ case "${TEST_SCENARIO:?}" in
 esac
 
 body_json=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","body":%s,"author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
-  "$head" "$body_json" "$author_login" "$association" "$labels" "$path"
+title_json=$(printf '%s' "$title" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+printf '{"data":{"repository":{"pullRequest":{"id":"PR_node_id","headRefOid":"%s","title":%s,"body":%s,"author":{"login":"%s"},"authorAssociation":"%s","labels":{"nodes":%s,"pageInfo":{"hasNextPage":false}},"files":{"nodes":[{"path":"%s","changeType":"%s"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}\n' \
+  "$head" "$title_json" "$body_json" "$author_login" "$association" "$labels" "$path" "$change_type"
 EOF
 chmod +x "$tmpdir/bin/gh"
 
@@ -200,8 +227,9 @@ run_wrapper() {
   local local_head='head-sha-1'
   if [ "$scenario" = stale_checkout ]; then local_head='local-stale-sha'; fi
   set +e
-  TEST_TMP="$tmpdir" TEST_SCENARIO="$scenario" TEST_LOCAL_HEAD="$local_head" PATH="$tmpdir/bin:$PATH" \
-    bash "$wrapper" --repo octo/example --pr 42 --checkout "$tmpdir/candidate" --gate gate "$@" \
+  TEST_TMP="$tmpdir" TEST_SCENARIO="$scenario" TEST_LOCAL_HEAD="$local_head" \
+    TEST_PREVIOUS_PATHS="${TEST_PREVIOUS_PATHS:-[]}" PATH="$tmpdir/bin:$PATH" \
+    bash "${WRAPPER_UNDER_TEST:-$wrapper}" --repo octo/example --pr 42 --checkout "$tmpdir/candidate" --gate gate "$@" \
     > "$tmpdir/stdout" 2> "$tmpdir/stderr"
   run_status=$?
   set -e
@@ -368,6 +396,84 @@ set -e
 assert_eq 2 "$inside_status" || true
 assert_contains "$(<"$tmpdir/stderr")" 'lives inside the candidate checkout' || true
 assert_file_absent "$tmpdir/gate-ran" || true
+
+# --- cch-nq9: a rename OUT of a covered directory is high risk, and GraphQL cannot see it -------
+# GraphQL's PullRequestChangedFile exposes the new path only (schema introspection 2026-09-16:
+# additions, changeType, deletions, path, viewerViewedState), so the wrapper resolves the old side
+# from REST. A check deleted by moving it to docs/ must still demand a review acknowledgement.
+TEST_PREVIOUS_PATHS='["scripts/some-check.sh"]' run_wrapper rename_out_of_scripts
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+unset TEST_PREVIOUS_PATHS
+
+# A rename whose old side is ordinary stays ordinary: the previous path is classified, not assumed.
+TEST_PREVIOUS_PATHS='["src/old-name.txt"]' run_wrapper rename_within_ordinary
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
+unset TEST_PREVIOUS_PATHS
+
+# Fail closed: a rename whose previous path GitHub does not report cannot be classified as safe.
+TEST_PREVIOUS_PATHS='[]' run_wrapper rename_out_of_scripts
+assert_eq 2 "$run_status" || true
+assert_contains "$run_stderr" 'previous path could not be resolved' || true
+assert_file_absent "$tmpdir/gate-ran" || true
+unset TEST_PREVIOUS_PATHS
+
+# Negative control: without the previous-path lookup the same rename merges as an ordinary PR.
+mutant_dir="$tmpdir/mutant-scripts"
+mkdir -p "$mutant_dir/testdata"
+cp "$wrapper" "$mutant_dir/trusted-pr-merge.sh"
+cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$mutant_dir/"
+cp "$script_dir/testdata/name-hashes.txt" "$mutant_dir/testdata/"
+perl -0pi -e 's/if \[ "\$renames" -gt 0 \]; then/if false; then/' "$mutant_dir/trusted-pr-merge.sh"
+if cmp -s "$mutant_dir/trusted-pr-merge.sh" "$wrapper"; then
+  fail 'rename lookup mutation did not apply'
+else
+  TEST_PREVIOUS_PATHS='["scripts/some-check.sh"]' WRAPPER_UNDER_TEST="$mutant_dir/trusted-pr-merge.sh" \
+    run_wrapper rename_out_of_scripts
+  assert_eq 0 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
+  unset TEST_PREVIOUS_PATHS WRAPPER_UNDER_TEST
+fi
+
+# --- cch-31f: a denied name in the title or body is held before the squash publishes it ---------
+# The wrapper resolves its helpers and its denylist from its OWN directory, so the control gets a
+# trusted copy with a denylist it can predict; nothing here reaches the real private names.
+trusted_dir="$tmpdir/trusted-scripts"
+mkdir -p "$trusted_dir/testdata"
+cp "$wrapper" "$trusted_dir/trusted-pr-merge.sh"
+cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$trusted_dir/"
+printf '%s  # ClearName\n' "$(printf 'zzdeniedname' | shasum -a 256 | awk '{print $1}')" \
+  > "$trusted_dir/testdata/name-hashes.txt"
+
+for scenario in denied_name_in_title denied_name_in_body; do
+  WRAPPER_UNDER_TEST="$trusted_dir/trusted-pr-merge.sh" run_wrapper "$scenario"
+  assert_eq 20 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=denied-name-in-title-or-body' || true
+  assert_contains "$run_stderr" "denied token 'zzdeniedname'" || true
+  assert_file_absent "$tmpdir/merge-called" || true
+done
+unset WRAPPER_UNDER_TEST
+
+# Positive control: the same trusted copy merges a clean title and body, so the rows above fail for
+# the denied token and not because the copy is broken.
+WRAPPER_UNDER_TEST="$trusted_dir/trusted-pr-merge.sh" run_wrapper clean_title_and_body
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
+unset WRAPPER_UNDER_TEST
+
+# Negative control: without the scan, the denied title merges.
+cp "$trusted_dir/trusted-pr-merge.sh" "$trusted_dir/mutant.sh"
+perl -0pi -e 's/^enforce_name_hygiene "\$first_pr"\n//m; s/^enforce_name_hygiene "\$revalidated_pr"\n//m' \
+  "$trusted_dir/mutant.sh"
+if cmp -s "$trusted_dir/mutant.sh" "$trusted_dir/trusted-pr-merge.sh"; then
+  fail 'name-hygiene mutation did not apply'
+else
+  WRAPPER_UNDER_TEST="$trusted_dir/mutant.sh" run_wrapper denied_name_in_title
+  assert_eq 0 "$run_status" || true
+  assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
+  unset WRAPPER_UNDER_TEST
+fi
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'TRUSTED PR MERGE SELFTEST: PASS'

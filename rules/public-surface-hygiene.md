@@ -47,7 +47,13 @@ message is as public as a file. The branch range is the part a leak can still be
 so it is the part the gate refuses. The gate runs before the commit agent writes the branch's
 commits, so at gate time that range is often empty; the scan says how many messages it read rather
 than implying it, and `agents/commit.md` Step 8 is the primary check on a message it is about to
-write. This is the backstop. Its denylist (`scripts/testdata/name-hashes.txt`) holds
+write. This is the backstop.
+
+A pull-request **title** is the surface neither half covers: it is in no file and in no commit
+message, and a squash merge writes it verbatim onto the integration branch. `scripts/name-hygiene.sh
+--text-file <path>` scans one arbitrary text input with the same tokenizer and the same hashes, and
+`scripts/trusted-pr-merge.sh` runs it over the title and body before merging — at both decision
+points, so a title edited during the candidate gate buys nothing. Its denylist (`scripts/testdata/name-hashes.txt`) holds
 SHA-256 hashes only — no plaintext — so it is safe to publish and works on any clone.
 
 **Those hashes are obfuscation, not secrecy.** Unsalted SHA-256 of a short name falls to a
