@@ -77,10 +77,15 @@ anything from the merge gate: the § Merge policy table below still routes every
 | `rules/` where the change alters a trigger, a policy or a refusal | The rule that decides whether a check runs is the check (global rule, class 3, "including this file"). | full budget (3) |
 | Logic in any other `scripts/*.sh` | Real consequences, bounded blast radius, and the gate already exercises them. | 1, extend on findings |
 | Prompt prose sent to a reviewer or agent | A mistake surfaces in the next review's own output, which is a fast feedback loop. | 1 |
-| Additive `*-selftest.sh` rows, `docs/`, `.beads/*.jsonl`, comment-only edits | Class 3 by path only. An added test row cannot weaken a check; a removed or *edited* one can, and that is logic — see the row above. | stated skip, ack records `rounds=0` |
+| Additive `*-selftest.sh` rows, `docs/`, `.beads/*.jsonl`, comment-only edits | Class 3 by path only. An added test row cannot weaken a check; a removed or *edited* one can, and that is logic — see the row above. | author `--self-check` only |
 
-`rounds=0` is legitimate **only** with `verdict=GO open_blockers=0` and a one-line stated skip in the
-PR body naming which row above applies. A silent skip is not a skip.
+The last row spends no reviewer budget, but it is **not** `rounds=0`: `scripts/review-ack-check.sh`
+validates `rounds` as `[1-9][0-9]*` and rejects `rounds=0` outright, so an ack claiming it never
+reaches `trusted-pr-merge.sh` — the PR is held as `missing-review-ack`. Run
+`scripts/review-round.sh <base> --self-check` instead, which is the author's own pass and consumes
+no round, and record `REVIEW ACK: rounds=1 verdict=GO open_blockers=0 classes=<list>` plus a
+one-line stated skip in the PR body naming which row above applies and that round 1 was the
+self-check. A silent skip is not a skip.
 
 ## Merge policy
 
