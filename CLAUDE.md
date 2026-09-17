@@ -56,6 +56,37 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 | quality_gate_pattern | (none) |
 | co_author | (none) — never an agent, vendor or model identity; § Git commit identity in global CLAUDE.md |
 
+## Review depth (project parameters for `rules/branch-completion-review.md`)
+
+The global rule asks each project to carry its own class parameters. cc-harness never did, and the
+cost showed: class 3 is defined by path as `scripts/**`, `**/*test*`, `**/*gate*`, `**/rules/**`,
+which is substantially this whole repository. Measured 2026-09-17 — **6 of 6** merged PRs in the
+previous window tripped class 3, so the trigger had no discriminating power here and every change
+bought the full three-round budget. The rule was calibrated on a repo where class-3 files are a
+minority and the measured problem was *under*-coverage; transplanted here it inverts.
+
+These are parameters, not a restatement, and they change **review depth only**. They do NOT exempt
+anything from the merge gate: the § Merge policy table below still routes every PR touching
+`scripts/`, `rules/`, `agents/`, `hooks/`, `templates/`, `codex/`, any `CLAUDE.md`, `.github/`,
+`install.sh` or `uninstall.sh` through `trusted-pr-merge.sh`, which still demands a valid
+`REVIEW ACK:` line. A change that earns one round records `rounds=1`.
+
+| Surface | Why | Rounds |
+|---|---|---|
+| `scripts/trusted-pr-merge.sh`, `scripts/review-ack-check.sh`, `scripts/verify.sh`, `scripts/name-hygiene.sh` + `scripts/testdata/name-hashes.txt`, `hooks/` | These decide whether anything else is allowed to merge. A defect here is silent and disables the rest. | full budget (3) |
+| `rules/` where the change alters a trigger, a policy or a refusal | The rule that decides whether a check runs is the check (global rule, class 3, "including this file"). | full budget (3) |
+| Logic in any other `scripts/*.sh` | Real consequences, bounded blast radius, and the gate already exercises them. | 1, extend on findings |
+| Prompt prose sent to a reviewer or agent | A mistake surfaces in the next review's own output, which is a fast feedback loop. | 1 |
+| Additive `*-selftest.sh` rows, `docs/`, `.beads/*.jsonl`, comment-only edits | Class 3 by path only. An added test row cannot weaken a check; a removed or *edited* one can, and that is logic — see the row above. | author `--self-check` only |
+
+The last row spends no reviewer budget, but it is **not** `rounds=0`: `scripts/review-ack-check.sh`
+validates `rounds` as `[1-9][0-9]*` and rejects `rounds=0` outright, so an ack claiming it never
+reaches `trusted-pr-merge.sh` — the PR is held as `missing-review-ack`. Run
+`scripts/review-round.sh <base> --self-check` instead, which is the author's own pass and consumes
+no round, and record `REVIEW ACK: rounds=1 verdict=GO open_blockers=0 classes=<list>` plus a
+one-line stated skip in the PR body naming which row above applies and that round 1 was the
+self-check. A silent skip is not a skip.
+
 ## Merge policy
 
 Every agent-authored PR carries **EXACTLY ONE** merge label, chosen by the commit agent at PR-creation time.
