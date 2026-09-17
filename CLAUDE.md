@@ -14,7 +14,8 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 - Engineering retrospectives are a standing series in `docs/retrospectives/`. Its `README.md` is authoritative for cadence, section structure and the honesty rules; `TEMPLATE.md` is the skeleton, and every entry opens with follow-through on the previous one. Assemble the measured half with `bash scripts/retro-evidence.sh` before writing.
 
 [Scripts]|root: scripts/
-|review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run]`|
+|review-round.sh: Dispatches bounded read-only branch-review rounds; budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record. `--self-check` runs the author's own pre-round-0 pass (spends no budget) and every round's report carries a COVERAGE map the next round targets; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--self-check] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run]`|
+|fix-prompt-check.sh: Refuses review-budget and countdown phrasing in a written fix-round prompt, naming the line; run `bash scripts/fix-prompt-check.sh <prompt-file> [--label <what>]`|
 |name-hygiene.sh: Refuses denied names on any public surface — tracked files, commit messages, or one arbitrary text input; run `bash scripts/name-hygiene.sh [--range <git-range>] [--no-history] [--text-file <path> [--label <what>]]`|
 |review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate, and is what `trusted-pr-merge.sh` calls before merging a PR that changes a check or its policy; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
 |retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
@@ -99,6 +100,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-dispatch-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
 - `scripts/name-hygiene-selftest.sh`
+- `scripts/fix-prompt-check-selftest.sh`
 - `scripts/verify-selftest.sh`
 
 Run them all with `bash scripts/verify.sh` (the Agent Config `verify_cmd`, redirect its output to a file and read the exit code directly). Merge only when every listed selftest reports PASS at the PR's HEAD.

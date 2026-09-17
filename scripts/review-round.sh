@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--self-check] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
   printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
   printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
@@ -22,6 +22,7 @@ adopt_job=''
 evidence_file=''
 scope_changed=''
 acceptance_reworded=''
+self_check=false
 
 [ "$#" -gt 0 ] || { usage; exit 2; }
 case "$1" in
@@ -54,6 +55,7 @@ case "$1" in
         --scope-changed) [ "$#" -ge 2 ] || { usage; exit 2; }; scope_changed=$2; shift 2 ;;
         --acceptance-reworded) [ "$#" -ge 2 ] || { usage; exit 2; }; acceptance_reworded=$2; shift 2 ;;
         --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
+        --self-check) self_check=true; shift ;;
         --dry-run) dry_run=true; shift ;;
         --selftest) selftest=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -193,7 +195,13 @@ archive_scope_state() {  # archive_scope_state <old-stamp> -> archive directory
     archive="$base_dir-$n"
   done
   mkdir -p "$archive"
-  for f in "$counter" "$thread_file" "$job_file" "$scope_file" "$state_dir/$slug"-r*-findings.md; do
+  # The self-check's record archives with the rest. Its file is named -r0-self-review.md, which the
+  # findings glob does not match, so leaving it out left the PREVIOUS scope's self-review to be
+  # inlined into the new scope's round 1 — a pass over a diff that no longer exists, presented to
+  # the reviewer as the author's coverage of this one (round 1 of this branch, MAJOR 2).
+  for f in "$counter" "$thread_file" "$job_file" "$scope_file" "$counter.self-check.job" \
+           "$counter.r0-collected.job" "$state_dir/$slug-r0-self-review.md" \
+           "$state_dir/$slug"-r*-findings.md; do
     [ -e "$f" ] || continue
     # A half-archive leaves stale findings the next round would read as this scope's, so a failed
     # move is fatal rather than skipped.
@@ -311,18 +319,55 @@ try {
 final_findings_from_log() {
   local log_file=$1
   awk '
+  function flush_field() { if (field != "") { print field; field = "" } }
+  # A one-line map ("COVERAGE: traced=...; not-traced=...") carries the same two fields as the
+  # three-line form, and a reviewer writes whichever it feels like. Split it rather than keeping a
+  # header the next round cannot read a gap out of.
+  function split_inline(text,   idx, head) {
+    idx = index(text, "not-traced=")
+    if (idx > 0) {
+      head = substr(text, 1, idx - 1)
+      sub(/[[:space:];,]+$/, "", head)
+      if (head != "") print head
+      field = substr(text, idx)
+    } else {
+      field = text
+    }
+  }
+  function normalize(line,   out) { out = line; sub(/^[[:space:]]+/, "", out); gsub(/\*/, "", out); sub(/[[:space:]]+$/, "", out); return out }
   /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[^]]+\][[:space:]]+Final output:?[[:space:]]*$/ { in_final = 1; saw_final = 1; next }
   in_final && /^\[[^]]+\][[:space:]]/ { exit }
-  # Reviewers write a severity three ways, and all three are the same finding. A parser that
-  # knows only the heading form silently drops every title from a bullet-style report, leaving a
-  # findings file with a verdict and nothing to re-trace — measured on PR #42 round 1.
+  # The coverage map is what makes round N+1 spend its budget on what nobody read yet, instead of
+  # resampling the same third of the diff. It is extracted with the findings for the same reason
+  # they are: the thread does not survive to the next round, the file does. It is parsed
+  # forgivingly — leading spaces, bold markers, the one-line form, a blank line inside the block,
+  # a wrapped field — because a map the reviewer DID write and this parser dropped becomes "no gap
+  # was recorded" in the next prompt, which is the exact instrument failure this feature exists to
+  # remove (round 1 of this branch reproduced it).
+  in_final && /^[[:space:]]*\**COVERAGE:/ {
+    flush_field()
+    coverage = 1
+    rest = normalize($0)
+    sub(/^COVERAGE:[[:space:]]*/, "", rest)
+    print "COVERAGE:"
+    if (rest != "") split_inline(rest)
+    next
+  }
+  coverage && /^[[:space:]]*\**(traced|not-traced)[[:space:]]*=/ { flush_field(); field = normalize($0); next }
+  coverage && (/^[[:space:]]*#*[[:space:]]*(BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ ||
+               /^[[:space:]]*(VERDICT|OPEN BLOCKERS):/ ||
+               /^[[:space:]]*[-*][[:space:]]+\*\*(BLOCKER|MAJOR|MINOR|NIT)/) { flush_field(); coverage = 0 }
+  # A blank line no longer ends the block: reviewers put one between the header and the fields, and
+  # ending there kept the header while dropping every field — a partial map that read as a whole one.
+  coverage && /^[[:space:]]*$/ { next }
+  coverage && field != "" { field = field " " normalize($0); next }
   in_final && (/^### (BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ ||
                /^(BLOCKER|MAJOR|MINOR|NIT|VERDICT|OPEN BLOCKERS):/ ||
                /^[[:space:]]*[-*][[:space:]]+\*\*(BLOCKER|MAJOR|MINOR|NIT)([[:space:]]|\*|:|—|-)/) {
     sub(/[[:space:]]+$/, "")
     print
   }
-END { exit saw_final ? 0 : 1 }
+END { flush_field(); exit saw_final ? 0 : 1 }
 ' "$log_file"
 }
 
@@ -333,14 +378,32 @@ collect_findings() {
   else
     round=$(read_round)
   fi
-  case "$round" in ''|*[!0-9]*|0) printf '%s\n' 'review-round: --collect needs a positive --round or an existing round counter' >&2; exit 2 ;; esac
+  # Round 0 is the pre-review self-check, not a review round: it has its own file name and never
+  # touches the counter, so collecting it cannot make the branch look like it has been reviewed.
+  case "$round" in ''|*[!0-9]*) printf '%s\n' 'review-round: --collect needs a numeric --round or an existing round counter' >&2; exit 2 ;; esac
+  if [ "$round" = 0 ] && [ -z "$requested_round" ]; then
+    printf '%s\n' 'review-round: --collect --round 0 must be asked for explicitly (it records the self-check, not a round)' >&2
+    exit 2
+  fi
   record=$(job_record_for_workspace "$job_id") || { printf '%s\n' "review-round: could not resolve job record for $job_id" >&2; exit 1; }
   [ -f "$record" ] || { printf '%s\n' "review-round: job record not found for $job_id" >&2; exit 1; }
   log_file=$(log_from_job_record "$record") || { printf '%s\n' "review-round: job record has no logFile for $job_id" >&2; exit 1; }
   [ -f "$log_file" ] || { printf '%s\n' "review-round: job log not found for $job_id" >&2; exit 1; }
   mkdir -p "$state_dir"
-  findings="$state_dir/$slug-r$round-findings.md"
+  if [ "$round" = 0 ]; then
+    findings="$state_dir/$slug-r0-self-review.md"
+  else
+    findings="$state_dir/$slug-r$round-findings.md"
+  fi
   if [ -e "$findings" ]; then
+    # For a round, the counter bounds this: round N is collected once. Round 0 has no counter, so a
+    # second self-check would collect the FIRST pass's file and exit 0 — handing round 1 a
+    # pre-fix self-review while hiding what the second pass found (round 1 of this branch, MAJOR 3).
+    if [ "$round" = 0 ] && [ "$(cat "$counter.r0-collected.job" 2>/dev/null || true)" != "$job_id" ]; then
+      printf 'review-round: refused — %s already holds an earlier self-check\n' "$findings" >&2
+      printf '%s\n' 'A later self-check cannot overwrite it silently. Remove or rename that file to record this one.' >&2
+      exit 1
+    fi
     printf '%s\n' "$findings"
     return 0
   fi
@@ -351,8 +414,22 @@ collect_findings() {
   else
     : > "$temp"
   fi
+  # A missing coverage map is stated, never silently absent: the next round must be able to tell
+  # "nothing was skipped" from "nobody said what was skipped" (rules/verification-integrity.md).
+  # The test is the not-traced FIELD, not the COVERAGE header: a header with no field is exactly
+  # the shape a partial map has, and keying on the header let one read as a complete map.
+  if ! grep -qi '^not-traced[[:space:]]*=' "$temp"; then
+    if grep -q '^COVERAGE:' "$temp"; then
+      printf '%s\n' 'COVERAGE: (incomplete — a coverage map was recorded with no not-traced field, so its gaps are unknown)' >> "$temp"
+    else
+      printf '%s\n' 'COVERAGE: (none recorded — this round'"'"'s report carried no coverage map, so its gaps are unknown)' >> "$temp"
+    fi
+  fi
   printf '%s\n' 'Dispositions:' >> "$temp"
   mv "$temp" "$findings"
+  # Which job produced the self-review, so a re-collect of the SAME job is idempotent while a
+  # second, later self-check is refused rather than silently discarded.
+  [ "$round" != 0 ] || printf '%s\n' "$job_id" > "$counter.r0-collected.job"
   printf '%s\n' "$findings"
 }
 
@@ -406,6 +483,33 @@ prepare_round() {
   goal=$(resolve_acceptance)
   [ -n "$(printf '%s' "$goal" | tr -d '[:space:]')" ] || refuse_without_acceptance
   stamp=$(scope_stamp "$goal")
+
+  # The self-check runs BEFORE round 1 and spends none of the budget: it is the author asking the
+  # five-class attack surface of their own diff, so that round 1 is not spent on defects the author
+  # could have found. Measured 2026-09-16: two first rounds on different repos returned four and
+  # five MAJORs, every one of them the author's own "this check cannot go red" class.
+  if [ "$self_check" = true ]; then
+    round=0
+    # Flags that only mean something to a budgeted round are refused, not ignored: a silently
+    # dropped --user-approved reads as accepted.
+    local ignored=''
+    [ -z "$scope_changed" ] || ignored="$ignored --scope-changed"
+    [ -z "$acceptance_reworded" ] || ignored="$ignored --acceptance-reworded"
+    [ -z "$user_approved" ] || ignored="$ignored --user-approved"
+    if [ -n "$ignored" ]; then
+      printf 'review-round: refused —%s mean nothing to a self-check; it spends no round and stamps no scope\n' "$ignored" >&2
+      exit 2
+    fi
+    local already
+    already=$(read_round)
+    if [ "$already" -gt 0 ]; then
+      printf 'review-round: refused — round %s has already been dispatched; the self-check runs before round 1\n' "$already" >&2
+      exit 1
+    fi
+    goal_line=$(printf '%s' "$goal" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
+    printf 'GOAL: %s | SELF-CHECK (round 0, spends no budget) | NEXT: collect with --collect <job-id> --round 0\n' "$goal_line"
+    return 0
+  fi
 
   # The budget is per reviewed scope. A branch that grows a feature between rounds is not on its
   # second look at the same code; it is on its first look at different code.
@@ -530,10 +634,46 @@ else
   # `previous` is zeroed by an accepted scope change, so it is what the counter WOULD become, not
   # what is on disk. An inspector whose only job is to report state without changing it must not
   # state the state wrongly.
-  printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; next round would be %s\n' \
-    "$(read_round)" "$round"
+  if [ "$self_check" = true ]; then
+    printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; this is the self-check, which is not a round\n' \
+      "$(read_round)"
+  else
+    printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; next round would be %s\n' \
+      "$(read_round)" "$round"
+  fi
   exit 0
 fi
+
+# What earlier rounds said they did NOT read. Round 3 on the 6-round branch found five defects in
+# files unchanged since round 2, and round 5's finding had been present since round 2: each fresh
+# reviewer samples a different subset and nothing carried the gaps forward. This does.
+prior_not_traced=''
+collect_not_traced() {  # collect_not_traced <round> -> that round's not-traced line, if any
+  local prior=$1 file="$state_dir/$slug-r$1-findings.md" fields
+  [ -f "$file" ] || return 0
+  # A findings file that DISCUSSES the coverage format quotes it. Round 1 of this branch quoted a
+  # reviewer log inside a fence to demonstrate a parsing defect, and its invented gap was carried
+  # into round 2's prompt as a real one — a fabricated target, in the mechanism built to stop
+  # fabricated coverage claims. A fenced block is an example, not a record; the same distinction
+  # rules/public-surface-hygiene.md draws for a review acknowledgement.
+  #
+  # The presence test and the extraction read the file the SAME way on purpose: keyed differently,
+  # a file whose only map is quoted would test as mapped and then carry nothing forward, which is
+  # the reassuring "nothing was skipped" wording for a file that recorded nothing.
+  fields=$(awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+    !fence && tolower($0) ~ /^[[:space:]]*not-traced[[:space:]]*=/ { sub(/^[[:space:]]*/, ""); print }
+  ' "$file" 2>/dev/null) || true
+  # Any prior file WITHOUT a not-traced field is an unknown gap, however it got that way: a report
+  # with no map, a partial map, or a findings file written by hand (which the refusal message above
+  # invites, and which no --collect ever touched). Keying on the sentinel alone left that last path
+  # reading as the reassuring "nothing was skipped" (round 1 of this branch, MINOR 3).
+  if [ -z "$fields" ]; then
+    printf 'round %s: no coverage map was recorded, so its gaps are unknown — treat the whole diff as untraced by it\n' "$prior"
+    return 0
+  fi
+  printf '%s\n' "$fields" | sed "s/^/round $prior: /"
+}
 
 prior_findings='(none — this is the first round)'
 if [ "$round" -ge 2 ]; then
@@ -542,7 +682,37 @@ if [ "$round" -ge 2 ]; then
   for ((prior=1; prior<round; prior++)); do
     findings="$state_dir/$slug-r$prior-findings.md"
     prior_findings="$prior_findings\n--- round $prior findings: $findings ---\n$(<"$findings")\n"
+    prior_not_traced="$prior_not_traced$(collect_not_traced "$prior" || true)
+"
   done
+fi
+if [ "$round" -ge 2 ]; then
+  if [ -n "$(printf '%s' "$prior_not_traced" | tr -d '[:space:]')" ]; then
+    coverage_targets="What earlier rounds recorded as NOT traced — after re-tracing the prior findings, spend the
+rest of this review here before anything else:
+$prior_not_traced"
+  else
+    coverage_targets='No earlier round recorded anything as not-traced. That is not the same as full coverage:
+treat the parts of the diff no prior finding touched as unread, and say what you skipped.'
+  fi
+else
+  coverage_targets='This is the first round; nothing has been traced yet.'
+fi
+
+# The author's own pass, when there was one. Round 1 reads it so the reviewer targets what the
+# self-check did NOT cover instead of re-finding what it did.
+self_review_file="$state_dir/$slug-r0-self-review.md"
+# The archive runs AFTER dispatch (nothing is moved until the round actually launches), so a
+# pending scope change means this file belongs to the scope being retired — it must not be read
+# into the prompt for the scope replacing it.
+[ -z "$archive_pending" ] || self_review_file=''
+if [ -n "$self_review_file" ] && [ -f "$self_review_file" ]; then
+  self_review_section="Author self-review and dispositions (round 0, the author's own adversarial pass — re-check
+these claims rather than repeating them, and treat what it did not cover as your first target):
+$(<"$self_review_file")"
+else
+  self_review_section='No author self-check was recorded for this branch (scripts/review-round.sh <base> --self-check).
+Nothing here tells you which defects the author already hunted, so assume none were.'
 fi
 
 records=$(evidence_records)
@@ -556,6 +726,44 @@ fi
 
 prompt_file=$(mktemp "${TMPDIR:-/tmp}/review-round-prompt.XXXXXX") || exit 1
 diff=$(git diff "$base"...HEAD)
+if [ "$self_check" = true ]; then
+cat > "$prompt_file" <<EOF
+This is a read-only PRE-REVIEW SELF-CHECK on the author's own branch. No round of the review budget
+is being spent. You are not the adversary; you are the author asking the adversary's questions first,
+so that round 1 is not spent on defects the author could have found.
+
+Acceptance criteria — the branch's definition of done, and the boundary of this pass. Label anything
+outside it OUT-OF-SCOPE:
+$goal
+
+Recorded deterministic evidence (a record marked STALE was measured on different content):
+$evidence_section
+
+Diff against $base...HEAD:
+$diff
+
+Work the five risk classes over this diff, and say per class what you looked for and what you found:
+1. lifetime, ordering, cancellation, concurrency — listener and task lifetimes, teardown order,
+   cancellation inheritance, anything that can interleave.
+2. persistence, serialisation, data format — what is written, read back, versioned, migrated, and
+   any path that SHOULD persist but does not.
+3. integrity of a check or the policy behind it — for every check this branch adds or changes, could
+   it actually go red? Name the mutation that would prove it, and say whether it was run.
+4. trusted external surface — invariants that hold only while a service, config or content behaves.
+5. real-time or hardware-adjacent code.
+
+Then list, in severity order, every finding you would expect an adversary to raise against this
+branch — including the ones you think are defensible, with the defence.
+
+Then a coverage map, on its own lines:
+COVERAGE:
+traced=<the files and mechanisms you actually read and reasoned about>
+not-traced=<what you skipped, and why>
+
+End with exactly: VERDICT: GO or VERDICT: NO-GO, and list OPEN BLOCKERS: <number>. A self-check that
+finds nothing says so plainly; manufactured findings cost the same round they were meant to save.
+EOF
+else
 cat > "$prompt_file" <<EOF
 This is a bounded, read-only branch-completion review, round $round of 3.
 
@@ -572,13 +780,25 @@ $evidence_section
 Diff against $base...HEAD:
 $diff
 
+$self_review_section
+
 Prior-round findings and dispositions (re-trace these first when present):
 $prior_findings
 
+$coverage_targets
+
 Report BLOCKER/MAJOR/MINOR/NIT findings with file:line, failure scenario, and required action.
 Classify each finding DECISION-CHANGING or POLISH. If ready to ship, say GO plainly and early.
+
+Then a coverage map, in exactly this shape, on its own lines — it is how the next round knows where
+to look, and "I read everything" is only believable if you can name it:
+COVERAGE:
+traced=<the files and mechanisms you actually read and reasoned about>
+not-traced=<what you skipped, and why: budget, out of scope, or unreachable from the diff>
+
 End with exactly: VERDICT: GO or VERDICT: NO-GO, and list OPEN BLOCKERS: <number>.
 EOF
+fi
 
 resume=false
 jobs_json=''
@@ -647,18 +867,26 @@ log_file=$(decode "$log_file_b64")
 wait_command=$(decode "$wait_command_b64")
 [ -n "$job_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId' >&2; exit 1; }
 
-# Persist launch state before resolving asynchronous reviewer metadata.
-if [ -n "$archive_pending" ]; then
-  archive=$(archive_scope_state "$archive_pending")
-  printf 'REVIEW ROUND: prior scope archived to %s\n' "$archive"
+# Persist launch state before resolving asynchronous reviewer metadata. The self-check writes
+# NONE of it: it spends no round, so it must not move the counter, claim the reviewer thread, or
+# stamp the scope — a branch that has only self-checked has not been reviewed.
+if [ "$self_check" = true ]; then
+  printf '%s\n' "$job_id" > "$counter.self-check.job"
+else
+  if [ -n "$archive_pending" ]; then
+    archive=$(archive_scope_state "$archive_pending")
+    printf 'REVIEW ROUND: prior scope archived to %s\n' "$archive"
+  fi
+  printf '%s\n' "$round" > "$counter"
+  printf '%s\n' "$job_id" > "$job_file"
+  printf '%s\n' "$stamp" > "$scope_file"
+  rm -f "$thread_file"
 fi
-printf '%s\n' "$round" > "$counter"
-printf '%s\n' "$job_id" > "$job_file"
-printf '%s\n' "$stamp" > "$scope_file"
-rm -f "$thread_file"
-job_record=$(job_record_from_log "$log_file" "$job_id")
-thread_id=$(wait_for_thread_id "$job_record")
-[ -z "$thread_id" ] || printf '%s\n' "$thread_id" > "$thread_file"
+if [ "$self_check" = false ]; then
+  job_record=$(job_record_from_log "$log_file" "$job_id")
+  thread_id=$(wait_for_thread_id "$job_record")
+  [ -z "$thread_id" ] || printf '%s\n' "$thread_id" > "$thread_file"
+fi
 printf 'REVIEW ROUND: job %s\n' "$job_id"
 printf 'REVIEW ROUND: log %s\n' "$log_file"
 printf 'REVIEW ROUND: wait with %s\n' "$wait_command"

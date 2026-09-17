@@ -191,6 +191,22 @@ leans on fan-out, the trigger above will fire often, and that is correct.
 An independent agent reviews the full branch diff with **veto power**. Its report must end with
 exactly one of `VERDICT: GO` or `VERDICT: NO-GO`.
 
+### Before round 1: the author's own pass
+
+`scripts/review-round.sh <base> --self-check` dispatches one read-only task that works the five risk
+classes over the author's own diff with the same acceptance criteria and evidence the reviewer will
+get, and lists every finding it expects an adversary to raise. It spends **no** round: it writes no
+counter, no scope stamp and no reviewer thread, and it is refused once round 1 has been dispatched.
+`--collect <job-id> --round 0` records it as `<slug>-r0-self-review.md`, which every later round's
+prompt inlines — so the reviewer re-checks those claims and targets what the self-check did not cover, and
+its absence is stated rather than silent.
+
+Why it exists: first deliveries reach round 1 with no adversarial pass at all, and round 1 then
+spends itself on defects the author could have found. Measured 2026-09-16 — one repo's R1 returned
+five MAJORs including a concurrency test that could not fail; another's returned four, every one of
+them the "this check cannot go red" class. Triage the r0 findings exactly like a round's
+(FIX/BEAD/UNVERIFIED) and let the fixes land before dispatching round 1.
+
 ### Setting it up
 
 It runs under a **three-round budget** per branch — not per commit, not per fix.
@@ -204,7 +220,7 @@ It runs under a **three-round budget** per branch — not per commit, not per fi
 | Prompt: attack surface | Seed a minimum checklist **that names the same surfaces the trigger does** — the reviewer must not be sent hunting for classes the trigger guarantees it is never summoned for. Per class: **1** listener/observer lifetimes across client navigations, state that outlives rendering, SSR/hydration, teardown order, cancellation inheritance; **2** what is written vs read back, versioning and migration, and paths that *should* persist but don't; **3** whether each check could actually go red; **4** invariants that hold only while CMS/config/content behaves, third-party gating, flags; **5** render-thread and device-I/O hazards. Plus, always: refactor behavior-drift, a11y, perf, tracking shapes, and "anything that contradicts the commit messages" — and invite angles beyond the list. |
 | Prompt: honesty | A clean branch gets `GO` with a short confirmed-checks list — manufactured findings are as much a failure as missed ones. |
 | Prompt: R2+ calibration | From R2 omit the prompting skill's `dig_deeper_nudge`. Classify each finding **DECISION-CHANGING** or **POLISH**; report DECISION-CHANGING first. **"If you believe this branch is good enough to ship, say so plainly and early. Do not manufacture severity to seem rigorous."** |
-| Output | Findings ranked BLOCKER/MAJOR/MINOR/NIT, each with file:line, concrete failure scenario, and required fix. |
+| Output | Findings ranked BLOCKER/MAJOR/MINOR/NIT, each with file:line, concrete failure scenario, and required fix — **plus a closing coverage map**: `COVERAGE:` followed by `traced=` (files and mechanisms actually read) and `not-traced=` (skipped, and why). `review-round.sh --collect` extracts it into the findings file, and the next round's prompt spends its budget on the recorded gaps after re-tracing prior findings. Measured 2026-09-16: round 3 of the 6-round branch found five defects in files unchanged since round 2, and round 5's finding had been present since round 2 — each fresh reviewer sampled a different third of the diff and nothing carried the gaps forward. A report with no map is recorded as `COVERAGE: (none recorded)`, so "nothing was skipped" and "nobody said" stay different answers. |
 
 ### The NO-GO loop
 
@@ -296,7 +312,8 @@ patched a third time. So the template makes three things mandatory — the findi
 **siblings** sweep for the same failure class across the whole branch diff, and the **structural**
 question once one mechanism has been patched twice — and it forbids telling the fixer how much
 review budget is left, since the fixer can neither see nor spend it and answers the pressure by
-widening its own scope. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
+widening its own scope; `scripts/fix-prompt-check.sh <prompt-file>` checks a written prompt for that
+phrasing and names the offending line, so the ban is gated rather than remembered. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
 
 ### Skip conditions
 

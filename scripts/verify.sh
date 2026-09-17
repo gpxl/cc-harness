@@ -8,7 +8,7 @@
 set -uo pipefail
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-default_tests="hooks/selftest.sh scripts/codex-path-selftest.sh scripts/routing-report-selftest.sh scripts/loop-report-selftest.sh scripts/retro-evidence-selftest.sh scripts/review-round-selftest.sh scripts/review-ack-check-selftest.sh scripts/rules-index-selftest.sh scripts/install-symmetry-selftest.sh scripts/codex-routing-selftest.sh scripts/codex-wait-selftest.sh scripts/codex-brokers-selftest.sh scripts/codex-jobs-selftest.sh scripts/codex-dispatch-selftest.sh scripts/trusted-pr-merge-selftest.sh scripts/name-hygiene-selftest.sh scripts/verify-selftest.sh"
+default_tests="hooks/selftest.sh scripts/codex-path-selftest.sh scripts/routing-report-selftest.sh scripts/loop-report-selftest.sh scripts/retro-evidence-selftest.sh scripts/review-round-selftest.sh scripts/review-ack-check-selftest.sh scripts/rules-index-selftest.sh scripts/install-symmetry-selftest.sh scripts/codex-routing-selftest.sh scripts/codex-wait-selftest.sh scripts/codex-brokers-selftest.sh scripts/codex-jobs-selftest.sh scripts/codex-dispatch-selftest.sh scripts/trusted-pr-merge-selftest.sh scripts/name-hygiene-selftest.sh scripts/fix-prompt-check-selftest.sh scripts/verify-selftest.sh"
 
 if [ "${1:-}" = "--list" ]; then
   printf '%s\n' $default_tests
@@ -26,7 +26,7 @@ expected=$#
 # CLAUDE.md comparison catches a drop from ONE of the two places; this literal is what catches a
 # drop from both in the same commit, where the two agree with each other and the gate silently runs
 # fewer tests. A deliberate add or removal updates this number in the same edit (cch-x1q item I).
-default_test_count=17
+default_test_count=18
 if [ "$expected" -eq 0 ]; then
   printf 'CC-HARNESS VERIFY: FAIL (no selftests resolved — CC_HARNESS_SELFTESTS is set but empty)\n'
   exit 1

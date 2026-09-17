@@ -13,6 +13,8 @@ without dispatching or changing state.
 | `--scope-changed "<words>"` | Declare that the branch grew, archiving the prior rounds and restarting the budget |
 | `--acceptance-reworded "<words>"` | Declare that only the wording of the acceptance text changed — same commits, same criteria; the round counter is kept |
 | `--user-approved "<words>"` | The owner's words authorising a round beyond three |
+| `--self-check` | Dispatch the author's own pre-round pass over the same diff, acceptance and evidence. Spends no round: no counter, scope stamp or reviewer thread is written, and it is refused once round 1 has been dispatched |
+| `--collect <job-id> --round 0` | Record that pass as `<branch-slug>-r0-self-review.md`; every later round's prompt inlines it, and says so when it is absent. Collecting the same job twice is idempotent; a second, later self-check is refused rather than silently discarded |
 
 State is local to the repository and independent of the project:
 
@@ -23,10 +25,20 @@ State is local to the repository and independent of the project:
 | `<branch-slug>.thread` | Reviewer `threadId` |
 | `<branch-slug>.scope` | Scope stamp of the reviewed branch |
 | `<branch-slug>.scope-<hash>/` | A superseded scope's counter, thread, job and findings |
+| `<branch-slug>.self-check.job` | The self-check's job ID — deliberately separate from `.job`, which is a reviewed round's |
+| `<branch-slug>-r0-self-review.md` | The author's own pass, inlined into round 1 |
 
 The thread comes from the job's JSON record beside the dispatch log, so the job still counts when
 its thread is acquired asynchronously. Starting with round two, prior findings come from adjacent
 `<branch-slug>-r<N>-findings.md` files.
+
+Each round's report ends with a coverage map (`COVERAGE:` / `traced=` / `not-traced=`), which
+`--collect` carries into the findings file. The next round's prompt lists those `not-traced=` items
+as its targets after the prior findings are re-traced; a report that carried no map is recorded as
+`COVERAGE: (none recorded)` and the next prompt says its gaps are unknown, so "nothing was skipped"
+never reads the same as "nobody said". A `not-traced=` line inside a fenced code block is an
+example, not a record, and is skipped: a findings file that quotes the coverage format to
+demonstrate a defect in it would otherwise hand the next round an invented target.
 
 ## What the script refuses, and why
 
