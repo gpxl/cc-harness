@@ -699,6 +699,24 @@ else
   coverage_targets='This is the first round; nothing has been traced yet.'
 fi
 
+# Calibration. rules/branch-completion-review.md § Stage 2 makes this R2+ ("From R2 omit the
+# prompting skill's dig_deeper_nudge") and requires the anti-manufacture sentence VERBATIM. Neither
+# was ever sent: the prompt carried a bare classify-and-ship line on every round, so every reviewer
+# got the dig-deeper posture and none got the sentence restraining it. Measured 2026-09-17 over the
+# four branches reviewed under that contract: 37 of 59 findings (62%) were MINOR/NIT, and every open
+# backlog item was review-spawned.
+#
+# R1 keeps the dig-deeper posture deliberately — the first look at a diff is where breadth pays. It
+# is R2+, re-reading code it has already judged, that has to be told not to reach.
+if [ "$round" -ge 2 ]; then
+  calibration='Classify each finding DECISION-CHANGING or POLISH; report DECISION-CHANGING first.
+If you believe this branch is good enough to ship, say so plainly and early.
+Do not manufacture severity to seem rigorous.'
+else
+  calibration='Classify each finding DECISION-CHANGING or POLISH; report DECISION-CHANGING first.
+If ready to ship, say GO plainly and early.'
+fi
+
 # The author's own pass, when there was one. Round 1 reads it so the reviewer targets what the
 # self-check did NOT cover instead of re-finding what it did.
 self_review_file="$state_dir/$slug-r0-self-review.md"
@@ -788,7 +806,11 @@ $prior_findings
 $coverage_targets
 
 Report BLOCKER/MAJOR/MINOR/NIT findings with file:line, failure scenario, and required action.
-Classify each finding DECISION-CHANGING or POLISH. If ready to ship, say GO plainly and early.
+$calibration
+
+Report at most 3 POLISH findings, chosen for highest value. If you have more, give the count and
+stop — an unbounded polish list becomes backlog nobody reads. DECISION-CHANGING findings are not
+capped: report every one you can support.
 
 Then a coverage map, in exactly this shape, on its own lines — it is how the next round knows where
 to look, and "I read everything" is only believable if you can name it:

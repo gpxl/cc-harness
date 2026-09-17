@@ -1267,5 +1267,75 @@ fi
 
 reset_state
 
+
+# ---------------------------------------------------------------------------
+# Reviewer prompt calibration and the POLISH cap.
+#
+# These rows exist because the defect they pin was invisible for four branches: the rule
+# (rules/branch-completion-review.md § Stage 2) mandates an anti-manufacture sentence from R2, and
+# the script simply never sent it. Nothing tested what the prompt CONTAINS, so nothing could notice
+# a mandated sentence going missing. Assert on the dispatched prompt, not on the source.
+
+# R1 keeps the dig-deeper posture: the first look at a diff is where breadth pays.
+reset_state
+write_job_log
+run
+if [ "$rc" -eq 0 ] && ! grep -q '^Do not manufacture severity to seem rigorous\.$' "$tmp/dispatched-prompt"; then
+  pass 'round 1 does not carry the R2-only anti-manufacture calibration'
+else
+  fail 'round 1 does not carry the R2-only anti-manufacture calibration' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# The cap is NOT R2-gated: an unbounded polish list is backlog on any round.
+if [ "$rc" -eq 0 ] &&
+  grep -q '^Report at most 3 POLISH findings' "$tmp/dispatched-prompt" &&
+  grep -Fq 'DECISION-CHANGING findings are not' "$tmp/dispatched-prompt"; then
+  pass 'round 1 carries the POLISH cap and exempts DECISION-CHANGING from it'
+else
+  fail 'round 1 carries the POLISH cap and exempts DECISION-CHANGING from it' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# R2 is the round re-reading code it has already judged, so it gets the restraining sentence.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf '%s\n' 'MAJOR: seeded r1 finding' 'VERDICT: NO-GO' 'not-traced=docs/ — budget' > "$state-r1-findings.md"
+run
+if [ "$rc" -eq 0 ] &&
+  grep -q '^Do not manufacture severity to seem rigorous\.$' "$tmp/dispatched-prompt" &&
+  grep -q '^Report at most 3 POLISH findings' "$tmp/dispatched-prompt"; then
+  pass 'round 2 carries the anti-manufacture calibration verbatim'
+else
+  fail 'round 2 carries the anti-manufacture calibration verbatim' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+
+# NEGATIVE CONTROL: delete the sentence from the source and the R2 row must go red.
+reset_state
+write_job_log
+mkdir -p "$(dirname "$state")"
+printf '1\n' > "$state"
+printf '%s\n' 'MAJOR: seeded r1 finding' 'VERDICT: NO-GO' 'not-traced=docs/ — budget' > "$state-r1-findings.md"
+make_mutant "s|Do not manufacture|Feel free to manufacture|"
+run
+if [ "$rc" -ne 0 ] || ! grep -q '^Do not manufacture severity to seem rigorous\.$' "$tmp/dispatched-prompt" 2>/dev/null; then
+  pass 'anti-manufacture calibration source mutation goes red'
+else
+  fail 'anti-manufacture calibration source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+runner="$tool"
+
+# NEGATIVE CONTROL: drop the round guard and R1 wrongly receives the R2-only text.
+reset_state
+write_job_log
+make_mutant 's|\[ "$round" -ge 2 \]; then|[ "$round" -ge 0 ]; then|'
+run
+if [ "$rc" -ne 0 ] || grep -q '^Do not manufacture severity to seem rigorous\.$' "$tmp/dispatched-prompt" 2>/dev/null; then
+  pass 'round-guard source mutation goes red'
+else
+  fail 'round-guard source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
+fi
+runner="$tool"
+
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'REVIEW ROUND SELFTEST: FAIL'; completed=1; exit 1
