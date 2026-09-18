@@ -89,15 +89,51 @@ with the Bash timeout). On wake: 0 → check the deliverables on disk (§5); 1 �
 
 ## 4. Cancellation criteria (written down so nobody hesitates)
 
-Cancel when any of: the log's mtime is >15 min old while `running`; the runaway signature (the
-same command re-run ≥3 times, a verification sweep whose scope grows or restarts, a job waiting
-on something already finished); the wall cap hit twice. Order:
+Cancel a **live** job when any of: the log's mtime is >15 min old while `running`; the runaway
+signature (the same command re-run ≥3 times, a verification sweep whose scope grows or restarts,
+a job waiting on something already finished); the wall cap hit twice. Order:
 
 1. `codex.sh cancel <id> --cwd <ws>` — interrupts the app-server turn, then kills the worker tree.
 2. Then orphaned sandbox children: `codex-brokers.sh` gives the workspace's app-server pid;
    `pgrep -P <that pid>` lists its children; confirm each with `lsof -a -p <pid> -d cwd` and kill
    **only PIDs whose cwd is that job's workspace**, by explicit PID.
 3. **Never `pkill -f <pattern>` / `pgrep -f`** — the pattern self-matches (it has killed our own shell).
+
+### 4a. Cross-round runaway (no live job)
+
+The signature above is about one job's liveness. A separate signature applies across **separate,
+individually *completed* job records** for the same bead/PR: three consecutive dispatches above
+the Build / implementation row — pinned to `gpt-6-astra` or higher — with no step back down to
+`gpt-5.6-terra` and no new diagnostic input between rounds. The anchor is the tier, not the
+trend: three rounds correctly held at `gpt-5.6-terra` is the compliant case, not a signature.
+"New diagnostic input" means new evidence bearing on the root cause — a reproduction, a bisect,
+an instrumented run — not the previous round's own findings carried forward as context, which a
+fix round always does (`templates/review-fix-round.md`) and would otherwise make this signature
+never fire. This is the cross-round form of the Model Routing "escalation is scoped to the round
+that needed it" rule (`~/.claude/CLAUDE.md` § Equivalence table) — that rule asks the orchestrator
+to catch the pattern before it starts; this entry is what to do once it didn't. The two conditions
+are related but not identical, deliberately: the Mismatch protocol trigger there fires on framing
+alone (three rounds still read as a fix), while cancelling a round here additionally wants
+evidence the loop itself has stalled. Genuinely converging architecture work — new diagnostic
+input each round — does not trip this signature even while pinned to `gpt-6-astra`, but it still
+owes the Mismatch protocol's framing check at every round boundary.
+
+There is no live worker to kill, so "cancel" means **stop dispatching further rounds and
+re-scope** — drop back to the tier the work type actually calls for, or spend one round
+explicitly on root-cause diagnosis before resuming fixes, rather than dispatching round N+1 at
+the tier rounds 1..N already failed at. Candidate for machine-checking, with a caveat: `scripts/codex-dispatch.sh`
+already runs a duplicate-job check before launch, and `scripts/codex-jobs.sh --json` already
+enumerates job records with `request.model` — but that field is `null`, not absent, whenever
+`--model` was left unset. Measured: 138 of 258 `task`-class records in this machine's
+`codex-openai-codex` job store (53%; 219 of 358, 61%, across all this machine's job stores) carry
+`request.model: null`, because leaving `--model` unset (the documented default path, `~/.claude/CLAUDE.md`
+§ Equivalence table) inherits whatever `~/.codex/config.toml` sets, which is `gpt-6-astra` locally
+— so the single most common way to dispatch at the top tier reads as "no tier recorded" to a
+naive `has(request, "model")` check, and as `null` (not a tier string) to a naive equality check.
+A future checker must resolve the config default whenever `request.model` is `null`, not read it
+alone, or it will silently undercount exactly the top-tier dispatches this rule exists to catch.
+Not built here, but the next person hitting this should not have to re-derive either the idea or
+the pitfall.
 
 ## 5. Prompt-side completion contracts
 

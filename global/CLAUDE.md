@@ -230,6 +230,25 @@ reassign it; do not keep expanding the fast task. Check live model availability 
 if Spark is unavailable, use the build tier and report that substitution. Spark availability
 alone does not trigger the Claude fallback.
 
+**An escalation is scoped to the round that needed it, not a new floor.** When a build-tier
+round hits something that genuinely needs `gpt-6-astra` — a stuck root cause, a design
+trade-off, an ambiguous requirement — escalate that one round explicitly and say why. The
+*next* round re-selects tier from its own prompt, not from what the previous round used: if it
+still reads as "fix this", "make it compile", "round N on the same bug", that is Build /
+implementation and belongs back on `gpt-5.6-terra`. Rewording the prompt is not by itself
+evidence the work type changed — "reconsider the approach to X" at the same tier, round after
+round, is the same pattern wearing different words, and a genuine architecture question earns
+its tier from what it's asking, not from how it's phrased. **Three consecutive rounds dispatched
+above the Build / implementation row — pinned to `gpt-6-astra` or higher — for work the prompt
+itself still frames as an ongoing fix** (not a fresh design question) trips the Mismatch protocol
+trigger below. The anchor is the tier, not the trend: three rounds correctly held at
+`gpt-5.6-terra` never trips this — that is the compliant case this whole rule protects — only
+three rounds still *above* it while the prompt reads as a fix does. On trip, stop and decide
+whether this needs one Astra round to diagnose and decide, then Terra to implement the decision,
+or whether the repeated failure is itself the runaway signature in `codex-dispatch-protocol.md`
+§4a that calls for cancel-and-rescope instead of another dispatch at the same tier. Incident
+record: `docs/reference/rule-histories.md` § model-routing.
+
 - **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
   to move a tier deliberately. Same for `--effort` — set it when the row above disagrees
   with the local default, not by reflex. The current local default is `gpt-6-astra` at
@@ -312,12 +331,15 @@ edits; the only edits worth keeping inline are ones already open in Claude's con
 the round trip would cost more Claude tokens than the edit itself.
 
 - **Mismatch protocol (GATE, not advisory):** whenever the work type changes — most
-  commonly at plan approval (ExitPlanMode) — check both axes. (1) Is this Codex-delegable
-  work about to be done inline anyway? (2) For the work that legitimately stays here, does
-  the session / subagent model match the Claude column? On mismatch, STOP: delegate to
-  Codex, ask the user to run `/model <correct-id>`, or spawn subagents with an explicit
-  `model:` override. Never proceed inline on the wrong model after merely mentioning the
-  mismatch (a one-line "you may want to switch" does not satisfy this rule).
+  commonly at plan approval (ExitPlanMode), and **at every round boundary in a multi-round
+  Codex fix loop** (the three-consecutive-rounds-above-the-build-tier trigger above) — check both
+  axes. (1) Is this Codex-delegable work about to be done inline anyway? (2) For the work that
+  legitimately stays here, does the session / subagent model match the Claude column? On
+  mismatch, STOP: delegate to Codex, ask the user to run `/model <correct-id>`, or spawn
+  subagents with an explicit `model:` override. Never proceed inline on the wrong model after
+  merely mentioning the mismatch (a one-line "you may want to switch" does not satisfy this
+  rule), and never let a Codex fix loop carry a tier forward past that trigger without stopping
+  to re-decide it.
 
 ## CLAUDE.md Optimization
 
