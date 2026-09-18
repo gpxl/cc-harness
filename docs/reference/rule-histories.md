@@ -269,3 +269,42 @@ and the change must cite that metric.
 
 On 2026-09-05, `cch-9o4` recorded that `--resume-last` can resume an intervening fix thread.
 Later rounds therefore resume conditionally; otherwise they receive a controlled R1 handoff.
+
+---
+
+## model-routing (2026-09-18)
+
+A usage-dashboard review found `gpt-6-astra` dominating recent days' Codex spend. Job-record
+inspection (`~/.claude/plugins/data/codex-openai-codex/state/*/jobs/*.json`, `request.model` and
+`createdAt` per job) traced most of it to one PR in a now-retired AudioApp worktree: rounds 1-3 of
+a bounded fix loop correctly used `gpt-5.6-terra`, round 4 escalated to `gpt-6-astra` for a
+genuinely hard hardware-only bug (a same-cycle audio monitor going silently inaudible on a
+mid-take default-output-device change — a real defect that 6 prior review rounds and 82 negative
+controls never caught because the existing tests simulated buffer delivery instead of exercising
+the real path), and every subsequent round — 13 total, several near-identical "FRESH THREAD
+CONTEXT" re-dispatches — stayed pinned to `gpt-6-astra` without the tier ever being re-evaluated
+against what each new round was actually asking for. The branch was abandoned (its host app was
+dropped and the worktree removed) before the loop converged.
+
+Root cause: the Model Routing rule had language for *choosing* a tier but none for *re-choosing*
+one round over round, so an escalation made in one round for one hard question was carried
+forward by inertia into rounds that were plain build/debug work. Separately,
+`codex-dispatch-protocol.md` §4's runaway-signature list covered only a single *live* job's
+liveness (pid, mtime, wall cap) — it had no signature for this pattern, which spans many
+individually-completed job records.
+
+Fix: `~/.claude/CLAUDE.md` § Equivalence table now states that an escalation is scoped to the
+round that needed it, and names three consecutive rounds held *above* the Build / implementation
+row (not merely "same tier as before or higher" — that earlier wording tripped on the compliant
+case of three rounds correctly held at `gpt-5.6-terra`, caught in review round 2 before it shipped)
+as a Mismatch protocol trigger; the Mismatch protocol bullet itself now names "every round boundary
+in a multi-round Codex fix loop" as a trigger moment, not only ExitPlanMode.
+`codex-dispatch-protocol.md` gained a new §4a for the cross-round form specifically, since it
+cancels differently from a live job (no worker to kill — the action is "stop dispatching, drop
+back to the right tier or spend one round on diagnosis"). Not yet machine-checked, and §4a records
+why a naive checker would fail: `request.model` is `null`, not absent, on 53% of this machine's
+`codex-openai-codex` job records (61% across all its job stores) because leaving `--model` unset
+— the documented default path — silently inherits the top tier from `~/.codex/config.toml`, so a
+checker must resolve that default whenever the field is `null` rather than trust the field alone.
+§4a names `codex-dispatch.sh` and `codex-jobs.sh --json` as the data source a future selftest
+would use.
