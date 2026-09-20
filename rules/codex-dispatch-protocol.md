@@ -127,11 +127,15 @@ enumerates job records with `request.model` — but that field is `null`, not ab
 `--model` was left unset. Measured: 138 of 258 `task`-class records in this machine's
 `codex-openai-codex` job store (53%; 219 of 358, 61%, across all this machine's job stores) carry
 `request.model: null`, because leaving `--model` unset (the documented default path, `~/.claude/CLAUDE.md`
-§ Equivalence table) inherits whatever `~/.codex/config.toml` sets, which is `gpt-6-astra` locally
-— so the single most common way to dispatch at the top tier reads as "no tier recorded" to a
-naive `has(request, "model")` check, and as `null` (not a tier string) to a naive equality check.
-A future checker must resolve the config default whenever `request.model` is `null`, not read it
-alone, or it will silently undercount exactly the top-tier dispatches this rule exists to catch.
+§ Equivalence table) inherits whatever `~/.codex/config.toml` sets — `gpt-6-astra` at the time of
+this measurement, flipped to `gpt-5.6-terra` on 2026-09-20 (`cch-w50`, after the same job-store
+data showed 69% of dispatches resolving to the architecture tier by unset-default alone, most of
+it routine build/fix work) — so a naive `has(request, "model")` check misreads the single most
+common way to dispatch as "no tier recorded", and a naive equality check misreads `null` as not a
+tier string at all. A future checker must resolve `request.model: null` against **whatever the
+config default was on that job's `createdAt`**, not the config's current value, or a historical
+count will silently misattribute jobs dispatched under the old `gpt-6-astra` default to whatever
+tier is live when the checker runs.
 Not built here, but the next person hitting this should not have to re-derive either the idea or
 the pitfall.
 

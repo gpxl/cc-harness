@@ -308,3 +308,41 @@ why a naive checker would fail: `request.model` is `null`, not absent, on 53% of
 checker must resolve that default whenever the field is `null` rather than trust the field alone.
 §4a names `codex-dispatch.sh` and `codex-jobs.sh --json` as the data source a future selftest
 would use.
+
+---
+
+## model-routing (2026-09-20)
+
+Follow-up to the 09-18 entry above, and a distinct root cause. That entry fixed escalation
+*sticking* across rounds of an already-explicit tier choice. It did not touch the far more common
+case: a dispatch that never sets `--model` at all. A 30-day, all-workspace pull of every Codex job
+record (`scripts/codex-jobs.sh --all-workspaces --json`, 374 jobs) found 259 (69%) resolving to
+`gpt-6-astra` — 234 by unset `--model` alone, 25 explicit — against 101 (27%) on `gpt-5.6-terra`.
+The pattern was daily and present on every project measured (cc-harness 100% default-astra,
+AudioApp 67%, WebAppMonoRepo 44%, AudioWebsite 57%), including 2026-09-19 and 09-20, after the
+prior fix had already landed — confirming the two problems are independent. A sample of the
+default-astra job summaries read as ordinary implementation/fix work ("Implemented aa-oq2u.6",
+review-round fix language), not architecture-shaped requests, so this was misrouted spend rather
+than legitimate escalation.
+
+Root cause: `~/.codex/config.toml` set `model = "gpt-6-astra"` (the Architecture / design row),
+while the large majority of real dispatches are Build / implementation work by the Equivalence
+table's own definition. `scripts/codex-dispatch.sh` only appends `--model` when a caller passes
+one, so every dispatch that left it unset — the path the Model Routing rule itself documents as
+normal for "just do the work" prompts — silently inherited the wrong tier at high/xhigh effort.
+
+Fix (`cch-w50`): flipped `~/.codex/config.toml` to `model = "gpt-5.6-terra"`,
+`model_reasoning_effort = "high"`, matching the Build / implementation row exactly, since that row
+is what most real dispatches are. `~/.claude/CLAUDE.md` § Equivalence table's "local Codex default"
+annotation moved from the Architecture row to the Build row; the "leave `--model` unset" bullet now
+says escalating to `gpt-6-astra` requires `--model` explicitly (previously the reverse — routine
+work needed the explicit flag to step *down*). `codex-dispatch-protocol.md` §4a's illustrative
+"which is `gpt-6-astra` locally" was time-bound to the measurement it cites; corrected to record
+that a future null-resolving checker must look up the config default **as of the job's
+`createdAt`**, not the config's current value, since the default itself is now known to change.
+
+This does not fully close the gap: `codex-dispatch.sh` still has no way to *require* an explicit
+`--model gpt-6-astra` for a call site that genuinely means architecture-tier work, so a caller that
+leaves `--model` unset for a hard design question will now silently under-route to Build tier
+instead of over-routing to Architecture tier — the same blind spot, inverted. Not fixed here;
+candidate for the same kind of measurement pass in another 30 days.
