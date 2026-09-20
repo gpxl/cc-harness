@@ -215,8 +215,8 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 
 | Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
 |-----------|------------------------|-----------------------------------|--------|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work; **the local Codex default** | `claude-fable-5-1` → `claude-opus-5` | `xhigh` |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder (`gpt-5.6-sol` is its same-tier sibling, a reliable everyday workhorse) | `claude-opus-5` | `high` |
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5` | `xhigh` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder (`gpt-5.6-sol` is its same-tier sibling, a reliable everyday workhorse); **the local Codex default** | `claude-opus-5` | `high` |
 | **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-5.6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
 | **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
 
@@ -251,9 +251,15 @@ record: `docs/reference/rule-histories.md` § model-routing.
 
 - **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
   to move a tier deliberately. Same for `--effort` — set it when the row above disagrees
-  with the local default, not by reflex. The current local default is `gpt-6-astra` at
-  `high`, so an unset `--model` already lands on the architecture row's model, not the
-  build row's — pass `--model` explicitly to step *down* a tier for routine work.
+  with the local default, not by reflex. The current local default is `gpt-5.6-terra` at
+  `high` — the Build / implementation row, matching the majority of real dispatches — so
+  an unset `--model` already lands there; pass `--model gpt-6-astra --effort xhigh`
+  explicitly to step *up* a tier for genuine architecture/design work, or `--model spark`
+  to step down for small, precise, easily-checked edits. (Flipped 2026-09-20, `cch-w50`:
+  measurement over a 30-day, 374-job window found 69% of dispatches resolving to
+  `gpt-6-astra` by unset-default alone, most of it routine build/fix work — a distinct,
+  still-present failure mode from the cross-round escalation-sticking incident fixed in
+  PR #65; see `docs/reference/rule-histories.md` § model-routing.)
 - The companion's `--effort` accepts `none|minimal|low|medium|high|xhigh` only. `max` and
   `ultra` exist on the raw models (astra / sol / terra reach `ultra`, luna reaches `max`)
   but are not reachable through this path.
@@ -298,8 +304,8 @@ is expensive to move.
 **Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
 by default.** Opus 5 is for a session where the *orchestration itself* is the hard part
 (multi-repo state, a delicate migration). If the hard part is the engineering, that is a
-`gpt-6-astra` handoff, not an Opus session. `claude-haiku-4-5` is enough for a
-forward-and-report loop.
+Codex handoff (`gpt-5.6-terra` by default, `gpt-6-astra` for genuine design work), not an
+Opus session. `claude-haiku-4-5` is enough for a forward-and-report loop.
 
 ### Keeping Claude's context small
 
