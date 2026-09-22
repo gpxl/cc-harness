@@ -152,6 +152,68 @@ else
   fi
 fi
 
+# 8. Selftests actually run concurrently, and each name is attributed its OWN exit status — not
+# the first-launched PID's. Three fake selftests each sleep 1s and exit with distinct codes.
+# Negative control (not run, to stay read-only about the real script): swapping
+# `wait "${pids[idx]}"` for `wait "${pids[1]}"` would make conc-b/conc-c both report conc-a's
+# exit 0; running `wait` immediately after each launch (serializing them) would still pass every
+# PASS/FAIL assertion below while missing the elapsed-time bound — which is why both an identity
+# check and a timing check are required together.
+mkdir -p "$tmp/concurrent"
+printf '#!/usr/bin/env bash\nsleep 1\nexit 0\n' > "$tmp/concurrent/conc-a-selftest.sh"
+printf '#!/usr/bin/env bash\nsleep 1\nexit 4\n' > "$tmp/concurrent/conc-b-selftest.sh"
+printf '#!/usr/bin/env bash\nsleep 1\nexit 7\n' > "$tmp/concurrent/conc-c-selftest.sh"
+start=$(date +%s)
+out=$(CC_HARNESS_SELFTESTS="$tmp/concurrent/conc-a-selftest.sh $tmp/concurrent/conc-b-selftest.sh $tmp/concurrent/conc-c-selftest.sh" \
+  CC_HARNESS_VERIFY_LOG_DIR="$tmp/l8" bash "$verify" 2>&1); rc=$?
+elapsed=$(( $(date +%s) - start ))
+# Sequential would take >=3s; concurrent finishes in ~1s. 2s is a wide, non-flaky cutoff between them.
+if [ "$rc" -eq 1 ] && [ "$elapsed" -le 2 ] \
+  && printf '%s' "$out" | grep -Fq 'conc-a-selftest: PASS' \
+  && printf '%s' "$out" | grep -Fq 'conc-b-selftest: FAIL (exit 4)' \
+  && printf '%s' "$out" | grep -Fq 'conc-c-selftest: FAIL (exit 7)'; then
+  pass 'concurrent selftests report their own exit status and overlap in wall time'
+else
+  fail 'concurrent selftests report their own exit status and overlap in wall time' "rc=$rc elapsed=${elapsed}s out=$out"
+fi
+
+# 9. Cancellation must not leak: a selftest that itself backgrounds a child must not outlive a
+# TERM'd gate. Reproduces a real bug found in Stage 2 round 1 review: `kill "$pid"` (the round-0
+# fix) signals only the gate's direct `bash "$path"` child, not anything that child backgrounds —
+# confirmed by hand with a real `sleep 30 &` grandchild that survived a TERM'd gate under the
+# round-0 code. `kill -TERM -- "-$pid"` (negated pid, signals the whole process GROUP, which
+# `set -m` gives each backgrounded job even in this non-interactive script) is what actually fixes
+# it, confirmed the same way.
+mkdir -p "$tmp/cancel"
+grandchild_marker="$tmp/cancel/grandchild.pid"
+rm -f "$grandchild_marker"
+cat > "$tmp/cancel/leaky-selftest.sh" <<LEAKY
+#!/usr/bin/env bash
+sleep 30 &
+echo \$! > "$grandchild_marker"
+sleep 30
+LEAKY
+chmod +x "$tmp/cancel/leaky-selftest.sh"
+CC_HARNESS_SELFTESTS="$tmp/cancel/leaky-selftest.sh" CC_HARNESS_VERIFY_LOG_DIR="$tmp/l9" \
+  bash "$verify" >"$tmp/l9.out" 2>&1 &
+gate_pid=$!
+sleep 1
+grandchild_pid=$(cat "$grandchild_marker" 2>/dev/null || true)
+if [ -z "$grandchild_pid" ]; then
+  fail 'cancellation kills a selftest and everything it backgrounds' 'grandchild never started — cannot exercise the guard'
+  kill -9 "$gate_pid" 2>/dev/null
+else
+  kill -TERM "$gate_pid" 2>/dev/null
+  sleep 1
+  if kill -0 "$grandchild_pid" 2>/dev/null; then
+    fail 'cancellation kills a selftest and everything it backgrounds' "grandchild pid $grandchild_pid still alive after the gate was TERM'd"
+    kill -9 "$grandchild_pid" 2>/dev/null
+  else
+    pass 'cancellation kills a selftest and everything it backgrounds'
+  fi
+fi
+wait "$gate_pid" 2>/dev/null
+
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'VERIFY SELFTEST RESULT: PASS'
   exit 0
