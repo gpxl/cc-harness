@@ -35,9 +35,9 @@ The Claude agents form a development pipeline:
 
 Native Codex uses six shared, bounded roles: explorer, runner, spark, worker, analyst, and reviewer.
 Projects inherit them without replacing personal Codex settings or roles.
-Spark handles small, precise coding changes with known outcomes and clear checks; worker and
-analyst handle broader implementation, diagnosis, and design. See the
-[selection guidance](rules/native-codex-routing.md#spark-selection) for examples and escalation.
+The spark-named role uses `gpt-6-luna` at low effort for small, precise coding changes with known
+outcomes and clear checks; worker and analyst handle broader implementation, diagnosis, and design. See the
+[selection guidance](rules/native-codex-routing.md#focused-coding-selection) for examples and escalation.
 
 The supporting rules cover the parts that are easy to get subtly wrong: meaningful tests, honest
 exit codes, feature-branch discipline, one gate per working tree, parallel-session isolation,

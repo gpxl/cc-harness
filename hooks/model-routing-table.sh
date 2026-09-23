@@ -20,9 +20,9 @@ MODEL_ROUTING_DESCRIPTIONS=(
 )
 MODEL_ROUTING_CODEX=(
   gpt-6-astra
-  gpt-5.6-terra
-  gpt-5.6-luna
-  gpt-5.3-codex-spark
+  gpt-6-sol
+  gpt-6-luna
+  gpt-6-luna
 )
 MODEL_ROUTING_EFFORT=(
   xhigh
@@ -32,17 +32,11 @@ MODEL_ROUTING_EFFORT=(
 )
 # Space-delimited because every fallback slug is a single shell word.
 MODEL_ROUTING_CLAUDE_FALLBACKS=(
-  'claude-fable-5-1 claude-opus-5'
-  claude-opus-5
+  'claude-fable-5-1 claude-opus-5-5'
+  claude-opus-5-5
   claude-sonnet-5
   claude-sonnet-5
 )
-# Mentioned in the markdown table as the build tier's same-level sibling, but
-# not selected as a routing tier.
-MODEL_ROUTING_TABLE_REFERENCED_CODEX=(
-  gpt-5.6-sol
-)
-
 MODEL_ROUTING_NEWLINE='
 '
 
@@ -87,8 +81,5 @@ model_routing_table_valid() {
     for fallback in ${MODEL_ROUTING_CLAUDE_FALLBACKS[$index]}; do
       model_routing_value_is_json_safe "$fallback" || return 1
     done
-  done
-  for fallback in "${MODEL_ROUTING_TABLE_REFERENCED_CODEX[@]}"; do
-    model_routing_value_is_json_safe "$fallback" || return 1
   done
 }
