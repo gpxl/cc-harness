@@ -20,12 +20,11 @@ the shared model table or generic role prompts. Claude Code's `/codex:rescue`, m
 and Claude fallback rules apply only inside Claude Code sessions and are not invoked from native
 Codex.
 
-## Spark selection
+## Focused coding selection
 
 Prefer `harness_spark` when the desired outcome is already known, the scope is small, and
-correctness is easy to check. OpenAI describes GPT-5.3-Codex-Spark as a text-only model for
-near-instant coding iteration ([official model guidance](https://learn.chatgpt.com/docs/models)).
-The following are routing recommendations for this harness:
+correctness is easy to check. The role name is retained for compatibility; it now selects
+`gpt-6-luna` at low effort. The following are routing recommendations for this harness:
 
 | Good task | Example |
 |---|---|
@@ -43,17 +42,19 @@ the check that establishes success. For example:
 
 Text-only means the task must be understandable without interpreting screenshots; visual
 inspection belongs to a capable supervisor or tool. Small UI edits still need the repository's
-applicable visual checks. Spark does not bypass tests, review, or the commit pipeline.
+applicable visual checks. The focused coding role does not bypass tests, review, or the commit
+pipeline.
 
 Use `harness_worker` for diagnosing search failures or broader implementation; use
 `harness_analyst` for designing playback persistence or deciding what engagement metrics mean.
-If ambiguity, an unknown cause, or cross-cutting design emerges, Spark returns its findings to
-the supervisor for reassignment instead of expanding scope or delegating again.
+If ambiguity, an unknown cause, or cross-cutting design emerges, `harness_spark` returns its
+findings to the supervisor for reassignment instead of expanding scope or delegating again.
 
-Keep model and effort in the generated catalog, not in project copies. Check the live client's
+Keep model and effort in the generated catalog, not in project copies. `gpt-6-sol` and
+`gpt-6-luna` require codex-cli >= 0.155.0 for ChatGPT accounts. Check the live client's
 model/role availability before dispatch: a generated role is not proof of account access.
 When a named role is unavailable, use its explicit generated settings only if the client exposes
-that model; if Spark itself is unavailable, use `harness_worker` for the bounded task and report
+that model; if `gpt-6-luna` is unavailable, use `harness_worker` for the bounded task and report
 the substitution. Keep the main model unchanged.
 
 The tracked catalog is generated from `hooks/model-routing-table.sh`: run

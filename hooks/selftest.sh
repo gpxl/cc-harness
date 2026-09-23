@@ -96,9 +96,6 @@ model_routing_table_matches_claude() {
       printf 'L|%s\n' "$fallback" >> "$values_file" || return 1
     done
   done
-  for fallback in "${MODEL_ROUTING_TABLE_REFERENCED_CODEX[@]}"; do
-    printf 'C|%s\n' "$fallback" >> "$values_file" || return 1
-  done
   python3 - "$root/../global/CLAUDE.md" "$values_file" <<'PY'
 import re
 import sys

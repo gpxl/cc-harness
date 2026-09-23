@@ -166,8 +166,9 @@ collaboration forks need `fork_turns="none"` to accept overrides. Do not recursi
 Claude-only `/codex:rescue`, mismatch, model-switch, or fallback rules. Projects inherit these
 roles and retain only project constraints; `scripts/codex-routing-check.sh --project <repo>`
 reports local shadows, copied legacy roles, and routing-default copies without changing files.
-Use the Spark selection guidance in `~/.claude/rules/native-codex-routing.md`; if the live client cannot
-select Spark, use worker for the same bounded coding task and report the substitution.
+Use the focused-coding selection guidance in `~/.claude/rules/native-codex-routing.md`;
+`harness_spark` now selects `gpt-6-luna` at low effort. If that model is unavailable,
+use worker for the same bounded coding task and report the substitution.
 
 ## Model Routing (Claude Code sessions)
 
@@ -215,19 +216,19 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 
 | Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
 |-----------|------------------------|-----------------------------------|--------|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5` | `xhigh` |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-5.6-terra` — balanced everyday coder (`gpt-5.6-sol` is its same-tier sibling, a reliable everyday workhorse); **the local Codex default** | `claude-opus-5` | `high` |
-| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-5.6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
-| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-5.3-codex-spark` (`--model spark`) | `claude-sonnet-5` | `low` |
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` |
+| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
+| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` |
 
-Prefer Spark over the build tier when the task meets all three conditions: precise outcome,
+Prefer the mechanical tier over the build tier when the task meets all three conditions: precise outcome,
 small scope, and a clear check. It suits small UI adjustments from textual requirements,
 mechanical refactors, known fixes, focused regression tests, and utilities with explicit inputs
-and outputs. See `~/.claude/rules/native-codex-routing.md` § Spark selection for examples and a prompt.
+and outputs. See `~/.claude/rules/native-codex-routing.md` § Focused coding selection for examples and a prompt.
 Use the build tier for diagnosis or broader implementation and the architecture tier for design
-or ambiguous requirements. If a Spark task reveals those needs, return the findings and
+or ambiguous requirements. If a mechanical-tier task reveals those needs, return the findings and
 reassign it; do not keep expanding the fast task. Check live model availability before dispatch;
-if Spark is unavailable, use the build tier and report that substitution. Spark availability
+if `gpt-6-luna` is unavailable, use the build tier and report that substitution. Model availability
 alone does not trigger the Claude fallback.
 
 **An escalation is scoped to the round that needed it, not a new floor.** When a build-tier
@@ -235,46 +236,53 @@ round hits something that genuinely needs `gpt-6-astra` — a stuck root cause, 
 trade-off, an ambiguous requirement — escalate that one round explicitly and say why. The
 *next* round re-selects tier from its own prompt, not from what the previous round used: if it
 still reads as "fix this", "make it compile", "round N on the same bug", that is Build /
-implementation and belongs back on `gpt-5.6-terra`. Rewording the prompt is not by itself
+implementation and belongs back on `gpt-6-sol`. Rewording the prompt is not by itself
 evidence the work type changed — "reconsider the approach to X" at the same tier, round after
 round, is the same pattern wearing different words, and a genuine architecture question earns
 its tier from what it's asking, not from how it's phrased. **Three consecutive rounds dispatched
 above the Build / implementation row — pinned to `gpt-6-astra` or higher — for work the prompt
 itself still frames as an ongoing fix** (not a fresh design question) trips the Mismatch protocol
 trigger below. The anchor is the tier, not the trend: three rounds correctly held at
-`gpt-5.6-terra` never trips this — that is the compliant case this whole rule protects — only
+`gpt-6-sol` never trips this — that is the compliant case this whole rule protects — only
 three rounds still *above* it while the prompt reads as a fix does. On trip, stop and decide
-whether this needs one Astra round to diagnose and decide, then Terra to implement the decision,
+whether this needs one Astra round to diagnose and decide, then Sol to implement the decision,
 or whether the repeated failure is itself the runaway signature in `codex-dispatch-protocol.md`
 §4a that calls for cancel-and-rescope instead of another dispatch at the same tier. Incident
 record: `docs/reference/rule-histories.md` § model-routing.
 
 - **Leave `--model` unset** to inherit whatever `~/.codex/config.toml` sets; pass one only
   to move a tier deliberately. Same for `--effort` — set it when the row above disagrees
-  with the local default, not by reflex. The current local default is `gpt-5.6-terra` at
+  with the local default, not by reflex. The current local default is `gpt-6-sol` at
   `high` — the Build / implementation row, matching the majority of real dispatches — so
   an unset `--model` already lands there; pass `--model gpt-6-astra --effort xhigh`
-  explicitly to step *up* a tier for genuine architecture/design work, or `--model spark`
+  explicitly to step *up* a tier for genuine architecture/design work, or `--model gpt-6-luna --effort low`
   to step down for small, precise, easily-checked edits. (Flipped 2026-09-20, `cch-w50`:
   measurement over a 30-day, 374-job window found 69% of dispatches resolving to
   `gpt-6-astra` by unset-default alone, most of it routine build/fix work — a distinct,
   still-present failure mode from the cross-round escalation-sticking incident fixed in
-  PR #65; see `docs/reference/rule-histories.md` § model-routing.)
+  PR #65; see `docs/reference/rule-histories.md` § model-routing. The default moved from
+  `gpt-5.6-terra` to `gpt-6-sol` on 2026-09-23 with the new release; the new tiers require
+  codex-cli >= 0.155.0.)
 - The companion's `--effort` accepts `none|minimal|low|medium|high|xhigh` only. `max` and
   `ultra` exist on the raw models (astra / sol / terra reach `ultra`, luna reaches `max`)
   but are not reachable through this path.
 - Retired or superseded, never pin: `gpt-5.4` is gone from the roster entirely and
-  `gpt-5.4-mini` carries an upgrade pointer to `gpt-5.6-luna`; `gpt-5.5` is the
-  previous generation. On the Claude side `claude-fable-5` is superseded by
-  `claude-fable-5-1`, and **older Opus generations** (`claude-opus-4-8`, `claude-opus-4-7`)
-  are superseded for every Claude-column row.
+  `gpt-5.4-mini` carries an upgrade pointer to `gpt-5.6-luna`; `gpt-5.5` retires
+  2026-10-14 and points to `gpt-5.6-sol`. The `gpt-5.6-sol`, `gpt-5.6-terra`, and
+  `gpt-5.6-luna` models are labelled Older; `gpt-5.3-codex-spark` is absent from the live
+  roster. On the Claude side `claude-fable-5` is superseded by `claude-fable-5-1`, and
+  `claude-opus-5`, `claude-opus-4-8`, and `claude-opus-4-7` are superseded for every
+  Claude-column row.
 - Model slugs move, and **`~/.codex/models_cache.json` is not reliably authoritative** — it
   carries its own `client_version`/`fetched_at` and can lag the installed `codex` CLI by
   several releases; on 2026-09-08 it was written by 0.147.0 against an installed 0.153.4 and
-  omitted `gpt-6-astra` altogether, including as the user's own configured default. Read it
-  for `slug` / `description` / `visibility` / `upgrade` detail, but **check its
-  `client_version` against `codex --version` first**, and treat the host's live roster as
-  the source of truth when they disagree (the Codex app's own tool schemas enumerate it:
+  omitted `gpt-6-astra` altogether, including as the user's own configured default. On
+  2026-09-23 the cache (client_version 0.155.0) was ahead of the installed CLI (0.153.4),
+  and the new slugs returned 400 until upgrading. Read it for `slug` / `description` /
+  `visibility` / `upgrade` detail, but **check its `client_version` against `codex --version`
+  and probe new slugs against the installed CLI before relying on them**; the mismatch can go
+  either way. Treat the host's live roster as the source of truth when they disagree (the
+  Codex app's own tool schemas enumerate it:
   `~/.codex/.codex-global-state.json` →
   `electron-persisted-atom-state.mcp-extension-sidebar-catalog`, whose `model` parameter
   description lists every slug and its supported reasoning efforts).
@@ -302,9 +310,9 @@ evidence when run by the party reporting it — `verification-integrity.md`), no
 is expensive to move.
 
 **Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
-by default.** Opus 5 is for a session where the *orchestration itself* is the hard part
+by default.** Opus 5.5 is for a session where the *orchestration itself* is the hard part
 (multi-repo state, a delicate migration). If the hard part is the engineering, that is a
-Codex handoff (`gpt-5.6-terra` by default, `gpt-6-astra` for genuine design work), not an
+Codex handoff (`gpt-6-sol` by default, `gpt-6-astra` for genuine design work), not an
 Opus session. `claude-haiku-4-5` is enough for a forward-and-report loop.
 
 ### Keeping Claude's context small

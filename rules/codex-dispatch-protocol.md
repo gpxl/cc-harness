@@ -104,8 +104,8 @@ a job waiting on something already finished); the wall cap hit twice. Order:
 The signature above is about one job's liveness. A separate signature applies across **separate,
 individually *completed* job records** for the same bead/PR: three consecutive dispatches above
 the Build / implementation row — pinned to `gpt-6-astra` or higher — with no step back down to
-`gpt-5.6-terra` and no new diagnostic input between rounds. The anchor is the tier, not the
-trend: three rounds correctly held at `gpt-5.6-terra` is the compliant case, not a signature.
+`gpt-6-sol` and no new diagnostic input between rounds. The anchor is the tier, not the
+trend: three rounds correctly held at `gpt-6-sol` is the compliant case, not a signature.
 "New diagnostic input" means new evidence bearing on the root cause — a reproduction, a bisect,
 an instrumented run — not the previous round's own findings carried forward as context, which a
 fix round always does (`templates/review-fix-round.md`) and would otherwise make this signature
@@ -130,7 +130,8 @@ enumerates job records with `request.model` — but that field is `null`, not ab
 § Equivalence table) inherits whatever `~/.codex/config.toml` sets — `gpt-6-astra` at the time of
 this measurement, flipped to `gpt-5.6-terra` on 2026-09-20 (`cch-w50`, after the same job-store
 data showed 69% of dispatches resolving to the architecture tier by unset-default alone, most of
-it routine build/fix work) — so a naive `has(request, "model")` check misreads the single most
+it routine build/fix work), then moved to `gpt-6-sol` on 2026-09-23 — so a naive
+`has(request, "model")` check misreads the single most
 common way to dispatch as "no tier recorded", and a naive equality check misreads `null` as not a
 tier string at all. A future checker must resolve `request.model: null` against **whatever the
 config default was on that job's `createdAt`**, not the config's current value, or a historical
