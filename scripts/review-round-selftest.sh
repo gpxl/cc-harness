@@ -10,6 +10,7 @@ coverage_loose_log="$root/scripts/testdata/review-job-coverage-loose-sample.log"
 coverage_inline_log="$root/scripts/testdata/review-job-coverage-inline-sample.log"
 coverage_partial_log="$root/scripts/testdata/review-job-coverage-partial-sample.log"
 bullets_log="$root/scripts/testdata/review-job-bullets-sample.log"
+numbered_log="$root/scripts/testdata/review-job-numbered-sample.log"
 runner="$tool"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/review-round-selftest.XXXXXX") || exit 1
 completed=0
@@ -111,13 +112,11 @@ write_job_log
 reset_state
 run_subcommand --collect review-job --round 1
 findings="$state-r1-findings.md"
-if [ "$rc" -eq 0 ] && [ "$(<"$findings")" = "$(printf '%s\n' \
-  '### MAJOR — Fresh R2/R3 reviewers receive no prior findings' \
-  '### MAJOR — Required AudioApp migration is explicitly deferred' \
-  'VERDICT: NO-GO' \
-  'OPEN BLOCKERS: 2' \
+expected=$(sed -n '/] Final output$/,$p' "$sample_log" | sed '1d; s/[[:space:]]*$//')
+expected=$(printf '%s\n' "$expected" \
   "COVERAGE: (none recorded — this round's report carried no coverage map, so its gaps are unknown)" \
-  'Dispositions:')" ]; then
+  'Dispositions:')
+if [ "$rc" -eq 0 ] && [ "$(<"$findings")" = "$expected" ]; then
   pass 'collect writes the expected findings from the captured job log'
 else
   fail 'collect writes the expected findings from the captured job log' "rc=$rc findings=$(<"$findings" 2>/dev/null || true)"
@@ -258,7 +257,7 @@ cp "$coverage_findings" "$coverage_findings_fixture"
 
 reset_state
 use_coverage_log
-make_mutant 's|COVERAGE:/|NEVER-MATCHES:/|'
+make_mutant 's/append("COVERAGE:")/append("NEVER-MATCHES:")/'
 run_subcommand --collect review-job --round 1
 if [ "$rc" -ne 0 ] || ! grep -Fqx 'COVERAGE:' "$state-r1-findings.md" 2>/dev/null; then
   pass 'coverage-extraction source mutation goes red'
@@ -1175,13 +1174,77 @@ fi
 
 reset_state
 use_bullets_log
-make_mutant 's/\[-\*\]/[ZZZ]/'
+make_mutant 's|in_final { append($0) }|in_final \&\& /^### / { append($0) }|'
 run_subcommand --collect review-job --round 1
 runner="$tool"
 if ! grep -Fq '**BLOCKER — src/cache/store.ts:120**' "$state-r1-findings.md" 2>/dev/null; then
-  pass 'bullet-findings parser source mutation goes red'
+  pass 'bold-bullet full-body source mutation goes red'
 else
-  fail 'bullet-findings parser source mutation goes red' 'the mutant still collected the bullet'
+  fail 'bold-bullet full-body source mutation goes red' 'the mutant still collected the bullet'
+fi
+
+reset_state
+
+# The captured report appears under Assistant message and Final output. Only the final copy
+# survives, including its prose and numbered findings, so the next round can read them.
+use_numbered_log() { cp "$numbered_log" "$job_log"; }
+
+reset_state
+use_numbered_log
+run_subcommand --collect review-job --round 1
+numbered_findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] &&
+  grep -Fq '**Two decision-changing defects remain. I would not ship this branch yet.**' "$numbered_findings" &&
+  grep -Fq 'Make every displayed track Keep-capable, or omit tracks that cannot satisfy the Keep contract.' "$numbered_findings" &&
+  grep -Fq 'Enter the exhausted state when filtering leaves no tracks and no further page.' "$numbered_findings" &&
+  [ "$(grep -Fc 'Make every displayed track Keep-capable, or omit tracks that cannot satisfy the Keep contract.' "$numbered_findings")" -eq 1 ] &&
+  [ "$(grep -Fc 'Enter the exhausted state when filtering leaves no tracks and no further page.' "$numbered_findings")" -eq 1 ] &&
+  grep -Fqx 'OPEN BLOCKERS: 2' "$numbered_findings" &&
+  grep -Fqx 'VERDICT: NO-GO' "$numbered_findings" &&
+  grep -Fq 'not-traced=design comp R1/R2 visual parity' "$numbered_findings"; then
+  pass 'collect preserves one final copy of both numbered findings'
+else
+  fail 'collect preserves one final copy of both numbered findings' "rc=$rc findings=$(<"$numbered_findings" 2>/dev/null || true)"
+fi
+
+reset_state
+use_numbered_log
+make_mutant 's|in_final { append($0) }|in_final \&\& /^### / { append($0) }|'
+run_subcommand --collect review-job --round 1
+runner="$tool"
+if [ "$rc" -ne 0 ] || ! grep -Fq 'Make every displayed track Keep-capable, or omit tracks that cannot satisfy the Keep contract.' "$state-r1-findings.md" 2>/dev/null; then
+  pass 'numbered findings full-body source mutation goes red'
+else
+  fail 'numbered findings full-body source mutation goes red' 'the mutant still collected numbered findings'
+fi
+
+# An OPEN BLOCKERS count with no finding body would silently erase the reason for NO-GO.
+write_empty_blocker_log() {
+  printf '%s\n' '[2026-01-01T00:00:00Z] Final output' \
+    'COVERAGE:' 'traced=reviewed files' 'not-traced=remaining files' \
+    'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
+}
+
+reset_state
+write_empty_blocker_log
+run_subcommand --collect review-job --round 1
+if [ "$rc" -ne 0 ] && grep -Fq "$job_log" "$tmp/err" &&
+  [ ! -e "$state-r1-findings.md" ] &&
+  [ -d "$common/review-rounds" ] && [ -z "$(find "$common/review-rounds" -maxdepth 1 -name ".${slug}-r1-findings.*" -print)" ]; then
+  pass 'collect rejects blockers with no finding body and removes its temp'
+else
+  fail 'collect rejects blockers with no finding body and removes its temp' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+write_empty_blocker_log
+make_mutant "s/^  if awk '/  if false \&\& awk '/"
+run_subcommand --collect review-job --round 1
+runner="$tool"
+if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
+  pass 'missing finding body guard source mutation goes red'
+else
+  fail 'missing finding body guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
 reset_state
