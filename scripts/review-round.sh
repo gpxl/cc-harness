@@ -338,7 +338,8 @@ final_findings_from_log() {
   function normalize(line,   out) { out = line; sub(/^[[:space:]]+/, "", out); gsub(/\*/, "", out); sub(/[[:space:]]+$/, "", out); return out }
   # A job can log the report as an Assistant message before its Final output, or log more
   # than one Final output. Keep only the last final section so neither copy is repeated.
-  /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[^]]+\][[:space:]]+Final output:?[[:space:]]*$/ {
+  # Bracketed severity labels belong to the report; only ISO-stamped job lines frame it.
+  /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^]]*\][[:space:]]+Final output:?[[:space:]]*$/ {
     for (i = 1; i <= lines; i++) delete body[i]
     lines = 0
     field = ""
@@ -348,7 +349,7 @@ final_findings_from_log() {
     saw_final = 1
     next
   }
-  in_final && /^\[[^]]+\][[:space:]]/ { flush_field(); in_final = 0; coverage = 0; next }
+  in_final && /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^]]*\][[:space:]]/ { flush_field(); in_final = 0; coverage = 0; next }
   # The coverage map is what makes round N+1 spend its budget on what nobody read yet, instead of
   # resampling the same third of the diff. It is extracted with the findings for the same reason
   # they are: the thread does not survive to the next round, the file does. It is parsed
@@ -435,7 +436,8 @@ collect_findings() {
   else
     : > "$temp"
   fi
-  # A NO-GO with blockers but no finding text loses the reasons the next reviewer must re-trace.
+  # A NO-GO with blockers needs a labeled finding; lead-in prose cannot tell the next reviewer
+  # which concrete defect to re-trace. Metadata, including OPEN BLOCKERS, is not a finding.
   if awk '
     /^[[:space:]]*OPEN BLOCKERS:[[:space:]]*[0-9]+/ {
       count = $0
@@ -446,8 +448,8 @@ collect_findings() {
     }
     /^[[:space:]]*(COVERAGE:|traced[[:space:]]*=|not-traced[[:space:]]*=|VERDICT:)/ { next }
     /^[[:space:]]*$/ { next }
-    { body = 1 }
-    END { exit !(blockers && !body) }
+    /(^|[^[:alnum:]_])(BLOCKER|MAJOR|MINOR|NIT)([^[:alnum:]_]|$)/ { labeled_body = 1 }
+    END { exit !(blockers && !labeled_body) }
   ' "$temp"; then
     rm -f "$temp"
     printf 'review-round: OPEN BLOCKERS without finding text in %s\n' "$log_file" >&2

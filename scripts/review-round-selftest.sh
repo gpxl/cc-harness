@@ -1218,6 +1218,39 @@ else
   fail 'numbered findings full-body source mutation goes red' 'the mutant still collected numbered findings'
 fi
 
+# A bracketed severity label is report text, not the next timestamped job event.
+write_bracketed_finding_log() {
+  printf '%s\n' '[2026-09-24T11:28:28.538Z] Final output' \
+    '[MAJOR] src/example.sh:3 — bracketed severity finding text' \
+    'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
+}
+
+reset_state
+write_bracketed_finding_log
+run_subcommand --collect review-job --round 1
+if [ "$rc" -eq 0 ] &&
+  grep -Fqx '[MAJOR] src/example.sh:3 — bracketed severity finding text' "$state-r1-findings.md" &&
+  grep -Fqx 'OPEN BLOCKERS: 1' "$state-r1-findings.md" &&
+  grep -Fqx 'VERDICT: NO-GO' "$state-r1-findings.md"; then
+  pass 'collect keeps bracketed severity findings through the verdict'
+else
+  fail 'collect keeps bracketed severity findings through the verdict' "rc=$rc findings=$(<"$state-r1-findings.md" 2>/dev/null || true)"
+fi
+
+reset_state
+write_bracketed_finding_log
+make_mutant 's|^  in_final && .* { flush_field(); in_final = 0; coverage = 0; next }$|  in_final \&\& /^\\[[^]]+\\][[:space:]]/ { flush_field(); in_final = 0; coverage = 0; next }|'
+run_subcommand --collect review-job --round 1
+runner="$tool"
+if [ "$rc" -ne 0 ] ||
+  ! grep -Fqx '[MAJOR] src/example.sh:3 — bracketed severity finding text' "$state-r1-findings.md" 2>/dev/null ||
+  ! grep -Fqx 'OPEN BLOCKERS: 1' "$state-r1-findings.md" 2>/dev/null ||
+  ! grep -Fqx 'VERDICT: NO-GO' "$state-r1-findings.md" 2>/dev/null; then
+  pass 'bracketed severity event-boundary source mutation goes red'
+else
+  fail 'bracketed severity event-boundary source mutation goes red' 'the mutant retained the bracketed finding and verdict'
+fi
+
 # An OPEN BLOCKERS count with no finding body would silently erase the reason for NO-GO.
 write_empty_blocker_log() {
   printf '%s\n' '[2026-01-01T00:00:00Z] Final output' \
@@ -1245,6 +1278,35 @@ if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
   pass 'missing finding body guard source mutation goes red'
 else
   fail 'missing finding body guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+# Lead-in prose cannot stand in for a labeled finding when blockers remain open.
+write_prose_only_blocker_log() {
+  printf '%s\n' '[2026-09-24T11:28:28.538Z] Final output' \
+    'Two defects remain.' 'COVERAGE:' 'traced=reviewed files' \
+    'not-traced=remaining files' 'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
+}
+
+reset_state
+write_prose_only_blocker_log
+run_subcommand --collect review-job --round 1
+if [ "$rc" -ne 0 ] && grep -Fq "$job_log" "$tmp/err" &&
+  [ ! -e "$state-r1-findings.md" ] &&
+  [ -z "$(find "$common/review-rounds" -maxdepth 1 -name ".${slug}-r1-findings.*" -print)" ]; then
+  pass 'collect rejects prose without a labeled blocker finding'
+else
+  fail 'collect rejects prose without a labeled blocker finding' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+write_prose_only_blocker_log
+make_mutant '/labeled_body = 1/s|^.*$|    { labeled_body = 1 }|'
+run_subcommand --collect review-job --round 1
+runner="$tool"
+if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
+  pass 'unlabeled prose finding-guard source mutation goes red'
+else
+  fail 'unlabeled prose finding-guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
 reset_state
