@@ -436,27 +436,6 @@ collect_findings() {
   else
     : > "$temp"
   fi
-  # A NO-GO with blockers needs a severity label and file:line location in its finding body;
-  # headings alone cannot tell the next reviewer which defect to re-trace. Coverage and verdict
-  # metadata, including OPEN BLOCKERS, cannot supply either part.
-  if awk '
-    /^[[:space:]]*OPEN BLOCKERS:[[:space:]]*[0-9]+/ {
-      count = $0
-      sub(/^[[:space:]]*OPEN BLOCKERS:[[:space:]]*/, "", count)
-      sub(/[^0-9].*$/, "", count)
-      if (count + 0 > 0) blockers = 1
-      next
-    }
-    /^[[:space:]]*(COVERAGE:|traced[[:space:]]*=|not-traced[[:space:]]*=|VERDICT:)/ { next }
-    /^[[:space:]]*$/ { next }
-    /(^|[^[:alnum:]_])(BLOCKER|MAJOR|MINOR|NIT)([^[:alnum:]_]|$)/ { labeled_body = 1 }
-    /[[:alnum:]_.\/-]+\.[[:alnum:]]+:[0-9]+/ { located_body = 1 }
-    END { exit !(blockers && !(labeled_body && located_body)) }
-  ' "$temp"; then
-    rm -f "$temp"
-    printf 'review-round: OPEN BLOCKERS requires a labeled finding with a file:line location in %s\n' "$log_file" >&2
-    exit 1
-  fi
   # A missing coverage map is stated, never silently absent: the next round must be able to tell
   # "nothing was skipped" from "nobody said what was skipped" (rules/verification-integrity.md).
   # The test is the not-traced FIELD, not the COVERAGE header: a header with no field is exactly
@@ -815,7 +794,6 @@ Work the five risk classes over this diff, and say per class what you looked for
 
 Then list, in severity order, every finding you would expect an adversary to raise against this
 branch — including the ones you think are defensible, with the defence.
-Each finding needs a BLOCKER/MAJOR/MINOR/NIT label and a file:line location.
 
 Then a coverage map, on its own lines:
 COVERAGE:

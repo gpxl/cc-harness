@@ -131,7 +131,6 @@ self_review_state="$state-r0-self-review.md"
 if [ "$rc" -eq 0 ] &&
   grep -Fq 'PRE-REVIEW SELF-CHECK' "$tmp/dispatched-prompt" &&
   grep -Fq 'five risk classes' "$tmp/dispatched-prompt" &&
-  grep -Fq 'Each finding needs a BLOCKER/MAJOR/MINOR/NIT label and a file:line location.' "$tmp/dispatched-prompt" &&
   [ ! -e "$state" ] && [ ! -e "$state.scope" ] && [ ! -e "$state.thread" ] &&
   [ -f "$state.self-check.job" ]; then
   pass 'self-check dispatches an author-side pass and writes no round state'
@@ -1250,123 +1249,6 @@ if [ "$rc" -ne 0 ] ||
   pass 'bracketed severity event-boundary source mutation goes red'
 else
   fail 'bracketed severity event-boundary source mutation goes red' 'the mutant retained the bracketed finding and verdict'
-fi
-
-# An OPEN BLOCKERS count with no finding body would silently erase the reason for NO-GO.
-write_empty_blocker_log() {
-  printf '%s\n' '[2026-01-01T00:00:00Z] Final output' \
-    'COVERAGE:' 'traced=reviewed files' 'not-traced=remaining files' \
-    'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
-}
-
-reset_state
-write_empty_blocker_log
-run_subcommand --collect review-job --round 1
-if [ "$rc" -ne 0 ] && grep -Fq "$job_log" "$tmp/err" &&
-  [ ! -e "$state-r1-findings.md" ] &&
-  [ -d "$common/review-rounds" ] && [ -z "$(find "$common/review-rounds" -maxdepth 1 -name ".${slug}-r1-findings.*" -print)" ]; then
-  pass 'collect rejects blockers with no finding body and removes its temp'
-else
-  fail 'collect rejects blockers with no finding body and removes its temp' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-reset_state
-write_empty_blocker_log
-make_mutant "s/^  if awk '/  if false \&\& awk '/"
-run_subcommand --collect review-job --round 1
-runner="$tool"
-if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
-  pass 'missing finding body guard source mutation goes red'
-else
-  fail 'missing finding body guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-# Lead-in prose cannot stand in for a labeled finding when blockers remain open.
-write_prose_only_blocker_log() {
-  printf '%s\n' '[2026-09-24T11:28:28.538Z] Final output' \
-    'Two defects remain at src/example.sh:3.' 'COVERAGE:' 'traced=reviewed files' \
-    'not-traced=remaining files' 'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
-}
-
-reset_state
-write_prose_only_blocker_log
-run_subcommand --collect review-job --round 1
-if [ "$rc" -ne 0 ] && grep -Fq "$job_log" "$tmp/err" &&
-  [ ! -e "$state-r1-findings.md" ] &&
-  [ -z "$(find "$common/review-rounds" -maxdepth 1 -name ".${slug}-r1-findings.*" -print)" ]; then
-  pass 'collect rejects prose without a labeled blocker finding'
-else
-  fail 'collect rejects prose without a labeled blocker finding' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-reset_state
-write_prose_only_blocker_log
-make_mutant '/labeled_body = 1/s|^.*$|    { labeled_body = 1 }|'
-run_subcommand --collect review-job --round 1
-runner="$tool"
-if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
-  pass 'unlabeled prose finding-guard source mutation goes red'
-else
-  fail 'unlabeled prose finding-guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-# A severity heading and coverage metadata do not identify the defect behind a blocker.
-write_heading_only_blocker_log() {
-  printf '%s\n' '[2026-09-24T11:28:28.538Z] Final output' \
-    '### MAJOR findings' 'COVERAGE:' 'traced=reviewed files' \
-    'not-traced=remaining files' 'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
-}
-
-reset_state
-write_heading_only_blocker_log
-run_subcommand --collect review-job --round 1
-if [ "$rc" -ne 0 ] && grep -Fq 'labeled finding with a file:line location' "$tmp/err" &&
-  [ ! -e "$state-r1-findings.md" ] &&
-  [ -z "$(find "$common/review-rounds" -maxdepth 1 -name ".${slug}-r1-findings.*" -print)" ]; then
-  pass 'collect rejects a severity heading without a finding location'
-else
-  fail 'collect rejects a severity heading without a finding location' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-reset_state
-write_heading_only_blocker_log
-make_mutant 's/labeled_body && located_body/labeled_body/'
-run_subcommand --collect review-job --round 1
-runner="$tool"
-if [ "$rc" -eq 0 ] && [ -e "$state-r1-findings.md" ]; then
-  pass 'missing location guard source mutation goes red'
-else
-  fail 'missing location guard source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-# The only file:line may be inside a Markdown link; it still identifies a defect.
-write_link_location_blocker_log() {
-  printf '%s\n' '[2026-09-24T11:28:28.538Z] Final output' \
-    '### MAJOR findings' 'MAJOR: [x.sh:3](/abs/x.sh:3) — broken case' \
-    'COVERAGE:' 'traced=reviewed files' 'not-traced=remaining files' \
-    'OPEN BLOCKERS: 1' 'VERDICT: NO-GO' > "$job_log"
-}
-
-reset_state
-write_link_location_blocker_log
-run_subcommand --collect review-job --round 1
-if [ "$rc" -eq 0 ] &&
-  grep -Fqx 'MAJOR: [x.sh:3](/abs/x.sh:3) — broken case' "$state-r1-findings.md" &&
-  grep -Fqx 'OPEN BLOCKERS: 1' "$state-r1-findings.md"; then
-  pass 'collect accepts a labeled finding with a Markdown link location'
-else
-  fail 'collect accepts a labeled finding with a Markdown link location' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
-fi
-
-reset_state
-write_link_location_blocker_log
-make_mutant 's/located_body = 1/located_body = 0/'
-run_subcommand --collect review-job --round 1
-runner="$tool"
-if [ "$rc" -ne 0 ] && [ ! -e "$state-r1-findings.md" ]; then
-  pass 'Markdown link location source mutation goes red'
-else
-  fail 'Markdown link location source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
 reset_state
