@@ -319,7 +319,8 @@ try {
 final_findings_from_log() {
   local log_file=$1
   awk '
-  function flush_field() { if (field != "") { print field; field = "" } }
+  function append(line) { sub(/[[:space:]]+$/, "", line); body[++lines] = line }
+  function flush_field() { if (field != "") { append(field); field = "" } }
   # A one-line map ("COVERAGE: traced=...; not-traced=...") carries the same two fields as the
   # three-line form, and a reviewer writes whichever it feels like. Split it rather than keeping a
   # header the next round cannot read a gap out of.
@@ -328,15 +329,27 @@ final_findings_from_log() {
     if (idx > 0) {
       head = substr(text, 1, idx - 1)
       sub(/[[:space:];,]+$/, "", head)
-      if (head != "") print head
+      if (head != "") append(head)
       field = substr(text, idx)
     } else {
       field = text
     }
   }
   function normalize(line,   out) { out = line; sub(/^[[:space:]]+/, "", out); gsub(/\*/, "", out); sub(/[[:space:]]+$/, "", out); return out }
-  /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[^]]+\][[:space:]]+Final output:?[[:space:]]*$/ { in_final = 1; saw_final = 1; next }
-  in_final && /^\[[^]]+\][[:space:]]/ { exit }
+  # A job can log the report as an Assistant message before its Final output, or log more
+  # than one Final output. Keep only the last final section so neither copy is repeated.
+  # Bracketed severity labels belong to the report; only ISO-stamped job lines frame it.
+  /^[[:space:]]*Final output:?[[:space:]]*$/ || /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^]]*\][[:space:]]+Final output:?[[:space:]]*$/ {
+    for (i = 1; i <= lines; i++) delete body[i]
+    lines = 0
+    field = ""
+    coverage = 0
+    coverage_blank = 0
+    in_final = 1
+    saw_final = 1
+    next
+  }
+  in_final && /^\[[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^]]*\][[:space:]]/ { flush_field(); in_final = 0; coverage = 0; next }
   # The coverage map is what makes round N+1 spend its budget on what nobody read yet, instead of
   # resampling the same third of the diff. It is extracted with the findings for the same reason
   # they are: the thread does not survive to the next round, the file does. It is parsed
@@ -347,27 +360,36 @@ final_findings_from_log() {
   in_final && /^[[:space:]]*\**COVERAGE:/ {
     flush_field()
     coverage = 1
+    coverage_blank = 0
     rest = normalize($0)
     sub(/^COVERAGE:[[:space:]]*/, "", rest)
-    print "COVERAGE:"
+    append("COVERAGE:")
     if (rest != "") split_inline(rest)
     next
   }
-  coverage && /^[[:space:]]*\**(traced|not-traced)[[:space:]]*=/ { flush_field(); field = normalize($0); next }
-  coverage && (/^[[:space:]]*#*[[:space:]]*(BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ ||
-               /^[[:space:]]*(VERDICT|OPEN BLOCKERS):/ ||
-               /^[[:space:]]*[-*][[:space:]]+\*\*(BLOCKER|MAJOR|MINOR|NIT)/) { flush_field(); coverage = 0 }
-  # A blank line no longer ends the block: reviewers put one between the header and the fields, and
-  # ending there kept the header while dropping every field — a partial map that read as a whole one.
-  coverage && /^[[:space:]]*$/ { next }
-  coverage && field != "" { field = field " " normalize($0); next }
-  in_final && (/^### (BLOCKER|MAJOR|MINOR|NIT)[[:space:]]/ ||
-               /^(BLOCKER|MAJOR|MINOR|NIT|VERDICT|OPEN BLOCKERS):/ ||
-               /^[[:space:]]*[-*][[:space:]]+\*\*(BLOCKER|MAJOR|MINOR|NIT)([[:space:]]|\*|:|—|-)/) {
-    sub(/[[:space:]]+$/, "")
-    print
+  coverage && /^[[:space:]]*\**(traced|not-traced)[[:space:]]*=/ {
+    flush_field()
+    coverage_blank = 0
+    field = normalize($0)
+    next
   }
-END { flush_field(); exit saw_final ? 0 : 1 }
+  # Blank lines can separate coverage fields. After a field, a blank before other prose ends
+  # its wrapping so an indented finding cannot be absorbed into the coverage map.
+  coverage && /^[[:space:]]*$/ { coverage_blank = 1; next }
+  coverage && field != "" && !coverage_blank && /^[[:space:]]+/ { field = field " " normalize($0); next }
+  coverage {
+    flush_field()
+    coverage = 0
+    if (coverage_blank) append("")
+    coverage_blank = 0
+  }
+  # Severity formatting is reviewer prose, not a parser contract. Preserve every body line.
+  in_final { append($0) }
+  END {
+    flush_field()
+    if (!saw_final) exit 1
+    for (i = 1; i <= lines; i++) print body[i]
+  }
 ' "$log_file"
 }
 
