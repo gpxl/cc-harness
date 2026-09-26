@@ -5,6 +5,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 failures=0
 tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-install-symmetry.XXXXXX") || exit 1
+tmp_root=$(CDPATH='' cd -- "$tmp_root" && pwd) || exit 1
 # A completion sentinel, not `$?`: on bash 3.2 (the system shell here) a script killed by
 # set -e/set -u runs its EXIT trap with $? ALREADY RESET TO 0, so capturing the status in the
 # trap is inert — measured. Only positive evidence that the suite reached its own verdict can
@@ -110,6 +111,66 @@ end_to_end_cycle() {
   [ -L "$root/scripts/git-snapshot" ] && [ "$(readlink "$root/scripts/git-snapshot")" = "$git_snapshot_target" ]
 }
 
+skill_link_cycle() {
+  local fake_harness="$tmp_root/skill-harness"
+  local fake_home="$tmp_root/skill-home"
+  local fake_claude="$fake_home/.claude"
+  local managed_name='' source name
+  local conflict_name='selftest-conflict'
+  local link_conflict_name='selftest-link-conflict'
+
+  mkdir -p "$fake_harness" "$fake_claude/skills/unrelated-dir" || return 1
+  cp -R "$root/." "$fake_harness/" || return 1
+  mkdir -p "$fake_harness/skills" || return 1
+  for source in "$fake_harness"/skills/*; do
+    if [ -d "$source" ] && [ -f "$source/SKILL.md" ]; then
+      managed_name=${source##*/}
+      break
+    fi
+  done
+  if [ -z "$managed_name" ]; then
+    managed_name='selftest-managed'
+    mkdir -p "$fake_harness/skills/$managed_name" || return 1
+    printf '%s\n' 'fixture skill' > "$fake_harness/skills/$managed_name/SKILL.md" || return 1
+  fi
+  while [ -e "$fake_harness/skills/$conflict_name" ] || [ -L "$fake_harness/skills/$conflict_name" ] || [ "$conflict_name" = "$managed_name" ]; do
+    conflict_name="${conflict_name}-x"
+  done
+  while [ -e "$fake_harness/skills/$link_conflict_name" ] || [ -L "$fake_harness/skills/$link_conflict_name" ] || [ "$link_conflict_name" = "$managed_name" ]; do
+    link_conflict_name="${link_conflict_name}-x"
+  done
+  mkdir -p "$fake_harness/skills/$conflict_name" "$fake_harness/skills/$link_conflict_name" || return 1
+  printf '%s\n' 'fixture conflict' > "$fake_harness/skills/$conflict_name/SKILL.md" || return 1
+  printf '%s\n' 'fixture symlink conflict' > "$fake_harness/skills/$link_conflict_name/SKILL.md" || return 1
+
+  printf '%s\n' 'keep unrelated directory' > "$fake_claude/skills/unrelated-dir/SKILL.md" || return 1
+  mkdir -p "$tmp_root/unrelated-symlink-source" "$fake_claude/skills/$conflict_name" || return 1
+  ln -s "$tmp_root/unrelated-symlink-source" "$fake_claude/skills/unrelated-link" || return 1
+  printf '%s\n' 'keep conflict' > "$fake_claude/skills/$conflict_name/sentinel.txt" || return 1
+  ln -s "$tmp_root/unrelated-symlink-source" "$fake_claude/skills/$link_conflict_name" || return 1
+
+  HOME="$fake_home" CC_HARNESS_CLAUDE_DIR="$fake_claude" bash "$fake_harness/install.sh" > "$tmp_root/skill-install.out" 2>&1 || fail 'Skill fixture install failed' || return 1
+  [ -d "$fake_claude/skills" ] && [ ! -L "$fake_claude/skills" ] || fail 'Installer replaced skills parent directory' || return 1
+  [ -L "$fake_claude/skills/$managed_name" ] && [ "$(readlink "$fake_claude/skills/$managed_name")" = "$fake_harness/skills/$managed_name" ] || fail 'Harness skill was not linked individually' || return 1
+  [ "$(cat "$fake_claude/skills/unrelated-dir/SKILL.md")" = 'keep unrelated directory' ] || fail 'Unrelated skill directory changed on install' || return 1
+  [ "$(readlink "$fake_claude/skills/unrelated-link")" = "$tmp_root/unrelated-symlink-source" ] || fail 'Unrelated skill symlink changed on install' || return 1
+  [ "$(cat "$fake_claude/skills/$conflict_name/sentinel.txt")" = 'keep conflict' ] && [ "$(find "$fake_claude/skills/$conflict_name" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 1 ] || fail 'Conflicting skill directory was clobbered' || return 1
+  [ "$(readlink "$fake_claude/skills/$link_conflict_name")" = "$tmp_root/unrelated-symlink-source" ] || fail 'Conflicting skill symlink was clobbered' || return 1
+  grep -F "skills/$conflict_name" "$tmp_root/skill-install.out" | grep -F 'conflict' >/dev/null || fail 'Missing skill conflict warning' || return 1
+
+  HOME="$fake_home" CC_HARNESS_CLAUDE_DIR="$fake_claude" bash "$fake_harness/install.sh" > "$tmp_root/skill-reinstall.out" 2>&1 || return 1
+  grep -F "skills/$managed_name" "$tmp_root/skill-reinstall.out" | grep -F 'already linked (no change)' >/dev/null || fail 'Reinstall was not idempotent' || return 1
+  [ -L "$fake_claude/skills/$managed_name" ] && [ "$(readlink "$fake_claude/skills/$managed_name")" = "$fake_harness/skills/$managed_name" ] || fail 'Reinstall changed harness skill link' || return 1
+
+  HOME="$fake_home" CC_HARNESS_CLAUDE_DIR="$fake_claude" bash "$fake_harness/uninstall.sh" > "$tmp_root/skill-uninstall.out" 2>&1 || return 1
+  [ ! -e "$fake_claude/skills/$managed_name" ] && [ ! -L "$fake_claude/skills/$managed_name" ] || fail 'Uninstall left harness skill link' || return 1
+  [ -d "$fake_claude/skills" ] && [ ! -L "$fake_claude/skills" ] || fail 'Uninstall removed skills parent directory' || return 1
+  [ "$(cat "$fake_claude/skills/unrelated-dir/SKILL.md")" = 'keep unrelated directory' ] || fail 'Unrelated skill directory changed on uninstall' || return 1
+  [ "$(readlink "$fake_claude/skills/unrelated-link")" = "$tmp_root/unrelated-symlink-source" ] || fail 'Unrelated skill symlink changed on uninstall' || return 1
+  [ "$(cat "$fake_claude/skills/$conflict_name/sentinel.txt")" = 'keep conflict' ] && [ "$(find "$fake_claude/skills/$conflict_name" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" = 1 ] || fail 'Conflicting skill directory changed on uninstall' || return 1
+  [ "$(readlink "$fake_claude/skills/$link_conflict_name")" = "$tmp_root/unrelated-symlink-source" ] || fail 'Conflicting skill symlink changed on uninstall' || return 1
+}
+
 negative_control_fails() {
   local mutated="$tmp_root/uninstall-without-scripts.sh"
   local output
@@ -131,6 +192,7 @@ record() {
 record check_symmetry "$root/install.sh" "$root/uninstall.sh"
 record linked_sources_exist
 record end_to_end_cycle
+record skill_link_cycle
 record negative_control_fails
 
 if [ "$failures" -eq 0 ]; then

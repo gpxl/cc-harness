@@ -46,6 +46,7 @@ Always consult documentation index and project files rather than relying on trai
 |/agents-md-transform: Execute AGENTS.md pattern transformation
 |/find-skills: Discover installable agent skills
 |loadout-awareness: Proactive — suggests `loadout scan` when deps/frameworks change (not user-triggered)
+|promo-film: Browser-rendered product promo film (canvas + Web Audio + TTS → MP4, 16:9 and 9:16); installed from cc-harness skills/
 
 [Hub]|binary: loadout (pnpm global link)
 |hub dir: ~/.dotfiles/claude/

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # cc-harness installer
-# Symlinks agents/, rules/, hooks/, and the global CLAUDE.md into ~/.claude/ so
+# Symlinks agents/, rules/, hooks/, individual skills, and the global CLAUDE.md into ~/.claude/ so
 # they're loaded globally by Claude Code.
 
 HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -151,6 +151,24 @@ link_dir() {
   echo "  ${name}/  linked ✓"
 }
 
+link_skills() {
+  local source name target
+  for source in "${HARNESS_DIR}"/skills/*; do
+    [ -d "$source" ] && [ -f "$source/SKILL.md" ] || continue
+    name="${source##*/}"
+    target="${CLAUDE_DIR}/skills/${name}"
+    mkdir -p "${CLAUDE_DIR}/skills"
+    if [ -L "$target" ] && [ "$(readlink "$target")" = "$source" ]; then
+      echo "  skills/${name}/  already linked (no change)"
+    elif [ -e "$target" ] || [ -L "$target" ]; then
+      printf '  skills/%s/  conflict: %s already exists, skipping\n' "$name" "$target" >&2
+    else
+      ln -s "$source" "$target"
+      echo "  skills/${name}/  linked ✓"
+    fi
+  done
+}
+
 # Link a single file. Unlike link_dir the repo path and the installed name
 # differ (global/CLAUDE.md → ~/.claude/CLAUDE.md), so both are passed in.
 #
@@ -187,6 +205,7 @@ link_dir "agents"
 link_dir "rules"
 link_dir "hooks"
 link_dir "scripts"
+link_skills
 
 echo ""
 echo "Registering hook commands..."
@@ -209,7 +228,7 @@ for role in "${CODEX_ROLES[@]}"; do
 done
 
 echo ""
-echo "Done. Global agents, rules, hooks, scripts, hook registrations, CLAUDE.md, and native Codex roles are now active."
+echo "Done. Global agents, rules, hooks, scripts, skills, hook registrations, CLAUDE.md, and native Codex roles are now active."
 echo ""
 echo "Next steps:"
 echo "  1. Add an '## Agent Config' table to each project's CLAUDE.md"

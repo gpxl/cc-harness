@@ -43,6 +43,19 @@ unlink_dir() {
   fi
 }
 
+unlink_skills() {
+  local target name source
+  for target in "${CLAUDE_DIR}"/skills/*; do
+    [ -L "$target" ] || continue
+    name="${target##*/}"
+    source="${HARNESS_DIR}/skills/${name}"
+    if [ "$(readlink "$target")" = "$source" ]; then
+      rm "$target"
+      echo "  skills/${name}/  unlinked ✓"
+    fi
+  done
+}
+
 # Symmetric counterpart to install.sh's link_file: unlink, then restore the
 # most recent backup so the user's pre-install CLAUDE.md comes back.
 unlink_file() {
@@ -120,6 +133,7 @@ echo "Removing symlinks..."
 unlink_dir "agents"
 unlink_dir "rules"
 unlink_dir "scripts"
+unlink_skills
 echo ""
 echo "Removing hook registrations..."
 CC_HARNESS_CLAUDE_DIR="${CLAUDE_DIR}" bash "${HARNESS_DIR}/hooks/install-hooks.sh" --remove
@@ -134,4 +148,4 @@ for role in "${CODEX_ROLES[@]}"; do
 done
 
 echo ""
-echo "Done. Global agents, rules, hooks, scripts, hook registrations, CLAUDE.md, and native Codex roles have been removed."
+echo "Done. Global agents, rules, hooks, scripts, skills, hook registrations, CLAUDE.md, and native Codex roles have been removed."
