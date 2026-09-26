@@ -48,6 +48,11 @@ regardless of what rendered before. Consequences:
   Canvas2D foreground (type, UI mocks, waveforms drawn from the *real* audio, pooled particles), and
   post (bloom, grain, vignette, chromatic aberration on transitions only).
 
+**Script paths:** `scripts/…` and `templates/…` below are relative to this skill's directory
+(`~/.claude/skills/promo-film/`). `tts.py`, `ask.py` and `audio_qc.py` run in place from there.
+Only `render.mjs` and `chunked.sh` get copied into the film project's `render/`, because they
+resolve `../site` and `../out` relative to themselves.
+
 `templates/SPEC-template.md` is a full production-spec skeleton covering story table, brand tokens,
 the audio/visual contract and definition of done. Fill it in first. It doubles as the prompt for
 delegated implementation rounds.
