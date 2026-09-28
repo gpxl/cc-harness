@@ -5,7 +5,8 @@
 # worktree_root) — scripted pipelines clean up after themselves, session-made worktrees do not.
 #
 # Never removed: the main checkout; a locked worktree; a detached HEAD (no branch to judge);
-# one with ANY uncommitted or untracked change; one some process is sitting in (its cwd is inside
+# one with ANY uncommitted or untracked change, including edits hidden by assume-unchanged or
+# skip-worktree, or whose status cannot be read; one some process is sitting in (its cwd is inside
 # it — a live session, a shell, a dev server); one whose HEAD is not contained in the PR's final
 # head commit (work added after the PR); and anything whose PR lookup FAILED, which is reported as
 # its own verdict and never folded into "no PR" (rules/verification-integrity.md).
@@ -105,6 +106,29 @@ reap_repo() {
   done < "$list"
 }
 
+# Prints a KEEP reason and succeeds when the worktree may hold work `git status` alone would not
+# show; fails (prints nothing) only on positive evidence of a clean tree. Fails closed throughout,
+# because `git worktree remove` asks git the same questions and would not catch what this misses.
+dirty_reason() {
+  local path="$1" out flag file
+  # Index flags hide edits from status whatever its options: lowercase = assume-unchanged,
+  # S = skip-worktree. An S entry absent from disk is ordinary sparse checkout, not an edit.
+  out=$(git -C "$path" ls-files -v -z 2>/dev/null) || { echo status-failed; return 0; }
+  while IFS= read -r -d '' file; do
+    flag="${file%% *}"; file="${file#* }"
+    case "$flag" in
+      [a-z]) echo index-flagged; return 0 ;;
+      S) [ -e "$path/$file" ] && { echo index-flagged; return 0; } ;;
+    esac
+  done < <(git -C "$path" ls-files -v -z 2>/dev/null)
+  # Flags, not defaults: status.showUntrackedFiles=no in any config would otherwise hide untracked
+  # work. A status that cannot be read is not a clean status.
+  out=$(git -C "$path" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null) \
+    || { echo status-failed; return 0; }
+  [ -n "$out" ] && { echo dirty; return 0; }
+  return 1
+}
+
 report() {  # path branch pr verdict reason action
   printf 'WORKTREE %s branch=%s pr=%s verdict=%s reason=%s action=%s\n' "$@"
 }
@@ -126,9 +150,8 @@ judge() {
   keep() { report "$path" "$branch" "$pr" KEEP "$1" kept; kept=$((kept + 1)); }
   [ "$locked" = 1 ] && { keep locked; return; }
   [ "$detached" = 1 ] && { keep detached-head; return; }
-  # Flags, not defaults: status.showUntrackedFiles=no in any config would otherwise hide untracked
-  # work, and `git worktree remove` honours the same setting, so nothing downstream would catch it.
-  [ -n "$(git -C "$path" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" ] && { keep dirty; return; }
+  local why
+  why=$(dirty_reason "$path") && { keep "$why"; return; }
   in_use "$phys" && { keep in-use; return; }
 
   read -r state number oid <<EOF

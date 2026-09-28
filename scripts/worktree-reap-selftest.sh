@@ -134,6 +134,25 @@ expect "$tmp_root/hidden.txt" hidden KEEP dirty kept
 exists "$wts/hidden"
 git -C "$main" config --unset status.showUntrackedFiles
 
+# --- Edits hidden from `git status` by index flags still count as dirty. ---
+for flag in assume-unchanged skip-worktree; do
+  b="flag-$flag"; h=$(mk "$b"); pr "$b" MERGED 13 "$h"
+  printf base > "$wts/$b/cfg"; git -C "$wts/$b" add cfg; git -C "$wts/$b" commit -q -m cfg
+  pr "$b" MERGED 13 "$(git -C "$wts/$b" rev-parse HEAD)"
+  printf local-edit > "$wts/$b/cfg"; git -C "$wts/$b" update-index "--$flag" cfg
+done
+run "$tmp_root/flags.txt" --apply
+for flag in assume-unchanged skip-worktree; do
+  expect "$tmp_root/flags.txt" "flag-$flag" KEEP index-flagged kept; exists "$wts/flag-$flag"
+done
+
+# --- A status that cannot be read is not a clean status. ---
+h=$(mk badindex); pr badindex MERGED 14 "$h"
+printf garbage > "$(git -C "$wts/badindex" rev-parse --git-dir)/index"
+run "$tmp_root/bad.txt" --apply
+expect "$tmp_root/bad.txt" badindex KEEP status-failed kept
+exists "$wts/badindex"
+
 # --- Being run from inside a worktree protects that worktree even with no lsof data. ---
 h=$(mk self); pr self MERGED 10 "$h"
 rc=0; (cd "$wts/self" && WORKTREE_REAP_PR_FILE="$prs" WORKTREE_REAP_CWDS_FILE=/dev/null bash "$tool" --apply) > "$tmp_root/self.txt" 2>&1 || rc=$?
