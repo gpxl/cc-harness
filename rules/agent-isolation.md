@@ -125,20 +125,22 @@ The branch name is independent of the path and follows the project's `branch_pat
 
 Crashed runs leave worktrees on disk, so every orchestrator runs `git worktree prune` before creating its own (Step 1 above) — cheap, and it removes only worktrees whose paths no longer exist.
 
-For worktrees whose paths still exist but whose branches are already merged (agent branches after pr-monitor merge + delete), add this to session-start scripts that manage `worktree_root`:
+The `trap` above only protects worktrees a script creates and tears down in one process. Worktrees
+a session creates by hand (`<repo>-worktrees/<name>`) or the desktop app creates
+(`.claude/worktrees/<name>`) outlive whoever made them, and nothing removes them when their PR
+merges. For those — and for crash leftovers whose paths still exist — run the shipped reaper:
 
 ```bash
-# Reap merged agent worktrees older than 24h
-find "$WORKTREE_ROOT" -maxdepth 1 -type d -mtime +0 -name 'agent-*' -print 2>/dev/null | while read -r wt; do
-  branch=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || continue)
-  if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-    # Remote branch gone (merged + deleted) => safe to remove
-    git worktree remove --force "$wt" 2>/dev/null || true
-  fi
-done
+~/.claude/scripts/worktree-reap.sh                 # dry run: one verdict line per worktree
+~/.claude/scripts/worktree-reap.sh --apply         # remove the REMOVE/PRUNE verdicts
+~/.claude/scripts/worktree-reap.sh --repo <dir>    # another repo; repeatable
 ```
 
-Safe default if you're unsure: just `git worktree prune`. Never remove the main checkout.
+A worktree is removed only when its PR is MERGED or CLOSED (asked of GitHub — a merged PR whose
+remote branch was never deleted still counts) or, with no PR, its upstream is `[gone]`. It is kept
+when it is locked, detached, has any uncommitted or untracked change, is some process's cwd (a live
+session or dev server), holds commits the PR never saw, or the PR lookup failed. `git worktree
+remove` keeps the branch; only a MERGED PR's branch is also deleted. Never remove the main checkout.
 
 ## Per-agent policy
 

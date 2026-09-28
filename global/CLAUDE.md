@@ -35,6 +35,7 @@ Always consult documentation index and project files rather than relying on trai
 |codex-wait.sh <job-id> [--cwd <ws>]: PID bridge for a background Codex job — run via Bash `run_in_background`; exits 0 done / 1 failed / 2 orphaned / 3 wall cap
 |codex-jobs.sh [--cwd <ws>] [--all-workspaces] [--active]: Codex jobs across sessions/worktrees (bypasses the companion's session filter)
 |codex-brokers.sh [--reap-stale] [--restart-idle]: list/kill Codex app-server brokers by explicit PID — after a config.toml edit or when brokers point at dead cwds
+|worktree-reap.sh [--apply] [--repo <dir>]...: list (dry-run default) / remove worktrees whose PR merged or closed or whose upstream is gone — never dirty, locked, detached, in-use, or holding commits the PR never saw
 
 [Hooks]|root: ~/.claude/hooks/ → symlinked from ~/projects/cc-harness/hooks/ (Model Routing enforcement; run `bash hooks/selftest.sh` after changes)
 |vendors.conf: Vendor switch — `<vendor>=enabled|disabled` per model vendor; `~/.claude/private/vendors.conf` overrides per machine; `bash ~/.claude/hooks/vendors.sh` prints the resolved state
