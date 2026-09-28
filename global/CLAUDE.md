@@ -244,8 +244,8 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 |-----------|------------------------|-----------------------------------|--------------|---------------|
 | **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` | `high` |
 | **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` | `medium` |
-| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` | `medium` |
-| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` | `low` |
+| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5-5` | `medium` | `medium` |
+| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5-5` | `low` | `low` |
 
 The two effort columns differ on purpose: effort names do not buy the same amount of thinking
 across models. On Claude Opus 5.5, `medium` matches or beats Claude Opus 5 at `high` on coding, and
@@ -305,7 +305,8 @@ record: `docs/reference/rule-histories.md` § model-routing.
   `gpt-5.4-mini` carries an upgrade pointer to `gpt-5.6-luna`; `gpt-5.5` retires
   2026-10-14 and points to `gpt-5.6-sol`. The `gpt-5.6-sol`, `gpt-5.6-terra`, and
   `gpt-5.6-luna` models are labelled Older; `gpt-5.3-codex-spark` is absent from the live
-  roster. On the Claude side `claude-fable-5` is superseded by `claude-fable-5-1`, and
+  roster. On the Claude side `claude-fable-5` is superseded by `claude-fable-5-1`,
+  `claude-sonnet-5` by `claude-sonnet-5-5` (released 2026-09-28), and
   `claude-opus-5`, `claude-opus-4-8`, and `claude-opus-4-7` are superseded for every
   Claude-column row.
 - Model slugs move, and **`~/.codex/models_cache.json` is not reliably authoritative** — it
@@ -344,7 +345,7 @@ exit code costs a fraction of one file read. Keep it here for correctness (a gat
 evidence when run by the party reporting it — `verification-integrity.md`), not because it
 is expensive to move.
 
-**Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5`
+**Orchestration runs on the cheapest Claude that can hold the thread — `claude-sonnet-5-5`
 by default.** Opus 5.5 is for a session where the *orchestration itself* is the hard part
 (multi-repo state, a delicate migration). If the hard part is the engineering, that is a
 Codex handoff (`gpt-6-sol` by default, `gpt-6-astra` for genuine design work), not an
