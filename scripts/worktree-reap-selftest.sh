@@ -126,6 +126,14 @@ run "$tmp_root/err.txt" --apply
 expect "$tmp_root/err.txt" gone2 KEEP pr-lookup-failed kept
 exists "$wts/gone2"
 
+# --- Untracked work counts as dirty even when config hides untracked files from `git status`. ---
+git -C "$main" config status.showUntrackedFiles no
+h=$(mk hidden); pr hidden MERGED 12 "$h"; printf x > "$wts/hidden/notes.txt"
+run "$tmp_root/hidden.txt" --apply
+expect "$tmp_root/hidden.txt" hidden KEEP dirty kept
+exists "$wts/hidden"
+git -C "$main" config --unset status.showUntrackedFiles
+
 # --- Being run from inside a worktree protects that worktree even with no lsof data. ---
 h=$(mk self); pr self MERGED 10 "$h"
 rc=0; (cd "$wts/self" && WORKTREE_REAP_PR_FILE="$prs" WORKTREE_REAP_CWDS_FILE=/dev/null bash "$tool" --apply) > "$tmp_root/self.txt" 2>&1 || rc=$?

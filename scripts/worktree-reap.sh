@@ -126,7 +126,9 @@ judge() {
   keep() { report "$path" "$branch" "$pr" KEEP "$1" kept; kept=$((kept + 1)); }
   [ "$locked" = 1 ] && { keep locked; return; }
   [ "$detached" = 1 ] && { keep detached-head; return; }
-  [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ] && { keep dirty; return; }
+  # Flags, not defaults: status.showUntrackedFiles=no in any config would otherwise hide untracked
+  # work, and `git worktree remove` honours the same setting, so nothing downstream would catch it.
+  [ -n "$(git -C "$path" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)" ] && { keep dirty; return; }
   in_use "$phys" && { keep in-use; return; }
 
   read -r state number oid <<EOF
