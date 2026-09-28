@@ -21,11 +21,12 @@ Always consult documentation index and project files rather than relying on trai
 |claude-md-project-templates.md: NEVER lists + autonomy tiers templates; `verify_cmd`; project files reference global rules and carry parameters only — CLAUDE.md, .claude/rules
 |memory-discipline.md: Memory exclusions + recall-time verification — memory dirs, MEMORY.md
 |agent-isolation.md: Worktree isolation for parallel pipelines — .claude/{skills,agents,rules}, *worktree*
-|parallel-authoring.md: Fan out sub-agents for independent additive work; gate once — same scope
+|parallel-authoring.md: Fan out sub-agents for independent additive work; gate once; `elapsed/budget` time signal for a lead model (advisory, never thins verification) — same scope
 |branch-completion-review.md: Adversarial GO/NO-GO, triggered by RISK CLASS not diff size (lifetime/cancellation · persistence/format · integrity of a check OR the policy behind it, incl. that rule itself · trusted external surface · real-time/hardware); trigger must be machine-checked where a gate exists; refactor pass demoted to optional, triggered by fan-out authoring; adversary runs on Codex via `/codex:rescue` read-only (the `/codex:adversarial-review` slash command is user-typed only; never `codex.sh adversarial-review` from an agent), Claude subagent as fallback; ONE review pass per branch — when the branch-completion trigger fires, Stage 2 wins and the stop-gate stays off in that workspace; project files reference, never restate — source trees (src/app/apps/packages/lib/Sources), .claude/{skills,rules}, .github
 |peer-session-coordination.md: Message peer sessions directly, scoped by what is shared (same repo → full protocol; same machine → resource notices only; shared dependency → one collision check); notices not essays; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
+|unattended-runs.md: A text-only end of turn in an unattended run is a report, not completion — continue with the open items named, cap at 2–3 automatic continuations, running background work means not done; standing no-early-stop paragraph for unattended prompts only — .claude/{skills,agents,rules}, *worktree*
 |native-codex-routing.md: Shared native Codex roles and project adoption checks; use `harness_*` roles without copying model defaults — AGENTS.md, .codex/**
 
 [Scripts]|root: .claude/scripts/
@@ -238,12 +239,21 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 
 ### Equivalence table
 
-| Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
-|-----------|------------------------|-----------------------------------|--------|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` |
-| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
-| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` |
+| Work type | Codex model — use this | Claude equivalent — fallback only | Codex effort | Claude effort |
+|-----------|------------------------|-----------------------------------|--------------|---------------|
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` | `high` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` | `medium` |
+| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` | `medium` |
+| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` | `low` |
+
+The two effort columns differ on purpose: effort names do not buy the same amount of thinking
+across models. On Claude Opus 5.5, `medium` matches or beats Claude Opus 5 at `high` on coding, and
+at any given level Opus 5.5 thinks more per turn, most of all at `xhigh`/`max` (Anthropic, *Prompting
+Claude Opus 5.5*, § Calibrate effort). So the Claude column runs one step below the Codex column,
+and a Claude `xhigh`/`max` needs a measured quality gain behind it, not a hunch. To get less
+thinking, lower effort before adding prompt instructions — it works more reliably. The hooks read
+both columns from `hooks/model-routing-table.sh`, and `hooks/selftest.sh` fails if this table drifts
+from that file.
 
 Prefer the mechanical tier over the build tier when the task meets all three conditions: precise outcome,
 small scope, and a clear check. It suits small UI adjustments from textual requirements,

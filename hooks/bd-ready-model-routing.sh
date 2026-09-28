@@ -34,7 +34,7 @@ vendor=${MODEL_ROUTING_VENDORS[$primary]}
 context="Model Routing (~/.claude/CLAUDE.md): the primary route is $vendor via ${MODEL_ROUTING_VENDOR_ROUTES[$primary]} (vendor switch: bash ~/.claude/hooks/vendors.sh). Disabled vendors, never to be routed to: $(model_routing_disabled_vendors). For each issue listed by \`bd ready\`, suggest a model by its type/title: "
 for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
   models=$(model_routing_models "$primary" "$index")
-  context="$context${MODEL_ROUTING_LABELS[$index]} (${MODEL_ROUTING_DESCRIPTIONS[$index]}) -> ${models// / then } at ${MODEL_ROUTING_EFFORT[$index]}"
+  context="$context${MODEL_ROUTING_LABELS[$index]} (${MODEL_ROUTING_DESCRIPTIONS[$index]}) -> ${models// / then } at $(model_routing_effort "$primary" "$index")"
   if [ "$index" -lt $((${#MODEL_ROUTING_KEYS[@]} - 1)) ]; then
     context="$context; "
   fi
@@ -45,7 +45,7 @@ for ((vendor_index = primary + 1; vendor_index < ${#MODEL_ROUTING_VENDORS[@]}; v
   context="$context Fallback only when $vendor is genuinely unavailable: ${MODEL_ROUTING_VENDORS[$vendor_index]} ("
   for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
     models=$(model_routing_models "$vendor_index" "$index")
-    context="$context${MODEL_ROUTING_KEYS[$index]} ${models// / then }"
+    context="$context${MODEL_ROUTING_KEYS[$index]} ${models// / then } at $(model_routing_effort "$vendor_index" "$index")"
     [ "$index" -lt $((${#MODEL_ROUTING_KEYS[@]} - 1)) ] && context="$context, "
   done
   context="$context)."

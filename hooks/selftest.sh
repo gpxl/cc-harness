@@ -88,7 +88,7 @@ exitplan_valid() {
   retired_gpt=$(printf '%s%s' 'gpt-5' '.4')
   build_index=$(model_routing_index_for_key build) || return 1
   output=$(bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
-  [ -n "$output" ] && check_json "$output" && printf '%s' "$output" | grep -Fqi 'codex' && printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CODEX[$build_index]}" && ! printf '%s' "$output" | grep -Fq "$retired_opus" && ! printf '%s' "$output" | grep -Fq "$retired_sonnet" && ! printf '%s' "$output" | grep -Fq "$retired_gpt"
+  [ -n "$output" ] && check_json "$output" && printf '%s' "$output" | grep -Fqi 'codex' && printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CODEX[$build_index]} at ${MODEL_ROUTING_EFFORT[$build_index]} effort" && ! printf '%s' "$output" | grep -Fq "$retired_opus" && ! printf '%s' "$output" | grep -Fq "$retired_sonnet" && ! printf '%s' "$output" | grep -Fq "$retired_gpt"
 }
 
 model_routing_table_matches_claude() {
@@ -99,6 +99,7 @@ model_routing_table_matches_claude() {
   : > "$values_file" || return 1
   for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
     printf 'C|%s\n' "${MODEL_ROUTING_CODEX[$index]}" >> "$values_file" || return 1
+    printf 'E|%s %s\n' "${MODEL_ROUTING_EFFORT[$index]}" "${MODEL_ROUTING_CLAUDE_EFFORT[$index]}" >> "$values_file" || return 1
     for fallback in ${MODEL_ROUTING_CLAUDE_FALLBACKS[$index]}; do
       printf 'L|%s\n' "$fallback" >> "$values_file" || return 1
     done
@@ -121,10 +122,21 @@ for line in lines[heading + 1:]:
 table = "\n".join(table_lines)
 table_slugs = set(re.findall(r"\b(?:gpt|claude)-[A-Za-z0-9.-]+\b", table))
 expected = set()
+expected_efforts = []
 for line in open(values_path):
     kind, slug = line.rstrip("\n").split("|", 1)
-    assert kind in {"C", "L"}
-    expected.add(slug)
+    assert kind in {"C", "L", "E"}
+    if kind == "E":
+        expected_efforts.append(tuple(slug.split(" ")))
+    else:
+        expected.add(slug)
+header = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
+codex_col, claude_col = header.index("Codex effort"), header.index("Claude effort")
+table_efforts = []
+for row in table_lines[2:]:
+    cells = [cell.strip().strip("`") for cell in row.strip("|").split("|")]
+    table_efforts.append((cells[codex_col], cells[claude_col]))
+assert table_efforts == expected_efforts, ("table", table_efforts, "data", expected_efforts)
 assert table_slugs == expected, ("table-only", table_slugs - expected, "data-only", expected - table_slugs)
 PY
 }
@@ -151,6 +163,7 @@ bd_openai_disabled_routes_to_claude() {
   [ -n "$output" ] && check_json "$output" || return 1
   printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}" || return 1
   printf '%s' "$output" | grep -Fq 'Disabled vendors, never to be routed to: openai' || return 1
+  printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]} at ${MODEL_ROUTING_CLAUDE_EFFORT[$build_index]};" || return 1
   for slug in "${MODEL_ROUTING_CODEX[@]}"; do
     printf '%s' "$output" | grep -Fq "$slug" && return 1
   done
@@ -164,6 +177,7 @@ exitplan_openai_disabled_forbids_codex() {
   output=$(CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
   [ -n "$output" ] && check_json "$output" || return 1
   printf '%s' "$output" | grep -Fq 'Do NOT dispatch /codex:rescue' || return 1
+  printf '%s' "$output" | grep -Fq "at ${MODEL_ROUTING_CLAUDE_EFFORT[$build_index]} effort" || return 1
   printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}" || return 1
   for slug in "${MODEL_ROUTING_CODEX[@]}"; do
     printf '%s' "$output" | grep -Fq "$slug" && return 1

@@ -41,6 +41,25 @@ Use parallel authoring when ALL of these hold:
 5. **Commit per item.** One commit per work item despite the shared branch — preserves per-item traceability and the issue-tracker mapping. Delegate to the commit agent (see `agent-enforcement.md`).
 6. **One PR.** A single PR for the batch; CI runs once. Merge, then close all the items' issues.
 
+## Time signals for the lead agent
+
+When the fan-out is driven by a lead *model* instead of by you, as in a Workflow script or a lead agent
+that delegates to subagents, give it elapsed time. Claude Opus 5.5 paces itself by it, and under a
+budget it mostly keeps more agents working in parallel, which is a different effect from lowering
+effort (that cuts the work itself). Source: Anthropic, *Prompting Claude Opus 5.5* § Time signals
+for multiagent harnesses.
+
+| You can estimate the duration | Do |
+|---|---|
+| Yes | Append `elapsed <s>s / <budget>s` to the end of every message the harness returns to the lead. Set the budget somewhat above the time you actually want spent; the model usually finishes well inside it. Tune on a few real runs. |
+| No | Show `elapsed <s>s` alone, and add one sentence to its prompt: avoidable time should not be spent, and an earlier correct result is better. |
+
+- **Advisory, not a stop.** Nothing halts the model at the budget. Keep the real limits: the
+  `codex-wait.sh` wall cap and your own timeouts.
+- **Watch the verification cost.** Under time pressure the model may search and verify a little
+  less. A budget never shortens step 3 (fan-in verification) or step 4 (the gate). Those are
+  measured by the orchestrator, not paced by the model.
+
 ## The tradeoff: batch isolation, not per-item isolation
 
 Gating once on the union attributes a failure to the batch, not to one item, so the orchestrator takes on the duty to **diagnose which item caused it** — by reading the failure, re-running the failing case in isolation, or bisecting the per-item commits (which is why step 5's clean per-item commits matter). Cheaper in aggregate than N gate runs, but not free: if the items are likely to interact subtly, prefer per-item gates.
