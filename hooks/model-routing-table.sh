@@ -24,9 +24,19 @@ MODEL_ROUTING_CODEX=(
   gpt-6-luna
   gpt-6-luna
 )
+# Codex reasoning effort per tier (also what scripts/sync-codex-agents.sh writes into roles).
 MODEL_ROUTING_EFFORT=(
   xhigh
   high
+  medium
+  low
+)
+# Claude effort per tier. Kept separate because effort names do not mean the same amount of
+# thinking across models: Opus 5.5 at medium matches Opus 5 at high on coding, and thinks more
+# per level (Anthropic's Opus 5.5 prompting guide). xhigh/max only where a gain was measured.
+MODEL_ROUTING_CLAUDE_EFFORT=(
+  high
+  medium
   medium
   low
 )
@@ -51,6 +61,11 @@ MODEL_ROUTING_VENDORS=(
 MODEL_ROUTING_VENDOR_COLUMNS=(
   MODEL_ROUTING_CODEX
   MODEL_ROUTING_CLAUDE_FALLBACKS
+)
+# Effort column for each vendor, parallel to MODEL_ROUTING_VENDOR_COLUMNS.
+MODEL_ROUTING_VENDOR_EFFORT_COLUMNS=(
+  MODEL_ROUTING_EFFORT
+  MODEL_ROUTING_CLAUDE_EFFORT
 )
 MODEL_ROUTING_VENDOR_ROUTES=(
   /codex:rescue
@@ -94,6 +109,12 @@ model_routing_models() {
   printf '%s\n' "${!ref}"
 }
 
+# Effort level for <vendor index> <tier index>.
+model_routing_effort() {
+  local ref="${MODEL_ROUTING_VENDOR_EFFORT_COLUMNS[$1]}[$2]"
+  printf '%s\n' "${!ref}"
+}
+
 # Comma-separated list of disabled vendors, or "none".
 model_routing_disabled_vendors() {
   local index text=''
@@ -119,6 +140,8 @@ model_routing_table_valid() {
   [ "${#MODEL_ROUTING_DESCRIPTIONS[@]}" -eq 4 ] || return 1
   [ "${#MODEL_ROUTING_CODEX[@]}" -eq 4 ] || return 1
   [ "${#MODEL_ROUTING_EFFORT[@]}" -eq 4 ] || return 1
+  [ "${#MODEL_ROUTING_CLAUDE_EFFORT[@]}" -eq 4 ] || return 1
+  [ "${#MODEL_ROUTING_VENDOR_EFFORT_COLUMNS[@]}" -eq "${#MODEL_ROUTING_VENDORS[@]}" ] || return 1
   [ "${#MODEL_ROUTING_CLAUDE_FALLBACKS[@]}" -eq 4 ] || return 1
   [ "${#MODEL_ROUTING_VENDORS[@]}" -ge 1 ] || return 1
   [ "${#MODEL_ROUTING_VENDOR_COLUMNS[@]}" -eq "${#MODEL_ROUTING_VENDORS[@]}" ] || return 1
@@ -135,6 +158,13 @@ model_routing_table_valid() {
     esac
     eval "fallback=\${#${MODEL_ROUTING_VENDOR_COLUMNS[$index]}[@]}" 2>/dev/null || return 1
     [ "$fallback" = 4 ] || return 1
+    case "${MODEL_ROUTING_VENDOR_EFFORT_COLUMNS[$index]}" in
+      MODEL_ROUTING_*[!A-Z0-9_]*|MODEL_ROUTING_) return 1 ;;
+      MODEL_ROUTING_*) ;;
+      *) return 1 ;;
+    esac
+    eval "fallback=\${#${MODEL_ROUTING_VENDOR_EFFORT_COLUMNS[$index]}[@]}" 2>/dev/null || return 1
+    [ "$fallback" = 4 ] || return 1
   done
 
   for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
@@ -147,6 +177,7 @@ model_routing_table_valid() {
     model_routing_value_is_json_safe "${MODEL_ROUTING_DESCRIPTIONS[$index]}" || return 1
     model_routing_value_is_json_safe "${MODEL_ROUTING_CODEX[$index]}" || return 1
     model_routing_value_is_json_safe "${MODEL_ROUTING_EFFORT[$index]}" || return 1
+    model_routing_value_is_json_safe "${MODEL_ROUTING_CLAUDE_EFFORT[$index]}" || return 1
     for fallback in ${MODEL_ROUTING_CLAUDE_FALLBACKS[$index]}; do
       model_routing_value_is_json_safe "$fallback" || return 1
     done

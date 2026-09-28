@@ -238,12 +238,21 @@ A Codex task inherits the session cwd as its sandbox root, so cross-repo delegat
 
 ### Equivalence table
 
-| Work type | Codex model — use this | Claude equivalent — fallback only | Effort |
-|-----------|------------------------|-----------------------------------|--------|
-| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` |
-| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` |
-| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` |
-| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` |
+| Work type | Codex model — use this | Claude equivalent — fallback only | Codex effort | Claude effort |
+|-----------|------------------------|-----------------------------------|--------------|---------------|
+| **Architecture / design** — ADRs, system design, novel abstractions, hard trade-off reasoning | `gpt-6-astra` — most capable, for complex demanding work | `claude-fable-5-1` → `claude-opus-5-5` | `xhigh` | `high` |
+| **Build / implementation** — coding, refactors, tests, eval scenarios, debugging | `gpt-6-sol` — workhorse model for coding; **the local Codex default** | `claude-opus-5-5` | `high` | `medium` |
+| **Probe / exploration** — codebase surveys, read-only investigation, light passes | `gpt-6-luna` — fast + affordable | `claude-sonnet-5` | `medium` | `medium` |
+| **Mechanical / focused coding** — small, precise edits with a known outcome and easy correctness check | `gpt-6-luna` (`--model gpt-6-luna --effort low`) | `claude-sonnet-5` | `low` | `low` |
+
+The two effort columns differ on purpose: effort names do not buy the same amount of thinking
+across models. On Claude Opus 5.5, `medium` matches or beats Claude Opus 5 at `high` on coding, and
+at any given level Opus 5.5 thinks more per turn, most of all at `xhigh`/`max` (Anthropic, *Prompting
+Claude Opus 5.5*, § Calibrate effort). So the Claude column runs one step below the Codex column,
+and a Claude `xhigh`/`max` needs a measured quality gain behind it, not a hunch. To get less
+thinking, lower effort before adding prompt instructions — it works more reliably. The hooks read
+both columns from `hooks/model-routing-table.sh`, and `hooks/selftest.sh` fails if this table drifts
+from that file.
 
 Prefer the mechanical tier over the build tier when the task meets all three conditions: precise outcome,
 small scope, and a clear check. It suits small UI adjustments from textual requirements,
