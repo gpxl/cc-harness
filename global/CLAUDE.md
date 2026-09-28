@@ -26,6 +26,7 @@ Always consult documentation index and project files rather than relying on trai
 |peer-session-coordination.md: Message peer sessions directly, scoped by what is shared (same repo → full protocol; same machine → resource notices only; shared dependency → one collision check); notices not essays; never route through the user — source trees, .claude/{skills,agents,rules}, *worktree*
 |windowed-gate-serialization.md: Serialize window-opening gates across parallel agents — GUI/UI-test paths
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
+|unattended-runs.md: A text-only end of turn in an unattended run is a report, not completion — continue with the open items named, cap at 2–3 automatic continuations, running background work means not done; standing no-early-stop paragraph for unattended prompts only — .claude/{skills,agents,rules}, *worktree*
 |native-codex-routing.md: Shared native Codex roles and project adoption checks; use `harness_*` roles without copying model defaults — AGENTS.md, .codex/**
 
 [Scripts]|root: .claude/scripts/
