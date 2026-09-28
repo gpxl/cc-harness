@@ -92,6 +92,39 @@ wrapper_reports_actionable_resolution_failure() {
   [ "$status" -eq 1 ] && [ -z "$output" ] && grep -Fqx 'Codex plugin not found — run /codex:setup or install the openai-codex plugin' "$tmp_root/wrapper.err"
 }
 
+# Vendor switch guard. An empty plugin cache means "guard passed" surfaces as the plugin-not-found
+# exit 1, so no real Codex process is ever started by these rows.
+run_wrapper_with_vendors() {
+  local state="$1"
+  shift
+  printf 'openai=%s\n' "$state" > "$tmp_root/vendors.conf"
+  if output=$(CODEX_PLUGIN='' CODEX_PLUGIN_CACHE_DIR="$empty_fixture" \
+    CC_HARNESS_VENDORS_FILE="$tmp_root/vendors.conf" CC_HARNESS_VENDORS_LOCAL="$tmp_root/no-local.conf" \
+    bash "$wrapper" "$@" 2>"$tmp_root/wrapper.err"); then
+    status=0
+  else
+    status=$?
+  fi
+}
+
+wrapper_refuses_dispatch_when_openai_disabled() {
+  local subcommand
+  for subcommand in task review adversarial-review; do
+    run_wrapper_with_vendors disabled "$subcommand" --json
+    [ "$status" -eq 3 ] && [ -z "$output" ] && grep -Fq "vendor 'openai' is disabled" "$tmp_root/wrapper.err" || return 1
+  done
+}
+
+wrapper_allows_job_management_when_openai_disabled() {
+  run_wrapper_with_vendors disabled status --json
+  [ "$status" -eq 1 ] && grep -Fq 'Codex plugin not found' "$tmp_root/wrapper.err"
+}
+
+wrapper_allows_dispatch_when_openai_enabled() {
+  run_wrapper_with_vendors enabled task --json
+  [ "$status" -eq 1 ] && grep -Fq 'Codex plugin not found' "$tmp_root/wrapper.err"
+}
+
 wrong_expectation_is_detected() {
   run_resolver "$fixture"
   ! { [ "$status" -eq 0 ] && [ "$output" = "$fixture/1.0.9" ]; }
@@ -104,6 +137,9 @@ record missing_companion_is_skipped
 record empty_cache_fails_without_stdout
 record wrapper_reports_actionable_resolution_failure
 record wrong_expectation_is_detected
+record wrapper_refuses_dispatch_when_openai_disabled
+record wrapper_allows_job_management_when_openai_disabled
+record wrapper_allows_dispatch_when_openai_enabled
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'CODEX PATH SELFTEST: PASS'
