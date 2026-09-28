@@ -44,8 +44,8 @@ MODEL_ROUTING_CLAUDE_EFFORT=(
 MODEL_ROUTING_CLAUDE_FALLBACKS=(
   'claude-fable-5-1 claude-opus-5-5'
   claude-opus-5-5
-  claude-sonnet-5
-  claude-sonnet-5
+  claude-sonnet-5-5
+  claude-sonnet-5-5
 )
 MODEL_ROUTING_NEWLINE='
 '
