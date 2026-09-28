@@ -1,15 +1,24 @@
 # Model-routing hooks
 
-These hooks enforce the Codex-first Model Routing policy in `global/CLAUDE.md`.
+These hooks enforce the Model Routing policy in `global/CLAUDE.md`.
 `model-routing-table.sh` is the source of truth; `hooks/selftest.sh` checks the markdown table
 against it.
 
 `$CODEX_PLUGIN` is not exported by default. Use `scripts/codex.sh`, installed as
 `~/.claude/scripts/codex.sh`, as the supported Codex companion entry point.
 
-- `bd-ready-model-routing.sh` runs after a real `bd ready` Bash command and maps ready work to the Codex model and effort in the equivalence table.
-- `exitplan-model-routing.sh` runs when a plan is approved. It stops the plan-to-build transition so work can be delegated through `/codex:rescue`.
-- `first-edit-codex-gate.sh` runs once per session after the first `Edit`, `Write`, or `NotebookEdit`, covering implementation that bypasses plan mode.
+## Vendor switch
+
+`vendors.conf` enables or disables each model vendor (`openai=disabled`, say); a machine-local
+`~/.claude/private/vendors.conf` overrides it per vendor. `vendors.sh` resolves the two (source it
+for `vendor_enabled`, or run `bash hooks/vendors.sh` to print the state). Anything but an explicit
+`enabled` is disabled, and `anthropic` cannot be disabled. The first enabled vendor in
+`MODEL_ROUTING_VENDORS` (`model-routing-table.sh`) is the primary route; every hook below reads
+it, and `scripts/codex.sh` refuses new Codex work while `openai` is off.
+
+- `bd-ready-model-routing.sh` runs after a real `bd ready` Bash command and maps ready work to the primary vendor's model and effort in the equivalence table.
+- `exitplan-model-routing.sh` runs when a plan is approved. With `openai` enabled it stops the plan-to-build transition so work can be delegated through `/codex:rescue`; with it disabled it names the Claude build model and forbids the Codex route.
+- `first-edit-codex-gate.sh` runs once per session after the first `Edit`, `Write`, or `NotebookEdit`, covering implementation that bypasses plan mode. It is silent while `openai` is not the primary vendor.
 
 `settings-hooks.json` defines the required `PostToolUse` registrations. `./install.sh` links this
 directory, then runs `hooks/install-hooks.sh` to merge the registrations and resolver-derived

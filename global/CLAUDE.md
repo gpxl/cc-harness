@@ -37,6 +37,7 @@ Always consult documentation index and project files rather than relying on trai
 |codex-brokers.sh [--reap-stale] [--restart-idle]: list/kill Codex app-server brokers by explicit PID — after a config.toml edit or when brokers point at dead cwds
 
 [Hooks]|root: ~/.claude/hooks/ → symlinked from ~/projects/cc-harness/hooks/ (Model Routing enforcement; run `bash hooks/selftest.sh` after changes)
+|vendors.conf: Vendor switch — `<vendor>=enabled|disabled` per model vendor; `~/.claude/private/vendors.conf` overrides per machine; `bash ~/.claude/hooks/vendors.sh` prints the resolved state
 
 [Beads]|binary: bd (in PATH) — see Task Management below
 |session-start: run bd prime if .beads/ exists (prints the full command reference)
@@ -54,7 +55,7 @@ Always consult documentation index and project files rather than relying on trai
 |manage: loadout link/unlink/sync/status
 |scan: loadout scan (suggest after adding new deps/frameworks)
 
-[Codex]|plugin: openai-codex/codex (OpenAI models) — see Model Routing below
+[Codex]|plugin: openai-codex/codex (OpenAI models) — see Model Routing below; usable only while vendor `openai` is enabled (§ Vendor switch)
 |root: ~/.claude/plugins/cache/openai-codex/codex/<version>/ (= ${CLAUDE_PLUGIN_ROOT} inside the plugin)
 |delegate: /codex:rescue [--model <slug>] [--effort none|minimal|low|medium|high|xhigh] [--background|--wait] [--resume|--fresh] <task>
 |readiness: /codex:setup, or `node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json` → "ready": true
@@ -187,6 +188,28 @@ there any reason this cannot be a Codex run?" Two kinds of Claude spend are in s
 both count: work Claude *does*, and context Claude *holds* (every file read, grep result,
 and pasted Codex output is re-sent on every subsequent turn — see § Keeping Claude's
 context small).
+
+### Vendor switch (read this first)
+
+Which vendors' models may be routed to is **configuration, not prose**: `hooks/vendors.conf`
+(tracked; `<vendor>=enabled|disabled`), overridden per machine by
+`~/.claude/private/vendors.conf`. Check it with `bash ~/.claude/hooks/vendors.sh`. The routing
+hooks read the same file, so their reminders name only enabled vendors. `anthropic` is always
+enabled; any other vendor is enabled only on an explicit `enabled` line (typo or absence =
+disabled).
+
+**A disabled vendor is not a route.** Everything in this section that says Codex, OpenAI,
+`/codex:rescue`, `gpt-*`, the Codex review gate, or "spend the OpenAI allowance first" applies
+**only while `openai` is enabled**. While it is disabled: the Claude column of the equivalence
+table is the route (not a fallback), do the work in Claude on that row's model (session model,
+or an Agent `model:` override), and every "Codex; Claude subagent as fallback" instruction in
+the rules takes its fallback branch without a readiness check. Do not dispatch `/codex:rescue`
+and do not run the Codex setup/readiness check to "confirm" — a paused subscription can still
+report `ready: true`. `scripts/codex.sh` refuses `task`/`review`/`adversarial-review` (exit 3)
+while `openai` is disabled; `status`/`result`/`cancel` still work for jobs already in flight.
+The column order in `hooks/model-routing-table.sh` (`MODEL_ROUTING_VENDORS`) is the preference
+order; the first enabled vendor is primary. Adding a vendor is one model column there, one
+entry in the vendor arrays, and one line in `vendors.conf`.
 
 ### Codex-first (default)
 
@@ -333,8 +356,9 @@ file read once is re-sent on every turn that follows.
 
 ### Fallback to Claude
 
-Fall back **only when Codex is genuinely unavailable**: a successful `setup --json` reports
-`ready: false`, or login is missing or fails (`codex login` / `/codex:setup`). A readiness
+Fall back **only when Codex is genuinely unavailable**: vendor `openai` is disabled in the
+vendor switch (§ Vendor switch — no readiness check needed or wanted), a successful
+`setup --json` reports `ready: false`, or login is missing or fails (`codex login` / `/codex:setup`). A readiness
 check that **ERRORS** (module not found, path wrong, resolver failure) is **not** evidence that
 Codex is unavailable — resolve the path and retry before ever falling back. Only an actual
 `"ready": false` from a successful setup run, or a missing/failed login, counts as unavailable.

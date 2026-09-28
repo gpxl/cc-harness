@@ -29,18 +29,29 @@ if [ ! -r "$data_file" ] || ! . "$data_file" || ! model_routing_table_valid; the
   exit 0
 fi
 
-context='Model Routing (~/.claude/CLAUDE.md): /codex:rescue is the default delegation route. For each issue listed by `bd ready`, suggest a Codex model by its type/title: '
+primary=$(model_routing_primary_vendor_index) || exit 0
+vendor=${MODEL_ROUTING_VENDORS[$primary]}
+context="Model Routing (~/.claude/CLAUDE.md): the primary route is $vendor via ${MODEL_ROUTING_VENDOR_ROUTES[$primary]} (vendor switch: bash ~/.claude/hooks/vendors.sh). Disabled vendors, never to be routed to: $(model_routing_disabled_vendors). For each issue listed by \`bd ready\`, suggest a model by its type/title: "
 for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
-  context="$context${MODEL_ROUTING_LABELS[$index]} (${MODEL_ROUTING_DESCRIPTIONS[$index]}) -> ${MODEL_ROUTING_CODEX[$index]} at ${MODEL_ROUTING_EFFORT[$index]}"
+  models=$(model_routing_models "$primary" "$index")
+  context="$context${MODEL_ROUTING_LABELS[$index]} (${MODEL_ROUTING_DESCRIPTIONS[$index]}) -> ${models// / then } at ${MODEL_ROUTING_EFFORT[$index]}"
   if [ "$index" -lt $((${#MODEL_ROUTING_KEYS[@]} - 1)) ]; then
     context="$context; "
   fi
 done
-architecture_index=$(model_routing_index_for_key architecture) || exit 0
-build_index=$(model_routing_index_for_key build) || exit 0
-probe_index=$(model_routing_index_for_key probe) || exit 0
-mechanical_index=$(model_routing_index_for_key mechanical) || exit 0
-context="$context. The Claude column is fallback only when Codex is genuinely unavailable: ${MODEL_ROUTING_LABELS[$architecture_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$architecture_index]%% *} then ${MODEL_ROUTING_CLAUDE_FALLBACKS[$architecture_index]#* }, ${MODEL_ROUTING_KEYS[$build_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}, ${MODEL_ROUTING_KEYS[$probe_index]}/${MODEL_ROUTING_KEYS[$mechanical_index]} ${MODEL_ROUTING_CLAUDE_FALLBACKS[$probe_index]}. This governs the dev-driving model, not any repo's EVAL_MODEL."
+context="$context."
+for ((vendor_index = primary + 1; vendor_index < ${#MODEL_ROUTING_VENDORS[@]}; vendor_index++)); do
+  vendor_enabled "${MODEL_ROUTING_VENDORS[$vendor_index]}" || continue
+  context="$context Fallback only when $vendor is genuinely unavailable: ${MODEL_ROUTING_VENDORS[$vendor_index]} ("
+  for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
+    models=$(model_routing_models "$vendor_index" "$index")
+    context="$context${MODEL_ROUTING_KEYS[$index]} ${models// / then }"
+    [ "$index" -lt $((${#MODEL_ROUTING_KEYS[@]} - 1)) ] && context="$context, "
+  done
+  context="$context)."
+  break
+done
+context="$context This governs the dev-driving model, not any repo's EVAL_MODEL."
 case "$context" in
   *\"*|*\\*|*"$MODEL_ROUTING_NEWLINE"*) exit 0 ;;
 esac

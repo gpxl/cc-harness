@@ -13,6 +13,13 @@ tmp_state=$(mktemp -d "${TMPDIR:-/tmp}/cc-harness-hooks.XXXXXX") || exit 1
 completed=0
 trap 'st=$?; rm -rf "$tmp_state"; [ "$completed" = 1 ] || st=1; exit $st' EXIT HUP INT TERM
 export XDG_STATE_HOME="$tmp_state"
+# Hermetic vendor switch: every row runs against fixtures, never the tracked or local config.
+vendors_on="$tmp_state/vendors-openai-enabled.conf"
+vendors_off="$tmp_state/vendors-openai-disabled.conf"
+printf 'anthropic=enabled\nopenai=enabled\n' > "$vendors_on"
+printf 'anthropic=enabled\nopenai=disabled\n' > "$vendors_off"
+export CC_HARNESS_VENDORS_FILE="$vendors_on"
+export CC_HARNESS_VENDORS_LOCAL="$tmp_state/no-local-vendors.conf"
 plugin_cache="$tmp_state/plugin-cache"
 plugin_root="$plugin_cache/1.2.3"
 mkdir -p "$plugin_root/scripts"
@@ -133,6 +140,88 @@ first_edit_fires() {
 
 first_edit_silent() {
   invoke_first_edit "$1" && [ -z "$output" ]
+}
+
+# openai disabled: bd-ready and exitplan name only Claude models and never recommend Codex.
+bd_openai_disabled_routes_to_claude() {
+  local build_index slug
+  load_model_routing_table || return 1
+  build_index=$(model_routing_index_for_key build) || return 1
+  output=$(printf '{"tool_input":{"command":"bd ready"}}' | CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/bd-ready-model-routing.sh" 2>/dev/null) || return 1
+  [ -n "$output" ] && check_json "$output" || return 1
+  printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}" || return 1
+  printf '%s' "$output" | grep -Fq 'Disabled vendors, never to be routed to: openai' || return 1
+  for slug in "${MODEL_ROUTING_CODEX[@]}"; do
+    printf '%s' "$output" | grep -Fq "$slug" && return 1
+  done
+  return 0
+}
+
+exitplan_openai_disabled_forbids_codex() {
+  local build_index slug
+  load_model_routing_table || return 1
+  build_index=$(model_routing_index_for_key build) || return 1
+  output=$(CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
+  [ -n "$output" ] && check_json "$output" || return 1
+  printf '%s' "$output" | grep -Fq 'Do NOT dispatch /codex:rescue' || return 1
+  printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$build_index]}" || return 1
+  for slug in "${MODEL_ROUTING_CODEX[@]}"; do
+    printf '%s' "$output" | grep -Fq "$slug" && return 1
+  done
+  return 0
+}
+
+first_edit_openai_disabled_is_silent() {
+  output=$(printf '{"session_id":"%s"}' 'vendor-off-session' | CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/first-edit-codex-gate.sh" 2>/dev/null) || return 1
+  [ -z "$output" ] || return 1
+  # Silence must not burn the once-per-session marker: re-enabling fires the reminder.
+  first_edit_fires 'vendor-off-session'
+}
+
+first_edit_invalid_table_is_silent() {
+  local copy="$tmp_state/degraded-hooks"
+  mkdir -p "$copy" || return 1
+  cp "$root/first-edit-codex-gate.sh" "$root/vendors.sh" "$root/model-routing-table.sh" "$copy/" || return 1
+  printf 'MODEL_ROUTING_VENDOR_COLUMNS[0]=%s\n' "'MODEL_ROUTING_X;true'" >> "$copy/model-routing-table.sh" || return 1
+  output=$(printf '{"session_id":"%s"}' 'degraded-session' | bash "$copy/first-edit-codex-gate.sh" 2>/dev/null) || return 1
+  [ -z "$output" ] || return 1
+  rm -f "$copy/model-routing-table.sh" || return 1
+  output=$(printf '{"session_id":"%s"}' 'degraded-session' | bash "$copy/first-edit-codex-gate.sh" 2>/dev/null) || return 1
+  [ -z "$output" ]
+}
+
+vendor_state_is() {
+  local expected="$1" vendor="$2" file="$3" local_file="${4:-$tmp_state/no-local-vendors.conf}"
+  [ "$(CC_HARNESS_VENDORS_FILE="$file" CC_HARNESS_VENDORS_LOCAL="$local_file" bash -c '. "$1" && vendor_state "$2"' _ "$root/vendors.sh" "$vendor")" = "$expected" ]
+}
+
+vendor_local_override_wins() {
+  local local_file="$tmp_state/local-override.conf"
+  printf 'openai = disabled # paused here only\n' > "$local_file"
+  vendor_state_is disabled openai "$vendors_on" "$local_file"
+}
+
+vendor_unknown_value_fails_closed() {
+  local file="$tmp_state/vendors-typo.conf"
+  printf 'openai=enabeld\n' > "$file"
+  vendor_state_is disabled openai "$file"
+}
+
+vendor_missing_config_fails_closed() {
+  vendor_state_is disabled openai "$tmp_state/does-not-exist.conf"
+}
+
+vendor_anthropic_cannot_be_disabled() {
+  local file="$tmp_state/vendors-no-claude.conf"
+  printf 'anthropic=disabled\n' > "$file"
+  vendor_state_is enabled anthropic "$file"
+}
+
+tracked_vendors_conf_parses() {
+  local state
+  state=$(CC_HARNESS_VENDORS_FILE="$root/vendors.conf" bash -c '. "$1" && vendor_state openai' _ "$root/vendors.sh") || return 1
+  grep -Eq '^[[:space:]]*openai[[:space:]]*=[[:space:]]*(enabled|disabled)[[:space:]]*(#.*)?$' "$root/vendors.conf" || return 1
+  case "$state" in enabled|disabled) ;; *) return 1 ;; esac
 }
 
 broken_checker_fails() {
@@ -434,6 +523,15 @@ record 'first-edit fires: session alpha' first_edit_fires 'session-alpha'
 record 'first-edit fires: session beta' first_edit_fires 'session-beta'
 record 'first-edit silent: repeated alpha' first_edit_silent 'session-alpha'
 record 'first-edit silent: repeated beta' first_edit_silent 'session-beta'
+record 'vendor switch: openai disabled routes bd-ready to Claude only' bd_openai_disabled_routes_to_claude
+record 'vendor switch: openai disabled exitplan forbids Codex' exitplan_openai_disabled_forbids_codex
+record 'vendor switch: openai disabled first-edit is silent without burning the marker' first_edit_openai_disabled_is_silent
+record 'vendor switch: first-edit is silent on an invalid or missing table' first_edit_invalid_table_is_silent
+record 'vendor switch: local override wins over tracked default' vendor_local_override_wins
+record 'vendor switch: unknown value fails closed' vendor_unknown_value_fails_closed
+record 'vendor switch: missing config fails closed' vendor_missing_config_fails_closed
+record 'vendor switch: anthropic cannot be disabled' vendor_anthropic_cannot_be_disabled
+record 'vendor switch: tracked vendors.conf names openai with a valid state' tracked_vendors_conf_parses
 record 'negative control: malformed JSON is rejected' broken_checker_fails
 record 'settings install preserves unrelated keys and registers hooks' settings_install_preserves_unrelated
 record 'settings second install is a no-op without backup' settings_second_install_is_noop

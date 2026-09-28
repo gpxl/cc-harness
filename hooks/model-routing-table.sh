@@ -40,6 +40,28 @@ MODEL_ROUTING_CLAUDE_FALLBACKS=(
 MODEL_ROUTING_NEWLINE='
 '
 
+# Vendor columns in routing preference order. The first vendor that hooks/vendors.sh reports
+# enabled is the PRIMARY route for every tier; a disabled vendor is never recommended. Adding a
+# vendor: one MODEL_ROUTING_<COLUMN> array above, one entry in each array below, and one line in
+# hooks/vendors.conf. anthropic stays last: it is the always-enabled floor.
+MODEL_ROUTING_VENDORS=(
+  openai
+  anthropic
+)
+MODEL_ROUTING_VENDOR_COLUMNS=(
+  MODEL_ROUTING_CODEX
+  MODEL_ROUTING_CLAUDE_FALLBACKS
+)
+MODEL_ROUTING_VENDOR_ROUTES=(
+  /codex:rescue
+  'Claude itself (the session model, or an Agent model: override)'
+)
+
+model_routing_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [ -r "$model_routing_dir/vendors.sh" ]; then
+  . "$model_routing_dir/vendors.sh"
+fi
+
 model_routing_index_for_key() {
   local sought="$1"
   local index
@@ -50,6 +72,37 @@ model_routing_index_for_key() {
     fi
   done
   return 1
+}
+
+# Index into MODEL_ROUTING_VENDORS of the first enabled vendor.
+# Fails when hooks/vendors.sh is absent: no resolver means no vendor may be recommended.
+model_routing_primary_vendor_index() {
+  local index
+  command -v vendor_enabled >/dev/null 2>&1 || return 1
+  for ((index = 0; index < ${#MODEL_ROUTING_VENDORS[@]}; index++)); do
+    if vendor_enabled "${MODEL_ROUTING_VENDORS[$index]}"; then
+      printf '%s\n' "$index"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Space-separated model ids for <vendor index> <tier index>, most preferred first.
+model_routing_models() {
+  local ref="${MODEL_ROUTING_VENDOR_COLUMNS[$1]}[$2]"
+  printf '%s\n' "${!ref}"
+}
+
+# Comma-separated list of disabled vendors, or "none".
+model_routing_disabled_vendors() {
+  local index text=''
+  for ((index = 0; index < ${#MODEL_ROUTING_VENDORS[@]}; index++)); do
+    if ! vendor_enabled "${MODEL_ROUTING_VENDORS[$index]}"; then
+      text="${text:+$text, }${MODEL_ROUTING_VENDORS[$index]}"
+    fi
+  done
+  printf '%s\n' "${text:-none}"
 }
 
 model_routing_value_is_json_safe() {
@@ -67,6 +120,22 @@ model_routing_table_valid() {
   [ "${#MODEL_ROUTING_CODEX[@]}" -eq 4 ] || return 1
   [ "${#MODEL_ROUTING_EFFORT[@]}" -eq 4 ] || return 1
   [ "${#MODEL_ROUTING_CLAUDE_FALLBACKS[@]}" -eq 4 ] || return 1
+  [ "${#MODEL_ROUTING_VENDORS[@]}" -ge 1 ] || return 1
+  [ "${#MODEL_ROUTING_VENDOR_COLUMNS[@]}" -eq "${#MODEL_ROUTING_VENDORS[@]}" ] || return 1
+  [ "${#MODEL_ROUTING_VENDOR_ROUTES[@]}" -eq "${#MODEL_ROUTING_VENDORS[@]}" ] || return 1
+  [ "${MODEL_ROUTING_VENDORS[$((${#MODEL_ROUTING_VENDORS[@]} - 1))]}" = anthropic ] || return 1
+  for ((index = 0; index < ${#MODEL_ROUTING_VENDORS[@]}; index++)); do
+    model_routing_value_is_json_safe "${MODEL_ROUTING_VENDORS[$index]}" || return 1
+    model_routing_value_is_json_safe "${MODEL_ROUTING_VENDOR_ROUTES[$index]}" || return 1
+    # Validated before the eval below: a column must be a plain MODEL_ROUTING_ identifier.
+    case "${MODEL_ROUTING_VENDOR_COLUMNS[$index]}" in
+      MODEL_ROUTING_*[!A-Z0-9_]*|MODEL_ROUTING_) return 1 ;;
+      MODEL_ROUTING_*) ;;
+      *) return 1 ;;
+    esac
+    eval "fallback=\${#${MODEL_ROUTING_VENDOR_COLUMNS[$index]}[@]}" 2>/dev/null || return 1
+    [ "$fallback" = 4 ] || return 1
+  done
 
   for ((index = 0; index < ${#MODEL_ROUTING_KEYS[@]}; index++)); do
     case "${MODEL_ROUTING_KEYS[$index]}" in

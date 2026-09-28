@@ -5,6 +5,16 @@ set -euo pipefail
 trap 'exit 0' ERR
 umask 077
 
+# Silent unless openai is the primary route (a missing or invalid table counts as not): this reminder is Codex-specific, and nagging
+# toward a vendor the switch has disabled is exactly what hooks/vendors.conf exists to stop.
+root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+if [ -r "$root/model-routing-table.sh" ] && . "$root/model-routing-table.sh" && model_routing_table_valid; then
+  primary=$(model_routing_primary_vendor_index) || exit 0
+  [ "${MODEL_ROUTING_VENDORS[$primary]}" = openai ] || exit 0
+else
+  exit 0
+fi
+
 input=$(cat 2>/dev/null || printf '')
 session_id=''
 
