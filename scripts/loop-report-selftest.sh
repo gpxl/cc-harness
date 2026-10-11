@@ -144,6 +144,57 @@ else
   fail 'malformed transcript negative control' 'malformed count was not reported as 1'
 fi
 
+# Per-model breakdown: two models, known latency, one attributed tool error.
+model_root="$tmp_root/models"
+mkdir -p "$model_root"
+python3 - "$model_root/models.jsonl" <<'PY'
+import json
+import sys
+
+def rec(kind, uuid, parent, when, message):
+    return {"type": kind, "uuid": uuid, "parentUuid": parent, "timestamp": when, "message": message}
+
+def asst(uuid, parent, when, model, mid, tool_id=None):
+    blocks = [{"type": "text", "text": "ok"}]
+    if tool_id:
+        blocks.append({"type": "tool_use", "id": tool_id, "name": "Bash", "input": {"command": "true"}})
+    return rec("assistant", uuid, parent, when, {"model": model, "id": mid, "content": blocks})
+
+def result(uuid, parent, when, tool_id, is_error):
+    return rec("user", uuid, parent, when, {"content": [{"type": "tool_result", "tool_use_id": tool_id, "is_error": is_error, "content": "x"}]})
+
+records = [
+    rec("user", "u1", None, "2026-10-01T10:00:00Z", {"content": "go"}),
+    asst("a1", "u1", "2026-10-01T10:00:04Z", "model-slow", "m1", "t1"),
+    result("u2", "a1", "2026-10-01T10:00:05Z", "t1", True),
+    asst("a2", "u2", "2026-10-01T10:00:11Z", "model-fast", "m2", "t2"),
+    result("u3", "a2", "2026-10-01T10:00:12Z", "t2", False),
+    result("u4", "a2", "2026-10-01T10:00:13Z", "no-such-tool", True),
+    asst("a3", "u3", "2026-10-01T10:00:14Z", "model-fast", "m2"),
+]
+with open(sys.argv[1], "w", encoding="utf-8") as output:
+    for value in records:
+        output.write(json.dumps(value) + "\n")
+PY
+
+if output=$(LOOP_REPORT_ROOT="$model_root" bash "$report" --days 1 --json 2>&1) && python3 - "$output" <<'PY'
+import json
+import sys
+
+models = json.loads(sys.argv[1])["by_model"]
+slow, fast = models["model-slow"], models["model-fast"]
+assert slow["messages"] == 1 and fast["messages"] == 1, models  # m2 chunks dedupe by message id
+assert slow["median_latency_s"] == 4.0, slow
+assert fast["median_latency_s"] == 9.0, fast  # last chunk of m2 (10:00:14) minus its parent u2 (10:00:05)
+assert slow["tool_results"] == 1 and slow["tool_errors"] == 1 and slow["tool_error_pct"] == 100.0, slow
+assert fast["tool_results"] == 1 and fast["tool_errors"] == 0, fast  # orphan tool_use_id error is not attributed
+PY
+then
+  pass 'per-model breakdown'
+else
+  fail 'per-model breakdown' "model rows did not reconcile: ${output:-}"
+fi
+
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'LOOP REPORT SELFTEST: PASS'
   completed=1; exit 0
