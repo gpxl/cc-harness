@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Merge cc-harness's PostToolUse hook registrations into a Claude settings file.
+# Merge cc-harness's hook registrations (PostToolUse, SessionStart, ...) into a Claude settings file.
 set -euo pipefail
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 claude_dir="${CC_HARNESS_CLAUDE_DIR:-${HOME}/.claude}"
 settings_path="${claude_dir}/settings.json"
 mode='install'
+manifest_path="${root}/settings-hooks.json"
 
 usage() {
-  printf '%s\n' 'Usage: hooks/install-hooks.sh [--settings <path>] [--check] [--remove]'
+  printf '%s\n' 'Usage: hooks/install-hooks.sh [--settings <path>] [--manifest <path>] [--check] [--remove]'
 }
 
 while [ "$#" -gt 0 ]; do
@@ -19,6 +20,14 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       settings_path="$2"
+      shift 2
+      ;;
+    --manifest)
+      if [ "$#" -lt 2 ]; then
+        usage >&2
+        exit 2
+      fi
+      manifest_path="$2"
       shift 2
       ;;
     --check)
@@ -48,7 +57,7 @@ if [ "$mode" = 'install' ]; then
   fi
 fi
 
-exec python3 - "$settings_path" "$mode" "$root/settings-hooks.json" "$codex_plugin" <<'PY'
+exec python3 - "$settings_path" "$mode" "$manifest_path" "$codex_plugin" <<'PY'
 import datetime
 import json
 import os
@@ -64,17 +73,69 @@ def fail(message):
 
 settings_path, mode, manifest_path, codex_plugin = sys.argv[1:]
 
+# Tool events key an entry by its matcher (the tool name): the manifest owns that matcher slot.
+# Every other event (SessionStart, Stop, ...) keys an entry by the commands it runs, because
+# matchers there ("", "startup|resume") are shared with the user's own entries.
+TOOL_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest")
+
+
+def commands_of(entry):
+    hook_list = entry.get("hooks") if isinstance(entry, dict) else None
+    if not isinstance(hook_list, list) or not hook_list:
+        return None
+    commands = []
+    for hook in hook_list:
+        if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+            return None
+        commands.append(hook["command"])
+    return tuple(commands)
+
+
+def identity(event, entry):
+    if not isinstance(entry, dict):
+        return None
+    if event in TOOL_EVENTS:
+        matcher = entry.get("matcher")
+        return ("matcher", matcher) if isinstance(matcher, str) else None
+    commands = commands_of(entry)
+    return ("commands", commands) if commands else None
+
+
+def label(event, entry):
+    if event == "PostToolUse":
+        return entry["matcher"]  # legacy --check output: "<matcher>: missing"
+    if event in TOOL_EVENTS:
+        return event + " " + entry["matcher"]
+    return event + " " + " && ".join(commands_of(entry))
+
+
 try:
     with open(manifest_path, "r") as manifest_file:
-        required = json.load(manifest_file)
+        raw_manifest = json.load(manifest_file)
 except (OSError, ValueError) as error:
     fail("cannot read hook manifest: " + str(error))
 
-if not isinstance(required, list) or not all(
-    isinstance(entry, dict) and isinstance(entry.get("matcher"), str)
-    for entry in required
-):
-    fail("hook manifest must be an array of entries with matchers")
+# Legacy form: a bare array means PostToolUse entries. Object form: {"<Event>": [entries]}.
+if isinstance(raw_manifest, list):
+    manifest_events = [("PostToolUse", raw_manifest)]
+elif isinstance(raw_manifest, dict):
+    manifest_events = list(raw_manifest.items())
+else:
+    fail("hook manifest must be an array of PostToolUse entries or an object of event arrays")
+
+for event, entries in manifest_events:
+    if not event or not isinstance(entries, list):
+        fail("hook manifest event " + json.dumps(event) + " must map to an array of entries")
+    seen = set()
+    for entry in entries:
+        key = identity(event, entry)
+        if key is None:
+            if event in TOOL_EVENTS:
+                fail("hook manifest " + event + " entries must have string matchers")
+            fail("hook manifest " + event + " entries must have command hooks")
+        if key in seen:
+            fail("hook manifest " + event + " has two entries with the same identity")
+        seen.add(key)
 
 exists = os.path.exists(settings_path)
 if exists:
@@ -91,49 +152,30 @@ else:
     original_text = ""
 
 hooks = settings.get("hooks")
-if hooks is None:
-    if mode == "check":
-        for entry in required:
-            print(entry["matcher"] + ": missing")
-        sys.exit(1)
-    if mode == "remove":
-        post_tool_use = []
-    else:
-        hooks = {}
-        settings["hooks"] = hooks
-elif not isinstance(hooks, dict):
+if hooks is not None and not isinstance(hooks, dict):
     fail("settings hooks value must be an object")
 
-if hooks is not None:
-    post_tool_use = hooks.get("PostToolUse")
-    if post_tool_use is None:
-        if mode == "check":
-            for entry in required:
-                print(entry["matcher"] + ": missing")
-            sys.exit(1)
-        if mode == "remove":
-            post_tool_use = []
-        else:
-            post_tool_use = []
-            hooks["PostToolUse"] = post_tool_use
-    elif not isinstance(post_tool_use, list):
-        fail("settings hooks.PostToolUse value must be an array")
 
-
-def entries_for(matcher):
-    return [entry for entry in post_tool_use if isinstance(entry, dict) and entry.get("matcher") == matcher]
+def event_list(event):
+    existing = hooks.get(event) if hooks is not None else None
+    if existing is not None and not isinstance(existing, list):
+        fail("settings hooks." + event + " value must be an array")
+    return existing
 
 
 if mode == "check":
     failures = 0
-    for entry in required:
-        matching = entries_for(entry["matcher"])
-        if not matching:
-            print(entry["matcher"] + ": missing")
-            failures += 1
-        elif len(matching) != 1 or matching[0] != entry:
-            print(entry["matcher"] + ": wrong")
-            failures += 1
+    for event, entries in manifest_events:
+        existing = event_list(event) or []
+        for entry in entries:
+            key = identity(event, entry)
+            matching = [candidate for candidate in existing if identity(event, candidate) == key]
+            if not matching:
+                print(label(event, entry) + ": missing")
+                failures += 1
+            elif len(matching) != 1 or matching[0] != entry:
+                print(label(event, entry) + ": wrong")
+                failures += 1
     if failures:
         sys.exit(1)
     print("Hook registrations verified.")
@@ -142,36 +184,54 @@ if mode == "check":
 changed = False
 env_changed = False
 if mode == "remove":
-    owned = set()
-    for entry in required:
-        owned.add(json.dumps(entry, sort_keys=True, separators=(",", ":")))
-    retained = []
-    for entry in post_tool_use:
-        fingerprint = json.dumps(entry, sort_keys=True, separators=(",", ":"))
-        if fingerprint in owned:
-            changed = True
-        else:
-            retained.append(entry)
-    if changed:
-        hooks["PostToolUse"] = retained
-else:
-    for entry in required:
-        matcher = entry["matcher"]
-        indices = [
-            index for index, candidate in enumerate(post_tool_use)
-            if isinstance(candidate, dict) and candidate.get("matcher") == matcher
-        ]
-        if not indices:
-            post_tool_use.append(entry)
-            changed = True
+    for event, entries in manifest_events:
+        existing = event_list(event)
+        if existing is None:
             continue
-        first = indices[0]
-        if post_tool_use[first] != entry:
-            post_tool_use[first] = entry
+        owned = set(json.dumps(entry, sort_keys=True, separators=(",", ":")) for entry in entries)
+        retained = []
+        removed = False
+        for candidate in existing:
+            if json.dumps(candidate, sort_keys=True, separators=(",", ":")) in owned:
+                removed = True
+            else:
+                retained.append(candidate)
+        if removed:
+            # Tool events keep the legacy behaviour (an emptied list stays as []); any other
+            # event the installer emptied loses its key, so --remove leaves no trace of it.
+            if retained or event in TOOL_EVENTS:
+                hooks[event] = retained
+            else:
+                del hooks[event]
             changed = True
-        for index in reversed(indices[1:]):
-            del post_tool_use[index]
-            changed = True
+else:
+    for event, entries in manifest_events:
+        if not entries:
+            continue
+        existing = event_list(event)
+        if existing is None:
+            if hooks is None:
+                hooks = {}
+                settings["hooks"] = hooks
+            existing = []
+            hooks[event] = existing
+        for entry in entries:
+            key = identity(event, entry)
+            indices = [
+                index for index, candidate in enumerate(existing)
+                if identity(event, candidate) == key
+            ]
+            if not indices:
+                existing.append(entry)
+                changed = True
+                continue
+            first = indices[0]
+            if existing[first] != entry:
+                existing[first] = entry
+                changed = True
+            for index in reversed(indices[1:]):
+                del existing[index]
+                changed = True
 
 if mode != "check":
     env = settings.get("env")
