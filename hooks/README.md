@@ -39,6 +39,14 @@ manifest's:
   optional (`"startup|resume"`, `""`, or absent) and is not part of the identity, because those
   matchers are shared with the user's own entries, which must never be replaced.
 
+Ownership follows identity. For a non-tool event, the manifest owns every settings entry that runs
+the same commands: install overwrites a user entry with that command even when its matcher or
+timeout differs, and collapses duplicates into the single manifest entry. A user entry running
+any other command is never touched, even when it shares the matcher. `--remove` is narrower: it
+deletes only entries identical to the manifest's, so a user-modified copy survives. When that
+empties a non-tool event's list, the event key is dropped. Tool events keep the earlier
+behaviour, and an emptied `PostToolUse` stays as `[]`.
+
 `--check` prints `<matcher>: missing|wrong` for `PostToolUse` (unchanged from the array-only
 installer), `<event> <matcher>` for other tool events, and `<event> <command>` otherwise.
 

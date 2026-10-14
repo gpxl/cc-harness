@@ -760,28 +760,85 @@ ss_malformed_manifest_is_rejected() {
   [ "$(cat "$ss_settings")" = "$before" ]
 }
 
-# Negative control: a mutant installer that reads only PostToolUse out of an object manifest
-# (i.e. the new event handling removed) must turn the SessionStart install row red.
-ss_negative_control_without_event_handling() {
+ss_remove_drops_emptied_session_start() {
+  write_ss_settings_fixture || return 1
+  python3 - "$ss_settings" <<'PY' || return 1
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+del settings["hooks"]["SessionStart"]
+del settings["hooks"]["PostToolUse"]
+with open(sys.argv[1], "w") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
+PY
+  ss_run >/dev/null || return 1
+  ss_run --remove >/dev/null || return 1
+  python3 - "$ss_settings" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    hooks = json.load(settings_file)["hooks"]
+assert "SessionStart" not in hooks          # non-tool event emptied by --remove: key dropped
+assert hooks["PostToolUse"] == []           # tool event: legacy behaviour, emptied list kept
+assert hooks["Stop"] == [{"hooks": [{"type": "command", "command": "echo stop"}]}]
+PY
+}
+
+# Negative controls: a mutant installer with one piece of the event handling removed must turn
+# the named row red. The mutation anchor must match exactly once, or the control is vacuous.
+ss_mutant_turns_row_red() {
+  local anchor="$1" replacement="$2" row="$3"
   local mutant_dir="$tmp_state/mutant-hooks"
   local verdict=0
   mkdir -p "$mutant_dir" || return 1
-  python3 - "$root/install-hooks.sh" "$mutant_dir/install-hooks.sh" <<'PY' || return 1
+  python3 - "$root/install-hooks.sh" "$mutant_dir/install-hooks.sh" "$anchor" "$replacement" <<'PY' || return 1
 import sys
 
-anchor = "    manifest_events = list(raw_manifest.items())\n"
 source = open(sys.argv[1]).read()
+anchor = sys.argv[3] + "\n"
 if source.count(anchor) != 1:
     sys.exit("mutation anchor not found exactly once; the control would be vacuous")
-mutant = source.replace(anchor, '    manifest_events = [("PostToolUse", raw_manifest.get("PostToolUse", []))]\n')
-open(sys.argv[2], "w").write(mutant)
+open(sys.argv[2], "w").write(source.replace(anchor, sys.argv[4] + "\n"))
 PY
   ss_installer="$mutant_dir/install-hooks.sh"
-  if ss_install_registers_session_start 2>/dev/null; then
+  if "$row" >/dev/null 2>&1; then
     verdict=1
   fi
   ss_installer="$root/install-hooks.sh"
   return "$verdict"
+}
+
+ss_negative_control_without_event_handling() {
+  ss_mutant_turns_row_red \
+    '    manifest_events = list(raw_manifest.items())' \
+    '    manifest_events = [("PostToolUse", raw_manifest.get("PostToolUse", []))]' \
+    ss_install_registers_session_start
+}
+
+ss_negative_control_check_without_event_handling() {
+  ss_mutant_turns_row_red \
+    '        existing = event_list(event) or []' \
+    '        existing = (event_list(event) or []) if event in TOOL_EVENTS else []' \
+    ss_check_missing_wrong_ok
+}
+
+ss_negative_control_remove_without_event_handling() {
+  ss_mutant_turns_row_red \
+    '        owned = set(json.dumps(entry, sort_keys=True, separators=(",", ":")) for entry in entries)' \
+    '        if event not in TOOL_EVENTS: continue
+        owned = set(json.dumps(entry, sort_keys=True, separators=(",", ":")) for entry in entries)' \
+    ss_remove_only_owned_entries
+}
+
+ss_negative_control_remove_keeps_empty_key() {
+  ss_mutant_turns_row_red \
+    '            if retained or event in TOOL_EVENTS:' \
+    '            if True:' \
+    ss_remove_drops_emptied_session_start
 }
 
 record 'bd-ready fires: bd ready' bd_fires 'bd ready'
@@ -827,7 +884,11 @@ record 'multi-event install replaces and dedupes SessionStart by command' ss_ins
 record 'multi-event remove deletes only entries identical to the manifest' ss_remove_only_owned_entries
 record 'legacy array manifest behaves as PostToolUse object form' ss_legacy_array_equals_object_post_tool_use
 record 'multi-event manifest without command hooks is rejected unchanged' ss_malformed_manifest_is_rejected
+record 'multi-event remove drops an emptied SessionStart key, keeps legacy PostToolUse []' ss_remove_drops_emptied_session_start
 record 'negative control: SessionStart row fails without event handling' ss_negative_control_without_event_handling
+record 'negative control: check row fails without event handling' ss_negative_control_check_without_event_handling
+record 'negative control: remove row fails without event handling' ss_negative_control_remove_without_event_handling
+record 'negative control: emptied-key row fails if the key is kept' ss_negative_control_remove_keeps_empty_key
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'HOOKS SELFTEST RESULT: PASS'

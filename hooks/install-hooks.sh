@@ -197,7 +197,12 @@ if mode == "remove":
             else:
                 retained.append(candidate)
         if removed:
-            hooks[event] = retained
+            # Tool events keep the legacy behaviour (an emptied list stays as []); any other
+            # event the installer emptied loses its key, so --remove leaves no trace of it.
+            if retained or event in TOOL_EVENTS:
+                hooks[event] = retained
+            else:
+                del hooks[event]
             changed = True
 else:
     for event, entries in manifest_events:
