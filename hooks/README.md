@@ -20,16 +20,32 @@ it, and `scripts/codex.sh` refuses new Codex work while `openai` is off.
 - `exitplan-model-routing.sh` runs when a plan is approved. With `openai` enabled it stops the plan-to-build transition so work can be delegated through `/codex:rescue`; with it disabled it names the Claude build model and forbids the Codex route.
 - `first-edit-codex-gate.sh` runs once per session after the first `Edit`, `Write`, or `NotebookEdit`, covering implementation that bypasses plan mode. It is silent while `openai` is not the primary vendor.
 
-`settings-hooks.json` defines the required `PostToolUse` registrations. `./install.sh` links this
+`settings-hooks.json` defines the required hook registrations. `./install.sh` links this
 directory, then runs `hooks/install-hooks.sh` to merge the registrations and resolver-derived
 `env.CODEX_PLUGIN` into `~/.claude/settings.json`. The installer does not own that file or touch
 unrelated settings. Set `CC_HARNESS_CLAUDE_DIR=/path/to/.claude` to use an isolated Claude
-directory for installation or removal.
+directory for installation or removal, and `--manifest <path>` to install from another manifest.
+
+The manifest takes two shapes. A bare JSON array (the current file) is a list of `PostToolUse`
+entries. An object maps event names to entry arrays, for example
+`{"PostToolUse": [...], "SessionStart": [...]}`. Each manifest entry has an identity within its
+event, and install replaces the one settings entry with that identity (dropping duplicates),
+`--check` reports it `missing` or `wrong`, and `--remove` deletes only entries identical to the
+manifest's:
+
+- Tool events (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`): the
+  matcher, which names the tool. The manifest owns that matcher slot.
+- Every other event, such as `SessionStart`: the event plus the entry's commands. The matcher is
+  optional (`"startup|resume"`, `""`, or absent) and is not part of the identity, because those
+  matchers are shared with the user's own entries, which must never be replaced.
+
+`--check` prints `<matcher>: missing|wrong` for `PostToolUse` (unchanged from the array-only
+installer), `<event> <matcher>` for other tool events, and `<event> <command>` otherwise.
 
 Check a machine's registrations with `bash hooks/install-hooks.sh --check`. Run
 `bash hooks/selftest.sh` for the hermetic regression suite, which covers hook output,
-registration installation and removal, idempotency, preservation of unrelated settings, and
-negative controls.
+registration installation and removal, idempotency, preservation of unrelated settings,
+multi-event (`SessionStart`) manifests from a fixture, and negative controls.
 
 ## Measuring
 

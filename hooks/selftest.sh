@@ -522,6 +522,268 @@ assert settings["hooks"]["PostToolUse"] == required
 PY
 }
 
+# --- Multi-event manifests (object form, SessionStart) -------------------------------------
+# Hermetic: an isolated CC_HARNESS_CLAUDE_DIR and a fixture manifest; the real manifest and the
+# real ~/.claude are never read. `ss_installer` is swapped for a mutant by the negative control.
+ss_installer="$root/install-hooks.sh"
+ss_dir="$tmp_state/claude-multi-event"
+ss_settings="$ss_dir/settings.json"
+ss_manifest="$tmp_state/multi-event-manifest.json"
+mkdir -p "$ss_dir"
+python3 - "$ss_manifest" <<'PY'
+import json
+import sys
+
+manifest = {
+    "PostToolUse": [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-post.sh", "timeout": 5}]},
+    ],
+    "SessionStart": [
+        {"matcher": "startup|resume", "hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-session.sh", "timeout": 5}]},
+        {"hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-session-any.sh"}]},
+    ],
+}
+with open(sys.argv[1], "w") as manifest_file:
+    json.dump(manifest, manifest_file, indent=2)
+PY
+
+ss_run() {
+  CC_HARNESS_CLAUDE_DIR="$ss_dir" bash "$ss_installer" --manifest "$ss_manifest" "$@"
+}
+
+# User-owned entries that share an event and even a matcher with the manifest; none may move.
+write_ss_settings_fixture() {
+  python3 - "$ss_settings" <<'PY'
+import json
+import sys
+
+settings = {
+    "$schema": "https://json.schemastore.org/claude-code-settings.json",
+    "permissions": {"allow": ["Bash(git status)"], "defaultMode": "auto"},
+    "hooks": {
+        "SessionStart": [
+            {"matcher": "", "hooks": [{"type": "command", "command": "echo session"}]},
+            {"matcher": "startup|resume", "hooks": [{"type": "command", "command": "echo user-resume"}]},
+        ],
+        "PostToolUse": [{"matcher": "Other", "hooks": [{"type": "command", "command": "echo other"}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}],
+    },
+}
+with open(sys.argv[1], "w") as fixture:
+    json.dump(settings, fixture, indent=2)
+    fixture.write("\n")
+PY
+}
+
+ss_backup_count() {
+  local backup
+  local count=0
+  for backup in "$ss_settings".backup.*; do
+    if [ -e "$backup" ]; then
+      count=$((count + 1))
+    fi
+  done
+  printf '%s\n' "$count"
+}
+
+ss_registrations_are_present() {
+  python3 - "$ss_settings" "$ss_manifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+with open(sys.argv[2]) as manifest_file:
+    manifest = json.load(manifest_file)
+
+assert settings["permissions"] == {"allow": ["Bash(git status)"], "defaultMode": "auto"}
+hooks = settings["hooks"]
+assert hooks["Stop"] == [{"hooks": [{"type": "command", "command": "echo stop"}]}]
+session = hooks["SessionStart"]
+assert session[0] == {"matcher": "", "hooks": [{"type": "command", "command": "echo session"}]}
+assert session[1] == {"matcher": "startup|resume", "hooks": [{"type": "command", "command": "echo user-resume"}]}
+assert len(session) == 2 + len(manifest["SessionStart"])
+for entry in manifest["SessionStart"]:
+    assert session.count(entry) == 1
+post = hooks["PostToolUse"]
+assert post[0] == {"matcher": "Other", "hooks": [{"type": "command", "command": "echo other"}]}
+assert post[1:] == manifest["PostToolUse"]
+PY
+}
+
+ss_install_registers_session_start() {
+  local before_prefix after_prefix
+  write_ss_settings_fixture || return 1
+  before_prefix=$(sed '/^  "hooks":/,$d' "$ss_settings") || return 1
+  ss_run >/dev/null || return 1
+  after_prefix=$(sed '/^  "hooks":/,$d' "$ss_settings") || return 1
+  [ "$after_prefix" = "$before_prefix" ] && ss_registrations_are_present
+}
+
+ss_second_install_is_noop() {
+  local before backups_before
+  write_ss_settings_fixture || return 1
+  ss_run >/dev/null || return 1
+  before=$(cat "$ss_settings") || return 1
+  backups_before=$(ss_backup_count) || return 1
+  ss_run >/dev/null || return 1
+  [ "$(cat "$ss_settings")" = "$before" ] && [ "$(ss_backup_count)" -eq "$backups_before" ]
+}
+
+ss_check_missing_wrong_ok() {
+  write_ss_settings_fixture || return 1
+  if ss_run --check >"$tmp_state/ss-check-missing.out" 2>&1; then
+    return 1
+  fi
+  grep -Fx 'SessionStart bash $HOME/.claude/hooks/fixture-session.sh: missing' "$tmp_state/ss-check-missing.out" >/dev/null || return 1
+  grep -Fx 'SessionStart bash $HOME/.claude/hooks/fixture-session-any.sh: missing' "$tmp_state/ss-check-missing.out" >/dev/null || return 1
+  ss_run >/dev/null || return 1
+  ss_run --check >"$tmp_state/ss-check-ok.out" 2>&1 || return 1
+  python3 - "$ss_settings" <<'PY' || return 1
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+for entry in settings["hooks"]["SessionStart"]:
+    if entry["hooks"][0]["command"] == "bash $HOME/.claude/hooks/fixture-session.sh":
+        entry["hooks"][0]["timeout"] = 99
+with open(sys.argv[1], "w") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
+PY
+  if ss_run --check >"$tmp_state/ss-check-wrong.out" 2>&1; then
+    return 1
+  fi
+  grep -Fx 'SessionStart bash $HOME/.claude/hooks/fixture-session.sh: wrong' "$tmp_state/ss-check-wrong.out" >/dev/null || return 1
+  # Only the altered entry is reported; the untouched ones still verify.
+  [ "$(wc -l < "$tmp_state/ss-check-wrong.out" | tr -d ' ')" = 1 ]
+}
+
+ss_install_replaces_and_dedupes_by_command() {
+  write_ss_settings_fixture || return 1
+  python3 - "$ss_settings" <<'PY' || return 1
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+stale = {"matcher": "startup", "hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-session.sh", "timeout": 1}]}
+settings["hooks"]["SessionStart"].extend([stale, dict(stale, matcher="resume")])
+with open(sys.argv[1], "w") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
+PY
+  ss_run >/dev/null || return 1
+  ss_registrations_are_present
+}
+
+ss_remove_only_owned_entries() {
+  write_ss_settings_fixture || return 1
+  ss_run >/dev/null || return 1
+  # A user-modified copy of an owned command is not identical to the manifest: it stays.
+  python3 - "$ss_settings" <<'PY' || return 1
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+settings["hooks"]["SessionStart"].append(
+    {"matcher": "clear", "hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-session-any.sh", "timeout": 7}]}
+)
+with open(sys.argv[1], "w") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
+PY
+  ss_run --remove >/dev/null || return 1
+  python3 - "$ss_settings" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+hooks = settings["hooks"]
+assert settings["permissions"] == {"allow": ["Bash(git status)"], "defaultMode": "auto"}
+assert hooks["SessionStart"] == [
+    {"matcher": "", "hooks": [{"type": "command", "command": "echo session"}]},
+    {"matcher": "startup|resume", "hooks": [{"type": "command", "command": "echo user-resume"}]},
+    {"matcher": "clear", "hooks": [{"type": "command", "command": "bash $HOME/.claude/hooks/fixture-session-any.sh", "timeout": 7}]},
+]
+assert hooks["PostToolUse"] == [{"matcher": "Other", "hooks": [{"type": "command", "command": "echo other"}]}]
+assert hooks["Stop"] == [{"hooks": [{"type": "command", "command": "echo stop"}]}]
+PY
+}
+
+ss_legacy_array_equals_object_post_tool_use() {
+  local legacy_manifest="$tmp_state/legacy-array-manifest.json"
+  local object_manifest="$tmp_state/object-post-manifest.json"
+  python3 - "$ss_manifest" "$legacy_manifest" "$object_manifest" <<'PY' || return 1
+import json
+import sys
+
+with open(sys.argv[1]) as manifest_file:
+    post = json.load(manifest_file)["PostToolUse"]
+with open(sys.argv[2], "w") as legacy:
+    json.dump(post, legacy)
+with open(sys.argv[3], "w") as obj:
+    json.dump({"PostToolUse": post}, obj)
+PY
+  write_ss_settings_fixture || return 1
+  CC_HARNESS_CLAUDE_DIR="$ss_dir" bash "$ss_installer" --manifest "$legacy_manifest" >/dev/null || return 1
+  cp "$ss_settings" "$tmp_state/legacy-result.json" || return 1
+  CC_HARNESS_CLAUDE_DIR="$ss_dir" bash "$ss_installer" --manifest "$legacy_manifest" --check >/dev/null || return 1
+  write_ss_settings_fixture || return 1
+  CC_HARNESS_CLAUDE_DIR="$ss_dir" bash "$ss_installer" --manifest "$object_manifest" >/dev/null || return 1
+  cmp -s "$ss_settings" "$tmp_state/legacy-result.json" || return 1
+  # The array form registers PostToolUse only: SessionStart stays exactly the user's two entries.
+  python3 - "$ss_settings" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as settings_file:
+    settings = json.load(settings_file)
+assert len(settings["hooks"]["SessionStart"]) == 2
+assert settings["hooks"]["PostToolUse"][1]["matcher"] == "Bash"
+PY
+}
+
+ss_malformed_manifest_is_rejected() {
+  local bad_manifest="$tmp_state/bad-session-manifest.json"
+  local before
+  printf '%s\n' '{"SessionStart": [{"matcher": "startup", "hooks": [{"type": "prompt", "prompt": "x"}]}]}' > "$bad_manifest" || return 1
+  write_ss_settings_fixture || return 1
+  before=$(cat "$ss_settings") || return 1
+  if CC_HARNESS_CLAUDE_DIR="$ss_dir" bash "$ss_installer" --manifest "$bad_manifest" >"$tmp_state/ss-bad.out" 2>&1; then
+    return 1
+  fi
+  grep -F 'SessionStart entries must have command hooks' "$tmp_state/ss-bad.out" >/dev/null || return 1
+  [ "$(cat "$ss_settings")" = "$before" ]
+}
+
+# Negative control: a mutant installer that reads only PostToolUse out of an object manifest
+# (i.e. the new event handling removed) must turn the SessionStart install row red.
+ss_negative_control_without_event_handling() {
+  local mutant_dir="$tmp_state/mutant-hooks"
+  local verdict=0
+  mkdir -p "$mutant_dir" || return 1
+  python3 - "$root/install-hooks.sh" "$mutant_dir/install-hooks.sh" <<'PY' || return 1
+import sys
+
+anchor = "    manifest_events = list(raw_manifest.items())\n"
+source = open(sys.argv[1]).read()
+if source.count(anchor) != 1:
+    sys.exit("mutation anchor not found exactly once; the control would be vacuous")
+mutant = source.replace(anchor, '    manifest_events = [("PostToolUse", raw_manifest.get("PostToolUse", []))]\n')
+open(sys.argv[2], "w").write(mutant)
+PY
+  ss_installer="$mutant_dir/install-hooks.sh"
+  if ss_install_registers_session_start 2>/dev/null; then
+    verdict=1
+  fi
+  ss_installer="$root/install-hooks.sh"
+  return "$verdict"
+}
+
 record 'bd-ready fires: bd ready' bd_fires 'bd ready'
 record 'bd-ready fires: foo; bd ready' bd_fires 'foo; bd ready'
 record 'bd-ready fires: bd ready --json' bd_fires 'bd ready --json'
@@ -558,6 +820,14 @@ record 'settings missing file creates minimal registrations without backup' sett
 record 'settings existing file without hooks is merged safely' settings_existing_file_without_hooks_is_merged
 record 'settings CODEX_PLUGIN env is refreshed without disturbing siblings' settings_codex_plugin_env_is_refreshed
 record 'settings remove cleans only the owned CODEX_PLUGIN env' settings_remove_cleans_codex_plugin_env
+record 'multi-event install registers SessionStart beside user entries' ss_install_registers_session_start
+record 'multi-event second install is a no-op without backup' ss_second_install_is_noop
+record 'multi-event check reports missing, then ok, then wrong' ss_check_missing_wrong_ok
+record 'multi-event install replaces and dedupes SessionStart by command' ss_install_replaces_and_dedupes_by_command
+record 'multi-event remove deletes only entries identical to the manifest' ss_remove_only_owned_entries
+record 'legacy array manifest behaves as PostToolUse object form' ss_legacy_array_equals_object_post_tool_use
+record 'multi-event manifest without command hooks is rejected unchanged' ss_malformed_manifest_is_rejected
+record 'negative control: SessionStart row fails without event handling' ss_negative_control_without_event_handling
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'HOOKS SELFTEST RESULT: PASS'
