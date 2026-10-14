@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 # Dispatch one bounded, read-only branch-review round and persist its reviewer thread.
+#
+# Reviewer vendor (cch-pam). The round goes to Codex while vendor 'openai' is enabled
+# (hooks/vendors.sh, `vendor_enabled openai`). While it is disabled the SAME prompt, budget and
+# refusals run on a headless Claude reviewer instead: `claude -p` with only Read/Grep/Glob, model
+# ${REVIEW_ROUND_CLAUDE_MODEL:-claude-opus-5-5} at effort ${REVIEW_ROUND_CLAUDE_EFFORT:-medium},
+# backgrounded under <git-common-dir>/review-rounds/claude-jobs/<job-id>.{prompt,log,out,err,pid,exit,json}.
+# Its job ids start with `claude-`, and --collect/--adopt accept them like a Codex job id. Every
+# collected findings file opens with `REVIEWER: vendor=<openai|anthropic> ...`; a Claude-authored
+# round is a same-vendor review, so its acknowledgement carries `reviewer=anthropic` (an extra
+# token review-ack-check.sh ignores) and must never be presented as a cross-vendor check.
 set -euo pipefail
 
 usage() {
@@ -288,8 +298,55 @@ try {
 ' "$record" 2>/dev/null || true
 }
 
+claude_jobs_dir="$state_dir/claude-jobs"
+
+is_claude_job() {  # is_claude_job <job-id>: a job this script launched on the Claude reviewer path
+  case "$1" in
+    claude-*[!A-Za-z0-9-]*) return 1 ;;
+    claude-?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+claude_job_field() {  # claude_job_field <job-id> <field> -> a string field of its JSON record
+  sed -nE "s/.*\"$2\":\"([^\"]*)\".*/\1/p" "$claude_jobs_dir/$1.json" 2>/dev/null | head -n 1
+}
+
+# A Claude job is collectable only once its worker recorded exit 0 with output. Anything else is
+# named — still running, failed, or orphaned — never read as an empty review
+# (rules/codex-job-status-integrity.md applies to this worker as much as to a Codex one).
+require_claude_job_finished() {
+  local job_id=$1 exit_file="$claude_jobs_dir/$1.exit" log="$claude_jobs_dir/$1.log" pid status stream
+  if [ ! -f "$exit_file" ]; then
+    pid=$(tr -d '[:space:]' < "$claude_jobs_dir/$job_id.pid" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      printf 'review-round: Claude reviewer %s is still running (pid %s); collect it after it exits\n' "$job_id" "$pid" >&2
+    else
+      printf 'review-round: Claude reviewer %s has no recorded exit status and its worker is gone — orphaned; read %s before re-dispatching\n' "$job_id" "$log" >&2
+    fi
+    exit 1
+  fi
+  status=$(tr -d '[:space:]' < "$exit_file")
+  if [ "$status" != 0 ]; then
+    printf 'review-round: Claude reviewer %s exited %s — there are no findings to collect; see %s\n' "$job_id" "$status" "$log" >&2
+    # The CLI reports its own failures (context thrash, auth, budget) on stdout as often as on
+    # stderr, so show the tail of both: the failure must be diagnosable from this message alone.
+    for stream in out err; do
+      [ -s "$claude_jobs_dir/$job_id.$stream" ] || continue
+      printf 'review-round: last lines of the reviewer'"'"'s std%s:\n' "$stream" >&2
+      tail -n 15 "$claude_jobs_dir/$job_id.$stream" | sed 's/^/  | /' >&2
+    done
+    printf '%s\n' 'review-round: a failed Claude reviewer is not charged against the round budget; re-run the same command to re-dispatch this round' >&2
+    exit 1
+  fi
+}
+
 job_record_for_workspace() {
   local job_id=$1 plugin_root
+  if is_claude_job "$job_id"; then
+    printf '%s' "$claude_jobs_dir/$job_id.json"
+    return 0
+  fi
   if [ -n "${REVIEW_ROUND_JOB_RECORD:-}" ]; then
     printf '%s' "$REVIEW_ROUND_JOB_RECORD"
     return 0
@@ -394,7 +451,7 @@ final_findings_from_log() {
 }
 
 collect_findings() {
-  local job_id=$1 requested_round=$2 round record log_file findings temp findings_lines
+  local job_id=$1 requested_round=$2 round record log_file findings temp findings_lines reviewer_line
   if [ -n "$requested_round" ]; then
     round=$requested_round
   else
@@ -411,6 +468,11 @@ collect_findings() {
   [ -f "$record" ] || { printf '%s\n' "review-round: job record not found for $job_id" >&2; exit 1; }
   log_file=$(log_from_job_record "$record") || { printf '%s\n' "review-round: job record has no logFile for $job_id" >&2; exit 1; }
   [ -f "$log_file" ] || { printf '%s\n' "review-round: job log not found for $job_id" >&2; exit 1; }
+  if is_claude_job "$job_id"; then
+    reviewer_line="REVIEWER: vendor=anthropic model=$(claude_job_field "$job_id" model) job=$job_id — same-vendor review, NOT a cross-vendor check; record reviewer=anthropic in the REVIEW ACK line"
+  else
+    reviewer_line="REVIEWER: vendor=openai job=$job_id"
+  fi
   mkdir -p "$state_dir"
   if [ "$round" = 0 ]; then
     findings="$state_dir/$slug-r0-self-review.md"
@@ -429,13 +491,15 @@ collect_findings() {
     printf '%s\n' "$findings"
     return 0
   fi
+  ! is_claude_job "$job_id" || require_claude_job_finished "$job_id"
   findings_lines=$(final_findings_from_log "$log_file") || { printf '%s\n' "review-round: Final output section not found in $log_file" >&2; exit 1; }
   temp=$(mktemp "$state_dir/.${slug}-r${round}-findings.XXXXXX") || exit 1
-  if [ -n "$findings_lines" ]; then
-    printf '%s\n' "$findings_lines" > "$temp"
-  else
-    : > "$temp"
-  fi
+  # Which vendor reviewed is part of the record: a Claude round reviewing Claude-authored work is
+  # not the independent second opinion a Codex round is, and the findings file is what the
+  # acknowledgement is written from.
+  printf '%s\n' "$reviewer_line" > "$temp"
+  [ -z "$findings_lines" ] || printf '%s\n' "$findings_lines" >> "$temp"
+
   # A missing coverage map is stated, never silently absent: the next round must be able to tell
   # "nothing was skipped" from "nobody said what was skipped" (rules/verification-integrity.md).
   # The test is the not-traced FIELD, not the COVERAGE header: a header with no field is exactly
@@ -466,12 +530,16 @@ adopt_round() {
   record=$(job_record_for_workspace "$job_id") || { printf '%s\n' "review-round: could not resolve job record for $job_id" >&2; exit 1; }
   [ -f "$record" ] || { printf '%s\n' "review-round: job record not found for $job_id" >&2; exit 1; }
   thread_id=$(thread_from_job_record "$record")
-  [ -n "$thread_id" ] || { printf '%s\n' "review-round: job record has no threadId for $job_id" >&2; exit 1; }
+  if is_claude_job "$job_id"; then
+    thread_id=''  # a headless Claude reviewer has no resumable thread; the findings file carries continuity
+  else
+    [ -n "$thread_id" ] || { printf '%s\n' "review-round: job record has no threadId for $job_id" >&2; exit 1; }
+  fi
   mkdir -p "$state_dir"
   # Persist recovered reviewer state.
   printf '%s\n' "$round" > "$counter"
   printf '%s\n' "$job_id" > "$job_file"
-  printf '%s\n' "$thread_id" > "$thread_file"
+  if [ -n "$thread_id" ]; then printf '%s\n' "$thread_id" > "$thread_file"; else rm -f "$thread_file"; fi
   printf 'REVIEW ROUND: adopted round %s job %s\n' "$round" "$job_id"
 }
 
@@ -479,6 +547,23 @@ case "$mode" in
   collect) collect_findings "$collect_job" "$collect_round"; exit 0 ;;
   adopt) adopt_round "$adopt_round" "$adopt_job"; exit 0 ;;
 esac
+
+# Which vendor reviews this round. A disabled vendor is not a route (global CLAUDE.md § Vendor
+# switch), so with openai off the round runs on Claude rather than dying on codex.sh's refusal.
+# An unreadable switch fails closed to the Claude path, exactly as codex.sh refuses on it.
+reviewer_vendor=anthropic
+vendors_sh=${CC_HARNESS_VENDORS_SH:-$script_dir/../hooks/vendors.sh}
+if [ -r "$vendors_sh" ] && . "$vendors_sh" && vendor_enabled openai; then
+  reviewer_vendor=openai
+fi
+claude_model=${REVIEW_ROUND_CLAUDE_MODEL:-claude-opus-5-5}
+claude_effort=${REVIEW_ROUND_CLAUDE_EFFORT:-medium}
+claude_bin=${REVIEW_ROUND_CLAUDE_BIN:-claude}
+if [ "$reviewer_vendor" = openai ]; then
+  reviewer_summary='vendor=openai (Codex, read-only)'
+else
+  reviewer_summary="vendor=anthropic model=$claude_model effort=$claude_effort (openai is disabled by the vendor switch; same-vendor review, not cross-vendor)"
+fi
 
 wait_for_thread_id() {
   local record=$1 thread_id='' attempt=0
@@ -536,6 +621,23 @@ prepare_round() {
   # The budget is per reviewed scope. A branch that grows a feature between rounds is not on its
   # second look at the same code; it is on its first look at different code.
   previous=$(read_round)
+  # A reviewer PROCESS failure is not a review. When the last dispatched round ran on the Claude
+  # path, its worker recorded a non-zero exit, and no findings were collected for it, that round
+  # produced nothing to charge: re-dispatch the same round number instead of refusing round N+1
+  # over a hole the failure itself created (the 2026-10-14 context-thrash failure spent round 1).
+  # A Codex job has no such recorded exit here, so its failures keep their existing handling.
+  if [ "$previous" -gt 0 ] && [ -f "$job_file" ] && [ ! -f "$state_dir/$slug-r$previous-findings.md" ]; then
+    local last_job last_exit
+    last_job=$(tr -d '[:space:]' < "$job_file")
+    if is_claude_job "$last_job" && [ -f "$claude_jobs_dir/$last_job.exit" ]; then
+      last_exit=$(tr -d '[:space:]' < "$claude_jobs_dir/$last_job.exit")
+      if [ "$last_exit" != 0 ]; then
+        printf 'REVIEW ROUND: round %s'"'"'s Claude reviewer %s failed (exit %s) with no findings; it is not charged — re-dispatching round %s\n' \
+          "$previous" "$last_job" "$last_exit" "$previous"
+        previous=$((previous - 1))
+      fi
+    fi
+  fi
   if [ -e "$scope_file" ]; then
     recorded_stamp=$(tr -d '\n' < "$scope_file")
   fi
@@ -643,6 +745,18 @@ git rev-parse --verify --quiet "$base^{commit}" >/dev/null || {
   exit 2
 }
 
+# The review covers COMMITTED work only ($base...HEAD). An empty diff is not a clean branch: it is
+# usually uncommitted work, and a reviewer handed nothing goes exploring the repository instead —
+# the 2026-10-14 round that thrashed its context to death had exactly this empty prompt.
+diff=$(git diff "$base"...HEAD) || { printf 'review-round: cannot diff %s...HEAD\n' "$base" >&2; exit 2; }
+if [ -z "$diff" ]; then
+  printf 'review-round: refused — %s...HEAD is empty, so there is nothing to review\n' "$base" >&2
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    printf '%s\n' 'review-round: the working tree has uncommitted changes; reviews cover committed work only — commit first' >&2
+  fi
+  exit 1
+fi
+
 if [ "$dry_run" = false ]; then
   mkdir -p "$state_dir"
   lock="$counter.lock"
@@ -663,6 +777,7 @@ else
     printf 'REVIEW ROUND: dry run; nothing written. Counter on disk: %s; next round would be %s\n' \
       "$(read_round)" "$round"
   fi
+  printf 'REVIEW ROUND: reviewer would be %s\n' "$reviewer_summary"
   exit 0
 fi
 
@@ -765,7 +880,19 @@ commit messages as unverified, and weight your attention toward what no gate cou
 fi
 
 prompt_file=$(mktemp "${TMPDIR:-/tmp}/review-round-prompt.XXXXXX") || exit 1
-diff=$(git diff "$base"...HEAD)
+# The Claude reviewer reads the diff from a file in bounded chunks instead of carrying it inline:
+# its context also has to hold every file it opens, and a large inline diff plus a few whole-file
+# reads is how a round exhausts the window. Codex keeps the inline diff it was calibrated on.
+diff_section=$diff
+if [ "$reviewer_vendor" = anthropic ]; then
+  mkdir -p "$claude_jobs_dir"
+  job_id="claude-$(date -u +%Y%m%d%H%M%S)-$$-${RANDOM}"
+  job_base="$claude_jobs_dir/$job_id"
+  printf '%s\n' "$diff" > "$job_base.diff"
+  diff_lines=$(wc -l < "$job_base.diff" | tr -d '[:space:]')
+  diff_section="The unified diff is NOT inlined. It is in $job_base.diff ($diff_lines lines).
+Read it with the Read tool in chunks of at most 300 lines (offset/limit), front to back."
+fi
 if [ "$self_check" = true ]; then
 cat > "$prompt_file" <<EOF
 This is a read-only PRE-REVIEW SELF-CHECK on the author's own branch. No round of the review budget
@@ -780,7 +907,7 @@ Recorded deterministic evidence (a record marked STALE was measured on different
 $evidence_section
 
 Diff against $base...HEAD:
-$diff
+$diff_section
 
 Work the five risk classes over this diff, and say per class what you looked for and what you found:
 1. lifetime, ordering, cancellation, concurrency — listener and task lifetimes, teardown order,
@@ -818,7 +945,7 @@ a record marked STALE was measured on different content and is not evidence abou
 $evidence_section
 
 Diff against $base...HEAD:
-$diff
+$diff_section
 
 $self_review_section
 
@@ -844,15 +971,31 @@ End with exactly: VERDICT: GO or VERDICT: NO-GO, and list OPEN BLOCKERS: <number
 EOF
 fi
 
+if [ "$reviewer_vendor" = anthropic ]; then
+cat >> "$prompt_file" <<EOF
+
+Reading budget (your context window is finite and a review that exhausts it reports nothing):
+- Never Read a whole file longer than 300 lines. Use Grep to locate what you need, then Read with
+  offset/limit of at most 300 lines around it.
+- Read the diff file in chunks of at most 300 lines; do not re-read chunks you have already read.
+- Prefer the diff to the full file: open surrounding code only to confirm a specific suspicion.
+- If you run short of budget, stop reading and report what you have, listing the rest under
+  not-traced=.
+Output: keep it compact — one entry per finding (severity, file:line, failure scenario, required
+action; at most 4 lines each), then the COVERAGE map and the VERDICT lines. No preamble, no
+restating of the diff.
+EOF
+fi
+
 resume=false
 jobs_json=''
-if jobs_json=$("$jobs_tool" --cwd "$repo_root" --json 2>/dev/null); then
+if [ "$reviewer_vendor" = openai ] && jobs_json=$("$jobs_tool" --cwd "$repo_root" --json 2>/dev/null); then
   :
 else
   jobs_json=''
 fi
 
-if [ ! -f "$thread_file" ] && [ -f "$job_file" ] && [ -n "$jobs_json" ]; then
+if [ "$reviewer_vendor" = openai ] && [ ! -f "$thread_file" ] && [ -f "$job_file" ] && [ -n "$jobs_json" ]; then
   recorded_job_id=$(tr -d '[:space:]' < "$job_file")
   if [ -n "$recorded_job_id" ]; then
     recorded_log_file=$(node -e '
@@ -873,7 +1016,9 @@ fi
 # one). So a fix task dispatched between rounds takes the slot and this reviewer cannot be resumed.
 # Measured 2026-09-16: 6 of 6 rounds on one branch ran fresh for exactly that reason. The prior
 # findings file, not the thread, is the continuity mechanism — say which one happened.
-if [ -f "$thread_file" ]; then
+if [ "$reviewer_vendor" = anthropic ]; then
+  [ "$round" -lt 2 ] || printf '%s\n' 'REVIEW ROUND: fresh reviewer — the Claude reviewer has no resumable thread; prior findings carry the continuity'
+elif [ -f "$thread_file" ]; then
   reviewer_thread=$(tr -d '[:space:]' < "$thread_file")
   newest_thread=''
   if [ -n "$jobs_json" ]; then
@@ -894,21 +1039,68 @@ elif [ "$round" -ge 2 ]; then
   printf '%s\n' 'REVIEW ROUND: fresh reviewer — no reviewer thread was recorded for the prior round'
 fi
 
-dispatch_args=(--read-only --json --prompt-file "$prompt_file")
-[ "$resume" = false ] || dispatch_args=(--resume "${dispatch_args[@]}")
-job_json=$("$dispatcher" "${dispatch_args[@]}") || exit $?
-job_fields=$(node -e '
+# The Claude reviewer: the same prompt, read-only tools, backgrounded so a long review survives the
+# caller's Bash timeout. Its log carries a `Final output:` section in the shape --collect already
+# parses, written only once the CLI exits 0 with output, and the exit status lands in <id>.exit
+# atomically — so "still running", "failed" and "orphaned" stay distinguishable.
+launch_claude_review() {  # sets job_id, log_file, wait_command
+  local worker_pid  # job_id and job_base were allocated with the diff file, before the prompt
+  cp "$prompt_file" "$job_base.prompt"
+  log_file="$job_base.log"
+  : > "$log_file"
+  nohup bash -c '
+    bin=$1 model=$2 effort=$3 base=$4 workdir=$5 budget=$6
+    set -- --model "$model" --effort "$effort"
+    [ -z "$budget" ] || set -- "$@" --max-budget-usd "$budget"
+    now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+    printf "[%s] Claude reviewer started: model=%s effort=%s tools=Read,Grep,Glob\n" "$(now)" "$model" "$effort" >> "$base.log"
+    cd "$workdir" || exit 1
+    "$bin" -p "$@" --tools Read,Grep,Glob --allowed-tools Read,Grep,Glob \
+      --permission-mode dontAsk --no-session-persistence --output-format text \
+      < "$base.prompt" > "$base.out" 2> "$base.err"
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ ! -s "$base.out" ]; then
+      printf "[%s] Claude reviewer exited 0 with no output; recorded as a failure\n" "$(now)" >> "$base.log"
+      rc=1
+    else
+      printf "[%s] Claude reviewer exited %s\n" "$(now)" "$rc" >> "$base.log"
+    fi
+    if [ "$rc" -eq 0 ]; then
+      printf "Final output:\n" >> "$base.log"
+      cat "$base.out" >> "$base.log"
+    else
+      cat "$base.out" "$base.err" >> "$base.log" 2>/dev/null
+    fi
+    printf "%s\n" "$rc" > "$base.exit.tmp" && mv "$base.exit.tmp" "$base.exit"
+  ' review-round-claude "$claude_bin" "$claude_model" "$claude_effort" "$job_base" "$repo_root" \
+    "${REVIEW_ROUND_CLAUDE_MAX_BUDGET_USD:-}" \
+    < /dev/null > /dev/null 2>&1 &
+  worker_pid=$!
+  printf '%s\n' "$worker_pid" > "$job_base.pid"
+  printf '{"id":"%s","vendor":"anthropic","model":"%s","effort":"%s","pid":%s,"logFile":"%s","exitFile":"%s"}\n' \
+    "$job_id" "$claude_model" "$claude_effort" "$worker_pid" "$log_file" "$job_base.exit" > "$job_base.json"
+  wait_command="while kill -0 $worker_pid 2>/dev/null; do sleep 15; done; cat $job_base.exit"
+}
+
+if [ "$reviewer_vendor" = anthropic ]; then
+  launch_claude_review
+else
+  dispatch_args=(--read-only --json --prompt-file "$prompt_file")
+  [ "$resume" = false ] || dispatch_args=(--resume "${dispatch_args[@]}")
+  job_json=$("$dispatcher" "${dispatch_args[@]}") || exit $?
+  job_fields=$(node -e '
 const value = JSON.parse(process.argv[1]);
 for (const field of ["jobId", "logFile", "waitCommand"]) {
   const text = String(value[field] ?? "");
   process.stdout.write(Buffer.from(text, "utf8").toString("base64") + "\t");
 }
 ' "$job_json") || { printf '%s\n' 'review-round: dispatch returned invalid JSON' >&2; exit 1; }
-IFS=$'\t' read -r job_id_b64 log_file_b64 wait_command_b64 _ <<< "$job_fields"
-decode() { node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64").toString("utf8"));' "$1"; }
-job_id=$(decode "$job_id_b64")
-log_file=$(decode "$log_file_b64")
-wait_command=$(decode "$wait_command_b64")
+  IFS=$'\t' read -r job_id_b64 log_file_b64 wait_command_b64 _ <<< "$job_fields"
+  decode() { node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64").toString("utf8"));' "$1"; }
+  job_id=$(decode "$job_id_b64")
+  log_file=$(decode "$log_file_b64")
+  wait_command=$(decode "$wait_command_b64")
+fi
 [ -n "$job_id" ] || { printf '%s\n' 'review-round: dispatch returned no jobId' >&2; exit 1; }
 
 # Persist launch state before resolving asynchronous reviewer metadata. The self-check writes
@@ -926,11 +1118,12 @@ else
   printf '%s\n' "$stamp" > "$scope_file"
   rm -f "$thread_file"
 fi
-if [ "$self_check" = false ]; then
+if [ "$self_check" = false ] && [ "$reviewer_vendor" = openai ]; then
   job_record=$(job_record_from_log "$log_file" "$job_id")
   thread_id=$(wait_for_thread_id "$job_record")
   [ -z "$thread_id" ] || printf '%s\n' "$thread_id" > "$thread_file"
 fi
+printf 'REVIEW ROUND: reviewer %s\n' "$reviewer_summary"
 printf 'REVIEW ROUND: job %s\n' "$job_id"
 printf 'REVIEW ROUND: log %s\n' "$log_file"
 printf 'REVIEW ROUND: wait with %s\n' "$wait_command"

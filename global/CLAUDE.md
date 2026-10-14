@@ -207,7 +207,7 @@ table is the route (not a fallback), do the work in Claude on that row's model (
 or an Agent `model:` override), and every "Codex; Claude subagent as fallback" instruction in
 the rules takes its fallback branch without a readiness check. Do not dispatch `/codex:rescue`
 and do not run the Codex setup/readiness check to "confirm" — a paused subscription can still
-report `ready: true`. `scripts/codex.sh` refuses `task`/`review`/`adversarial-review` (exit 3)
+report `ready: true`. `scripts/codex.sh` refuses `task`/`review`/`adversarial-review` (exit 69, passed through by `codex-dispatch.sh`; distinct from its exit 3 "already running")
 while `openai` is disabled; `status`/`result`/`cancel` still work for jobs already in flight.
 The column order in `hooks/model-routing-table.sh` (`MODEL_ROUTING_VENDORS`) is the preference
 order; the first enabled vendor is primary. Adding a vendor is one model column there, one
