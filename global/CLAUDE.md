@@ -213,6 +213,14 @@ The column order in `hooks/model-routing-table.sh` (`MODEL_ROUTING_VENDORS`) is 
 order; the first enabled vendor is primary. Adding a vendor is one model column there, one
 entry in the vendor arrays, and one line in `vendors.conf`.
 
+**Disabled by config is the steady state, not an event: route silently.** The tracked
+`hooks/vendors.conf` is the repo default for everyone; a machine pauses a vendor in its own
+`~/.claude/private/vendors.conf` (`openai=disabled`) and nothing tracked records that choice. When
+the hooks' reminders or `bash ~/.claude/hooks/vendors.sh` (one call, only if the state is not already
+in context) show a vendor disabled, go straight to the Claude column — no readiness check, no
+"Codex is unavailable" remark, no fallback announcement, and no Codex-first nudges in your own
+reasoning. Mention the vendor only if the user asks or the work genuinely cannot proceed without it.
+
 ### Codex-first (default)
 
 | Step | How |
@@ -375,8 +383,9 @@ check that **ERRORS** (module not found, path wrong, resolver failure) is **not*
 Codex is unavailable — resolve the path and retry before ever falling back. Only an actual
 `"ready": false` from a successful setup run, or a missing/failed login, counts as unavailable.
 State which one
-applies in one line, then do the work inline on that row's Claude model. Never fall back
-silently, and never because delegating merely feels slower. "It's only a one-liner" is not a
+applies in one line, then do the work inline on that row's Claude model — except when the vendor
+is disabled by config, which is routed silently (§ Vendor switch). Never fall back
+silently on an actual `ready: false` or login failure, and never because delegating merely feels slower. "It's only a one-liner" is not a
 fallback reason either — under the budget rule the handoff is the default even for small
 edits; the only edits worth keeping inline are ones already open in Claude's context where
 the round trip would cost more Claude tokens than the edit itself.

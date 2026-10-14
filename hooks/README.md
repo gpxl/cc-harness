@@ -9,8 +9,8 @@ against it.
 
 ## Vendor switch
 
-`vendors.conf` enables or disables each model vendor (`openai=disabled`, say); a machine-local
-`~/.claude/private/vendors.conf` overrides it per vendor. `vendors.sh` resolves the two (source it
+`vendors.conf` is the repo-wide default (openai enabled); a machine-local
+`~/.claude/private/vendors.conf` overrides it per vendor, and is where a user pauses one (`openai=disabled`). `vendors.sh` resolves the two (source it
 for `vendor_enabled`, or run `bash hooks/vendors.sh` to print the state). Anything but an explicit
 `enabled` is disabled, and `anthropic` cannot be disabled. The first enabled vendor in
 `MODEL_ROUTING_VENDORS` (`model-routing-table.sh`) is the primary route; every hook below reads
