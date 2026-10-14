@@ -1594,8 +1594,8 @@ else
   fail 'Claude path: the diff goes to a file read in bounded chunks, with a reading budget' "rc=$rc job=$diff_job err=$(<"$tmp/err")"
 fi
 
-# An empty diff is refused on either path: it is usually uncommitted work, and a reviewer handed
-# nothing explores the repository instead.
+# An empty diff is refused on the Claude path: it is usually uncommitted work, and a reviewer
+# handed nothing explores the repository instead. The Codex path is pinned unchanged below.
 reset_state
 rm -f "$tmp/claude-argv"
 printf 'uncommitted\n' > "$repo/untracked.txt"
@@ -1607,6 +1607,32 @@ if [ "$rc" -eq 1 ] && grep -Fq 'is empty, so there is nothing to review' "$tmp/e
 else
   fail 'an empty diff is refused and names uncommitted work' "rc=$rc err=$(<"$tmp/err")"
 fi
+
+# openai enabled: an empty base...HEAD dispatches exactly as before, and --dry-run still reports.
+codex_empty_diff_unchanged() {
+  reset_state
+  run_subcommand "$(git -C "$repo" rev-parse HEAD)" --dry-run
+  [ "$rc" -eq 0 ] && printf '%s\n' "$output" | grep -Fq 'Counter on disk: 0; next round would be 1' || return 1
+  run_subcommand "$(git -C "$repo" rev-parse HEAD)"
+  [ "$rc" -eq 0 ] && [ -f "$tmp/dispatch-argv" ] && [ "$(<"$state")" = 1 ] &&
+    ! grep -Fq 'nothing to review' "$tmp/err"
+}
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"
+if codex_empty_diff_unchanged; then
+  pass 'openai enabled: an empty diff keeps the existing dispatch and dry-run behaviour'
+else
+  fail 'openai enabled: an empty diff keeps the existing dispatch and dry-run behaviour' "rc=$rc out=$output err=$(<"$tmp/err")"
+fi
+
+# NEGATIVE CONTROL: drop the vendor scope from the refusal and the Codex row must go red.
+make_mutant 's/if \[ -z "$diff" \] \&\& \[ "$reviewer_vendor" = anthropic \]; then/if [ -z "$diff" ]; then/'
+if ! codex_empty_diff_unchanged; then
+  pass 'empty-diff vendor-scope source mutation goes red'
+else
+  fail 'empty-diff vendor-scope source mutation goes red' "rc=$rc out=$output"
+fi
+runner="$tool"
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-off.conf"
 
 # Vendor enabled: the Codex path is unchanged and the Claude stub is never invoked.
 export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"

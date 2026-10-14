@@ -747,9 +747,10 @@ git rev-parse --verify --quiet "$base^{commit}" >/dev/null || {
 
 # The review covers COMMITTED work only ($base...HEAD). An empty diff is not a clean branch: it is
 # usually uncommitted work, and a reviewer handed nothing goes exploring the repository instead —
-# the 2026-10-14 round that thrashed its context to death had exactly this empty prompt.
+# the 2026-10-14 round that thrashed its context to death had exactly this empty prompt. Scoped to
+# the Claude reviewer on purpose: the Codex path keeps its existing behaviour unchanged.
 diff=$(git diff "$base"...HEAD) || { printf 'review-round: cannot diff %s...HEAD\n' "$base" >&2; exit 2; }
-if [ -z "$diff" ]; then
+if [ -z "$diff" ] && [ "$reviewer_vendor" = anthropic ]; then
   printf 'review-round: refused — %s...HEAD is empty, so there is nothing to review\n' "$base" >&2
   if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
     printf '%s\n' 'review-round: the working tree has uncommitted changes; reviews cover committed work only — commit first' >&2
