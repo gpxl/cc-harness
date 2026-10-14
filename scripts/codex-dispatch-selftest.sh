@@ -65,7 +65,10 @@ case "$1" in
   task)
     printf '%s\n' "$@" > "$TEST_TMP/task-argv"
     : > "$TEST_TMP/launch-called"
-    if [ "$TEST_MODE" = nojob ]; then
+    if [ "$TEST_MODE" = vendoroff ]; then
+      printf '%s\n' "codex.sh: vendor 'openai' is disabled by the vendor switch — refusing 'task'." >&2
+      exit 69
+    elif [ "$TEST_MODE" = nojob ]; then
       printf '%s\n' '{"status":"queued"}'
     elif [ "$TEST_MODE" = nolog ]; then
       printf '%s\n' '{"jobId":"job-123","status":"queued"}'
@@ -204,6 +207,40 @@ if (value.jobId !== "job-123" || value.status !== "queued" || !value.waitCommand
 ' "$run_stdout"; then
   fail 'JSON output was not the expected object'
 fi
+
+# Vendor switch (cch-pam): codex.sh refusing because openai is disabled must surface as 69, never as
+# 3 — 3 means "already running", and a caller that can fall back to another vendor has to tell
+# "switched off" from "busy".
+rm -f "$tmpdir/launch-called" "$tmpdir/cancel-called"
+run_dispatch vendoroff --cwd "$workspace" --prompt-file "$prompt_file"
+assert_eq 69 "$run_status" || true
+[ ! -e "$tmpdir/cancel-called" ] || fail 'vendor refusal tried to cancel a job that never launched'
+assert_contains "$run_stderr" "CODEX DISPATCH: refused — vendor 'openai' is disabled" || true
+
+# End to end through the REAL codex.sh with a hermetic vendor file: the refusal happens before any
+# plugin lookup, so no Codex process can start.
+printf 'openai=disabled\n' > "$tmpdir/vendors-off.conf"
+run_real_codex_dispatch() {  # run_real_codex_dispatch <codex.sh path>
+  set +e
+  TEST_TMP="$tmpdir" TEST_MODE=happy CODEX_DISPATCH_CODEX_SH="$1" CODEX_DISPATCH_JOBS_SH="$tmpdir/codex-jobs.sh" \
+    CC_HARNESS_VENDORS_SH="$script_dir/../hooks/vendors.sh" \
+    CC_HARNESS_VENDORS_FILE="$tmpdir/vendors-off.conf" CC_HARNESS_VENDORS_LOCAL="$tmpdir/no-local.conf" \
+    CODEX_PLUGIN='' CODEX_PLUGIN_CACHE_DIR="$tmpdir/no-plugin-cache" \
+    bash "$script_dir/codex-dispatch.sh" --cwd "$workspace" --prompt-file "$prompt_file" > "$tmpdir/stdout" 2> "$tmpdir/stderr"
+  run_status=$?
+  set -e
+  run_stderr=$(<"$tmpdir/stderr")
+}
+run_real_codex_dispatch "$script_dir/codex.sh"
+assert_eq 69 "$run_status" || true
+assert_contains "$run_stderr" "vendor 'openai' is disabled" || true
+
+# NEGATIVE CONTROL: a codex.sh that still exits 3 on the vendor refusal must not read as 69, so the
+# row above can go red.
+sed 's/      exit 69$/      exit 3/' "$script_dir/codex.sh" > "$tmpdir/codex-exit3.sh"
+grep -q '      exit 3$' "$tmpdir/codex-exit3.sh" || fail 'negative control mutant did not apply'
+run_real_codex_dispatch "$tmpdir/codex-exit3.sh"
+[ "$run_status" -ne 69 ] || fail 'negative control: an exit-3 vendor refusal still read as 69'
 
 # Negative control: a bad expected line must fail, proving assertions are not vacuous.
 case "$run_stdout" in

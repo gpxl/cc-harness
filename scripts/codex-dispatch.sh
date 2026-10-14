@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Dispatch a Codex background task, verify its placement, and print the PID-bridge wait command.
+#
+# Exit codes: 0 dispatched and placed · 1 internal error · 2 usage/invalid workspace ·
+# 3 refused, a task is already queued/running (or orphaned) in this workspace · 4 launch returned
+# no jobId/logFile · 5 placement failed (job cancelled) · 69 vendor 'openai' is disabled by the
+# vendor switch — codex.sh refused the launch and nothing ran (passed through from codex.sh).
+# Any other non-zero status is codex.sh's own, passed through.
 set -euo pipefail
 
 usage() {
@@ -169,7 +175,14 @@ fi
 [ "$resume" = false ] || launch_args+=(--resume-last)
 launch_args+=(--prompt-file "$prompt_file")
 
-launch_json=$("${launch_args[@]}")
+launch_status=0
+launch_json=$("${launch_args[@]}") || launch_status=$?
+if [ "$launch_status" -eq 69 ]; then
+  # Kept distinct from 3 (already running): a caller that can fall back to another vendor must be
+  # able to tell "Codex is switched off" from "Codex is busy here".
+  fail "refused — vendor 'openai' is disabled by the vendor switch; nothing was launched (bash hooks/vendors.sh)" 69
+fi
+[ "$launch_status" -eq 0 ] || exit "$launch_status"
 if ! launch_fields=$(encode_fields "$launch_json" jobId logFile); then
   fail 'launch returned no jobId' 4
 fi

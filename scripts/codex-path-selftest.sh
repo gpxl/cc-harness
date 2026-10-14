@@ -111,7 +111,7 @@ wrapper_refuses_dispatch_when_openai_disabled() {
   local subcommand
   for subcommand in task review adversarial-review; do
     run_wrapper_with_vendors disabled "$subcommand" --json
-    [ "$status" -eq 3 ] && [ -z "$output" ] && grep -Fq "vendor 'openai' is disabled" "$tmp_root/wrapper.err" || return 1
+    [ "$status" -eq 69 ] && [ -z "$output" ] && grep -Fq "vendor 'openai' is disabled" "$tmp_root/wrapper.err" || return 1
   done
 }
 

@@ -21,6 +21,11 @@ fail() { printf '%s: FAIL — %s\n' "$1" "$2" >&2; failures=$((failures + 1)); }
 
 repo="$tmp/repo"
 mkdir -p "$repo" "$tmp/bin"
+printf 'openai=enabled\n' > "$tmp/vendors-on.conf"
+printf 'openai=disabled\n' > "$tmp/vendors-off.conf"
+export CC_HARNESS_VENDORS_SH="$root/hooks/vendors.sh"
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"
+export CC_HARNESS_VENDORS_LOCAL="$tmp/no-local-vendors.conf"
 git -C "$repo" init -q
 git -C "$repo" config user.email test@example.invalid
 git -C "$repo" config user.name selftest
@@ -66,7 +71,19 @@ set -euo pipefail
 printf '[{"id":"review-job","threadId":"%s","logFile":"%s","updatedAt":"2026-01-01T00:00:00Z"}]\n' \
   "${RR_NEWEST_THREAD:-}" "$RR_JOB_LOG"
 EOF
-chmod +x "$tmp/bin/codex-dispatch.sh" "$tmp/bin/codex-jobs.sh"
+cat > "$tmp/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$RR_TMP/claude-argv"
+cat > "$RR_TMP/claude-stdin"
+pwd -P > "$RR_TMP/claude-cwd"
+if [ "${RR_CLAUDE_MODE:-ok}" = fail ]; then
+  printf '%s\n' 'simulated reviewer failure' >&2
+  exit 1
+fi
+printf '%s\n' 'MAJOR: stub finding from the Claude reviewer' 'COVERAGE:' 'traced=file.txt' \
+  'not-traced=docs/ — out of scope' 'VERDICT: GO' 'OPEN BLOCKERS: 0'
+EOF
+chmod +x "$tmp/bin/codex-dispatch.sh" "$tmp/bin/codex-jobs.sh" "$tmp/bin/claude"
 
 run() {
   set +e
@@ -113,7 +130,7 @@ reset_state
 run_subcommand --collect review-job --round 1
 findings="$state-r1-findings.md"
 expected=$(sed -n '/] Final output$/,$p' "$sample_log" | sed '1d; s/[[:space:]]*$//')
-expected=$(printf '%s\n' "$expected" \
+expected=$(printf '%s\n' 'REVIEWER: vendor=openai job=review-job' "$expected" \
   "COVERAGE: (none recorded — this round's report carried no coverage map, so its gaps are unknown)" \
   'Dispositions:')
 if [ "$rc" -eq 0 ] && [ "$(<"$findings")" = "$expected" ]; then
@@ -1403,6 +1420,247 @@ else
   fail 'round-guard source mutation goes red' "rc=$rc prompt=$(<"$tmp/dispatched-prompt" 2>/dev/null || true)"
 fi
 runner="$tool"
+
+
+# ---- vendor switch: Claude reviewer when openai is disabled (cch-pam) --------------------------
+# codex.sh refuses while openai is disabled, so without this branch the round that produces the
+# REVIEW ACK cannot run at all. Every row below uses the PATH stub `claude`; none reaches a model.
+claude_job_from_output() { printf '%s\n' "$output" | sed -nE 's/^REVIEW ROUND: job (claude-[A-Za-z0-9-]+)$/\1/p' | head -n 1; }
+wait_claude_exit() {  # wait_claude_exit <job-id>: the worker is backgrounded; wait for its exit file
+  local i
+  for ((i = 0; i < 100; i++)); do
+    [ -f "$common/review-rounds/claude-jobs/$1.exit" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+claude_round_ok() {  # the vendor-disabled row's assertions, shared with its negative control
+  local job
+  job=$(claude_job_from_output)
+  [ "$rc" -eq 0 ] && [ -n "$job" ] && wait_claude_exit "$job" &&
+    [ ! -e "$tmp/dispatch-argv" ] &&
+    printf '%s\n' "$output" | grep -Fq 'REVIEW ROUND: reviewer vendor=anthropic model=claude-opus-5-5' &&
+    grep -qx -- '-p' "$tmp/claude-argv" &&
+    grep -A1 -x -- '--model' "$tmp/claude-argv" | grep -qx 'claude-opus-5-5' &&
+    grep -A1 -x -- '--effort' "$tmp/claude-argv" | grep -qx 'medium' &&
+    grep -A1 -x -- '--tools' "$tmp/claude-argv" | grep -qx 'Read,Grep,Glob' &&
+    grep -A1 -x -- '--permission-mode' "$tmp/claude-argv" | grep -qx 'dontAsk' &&
+    grep -Fq 'round 1 of 3' "$tmp/claude-stdin" &&
+    grep -Fq 'Ship the bounded review changes.' "$tmp/claude-stdin" &&
+    grep -Fq 'COVERAGE:' "$tmp/claude-stdin" &&
+    [ "$(<"$state")" = 1 ] && [ -f "$state.scope" ] && [ ! -e "$state.thread" ]
+}
+
+reset_state
+rm -f "$tmp/claude-argv" "$tmp/claude-stdin"
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-off.conf"
+run
+claude_job=$(claude_job_from_output)
+if claude_round_ok; then
+  pass 'openai disabled: the round runs on a read-only Claude reviewer with the same prompt and budget'
+else
+  fail 'openai disabled: the round runs on a read-only Claude reviewer with the same prompt and budget' \
+    "rc=$rc out=$output err=$(<"$tmp/err") argv=$(tr '\n' ' ' < "$tmp/claude-argv" 2>/dev/null || true)"
+fi
+
+# Same refusal rules as the Codex path: round 2 with round 1 uncollected is a hole in the record.
+run
+if [ "$rc" -eq 1 ] && grep -Fq 'no findings recorded for round(s) 1' "$tmp/err" && [ "$(<"$state")" = 1 ]; then
+  pass 'Claude path: round 2 is refused while round 1 has no findings file'
+else
+  fail 'Claude path: round 2 is refused while round 1 has no findings file' "rc=$rc err=$(<"$tmp/err")"
+fi
+
+run_subcommand --collect "$claude_job" --round 1
+findings="$state-r1-findings.md"
+if [ "$rc" -eq 0 ] &&
+  head -n 1 "$findings" | grep -Fq "REVIEWER: vendor=anthropic model=claude-opus-5-5 job=$claude_job" &&
+  head -n 1 "$findings" | grep -Fq 'record reviewer=anthropic in the REVIEW ACK line' &&
+  grep -qx 'MAJOR: stub finding from the Claude reviewer' "$findings" &&
+  grep -qx 'not-traced=docs/ — out of scope' "$findings" &&
+  ! grep -Fq 'COVERAGE: (none recorded' "$findings"; then
+  pass 'Claude path: --collect records the findings, the coverage map and the reviewer vendor'
+else
+  fail 'Claude path: --collect records the findings, the coverage map and the reviewer vendor' \
+    "rc=$rc err=$(<"$tmp/err") findings=$(<"$findings" 2>/dev/null || true)"
+fi
+
+rm -f "$tmp/claude-stdin"
+run
+claude_job2=$(claude_job_from_output)
+if [ "$rc" -eq 0 ] && [ -n "$claude_job2" ] && wait_claude_exit "$claude_job2" && [ "$(<"$state")" = 2 ] &&
+  grep -Fq 'round 2 of 3' "$tmp/claude-stdin" &&
+  grep -Fq 'MAJOR: stub finding from the Claude reviewer' "$tmp/claude-stdin" &&
+  grep -Fq 'round 1: not-traced=docs/' "$tmp/claude-stdin" &&
+  grep -Fq 'Do not manufacture severity to seem rigorous.' "$tmp/claude-stdin"; then
+  pass 'Claude path: round 2 carries round 1 findings, coverage gaps and the R2 calibration'
+else
+  fail 'Claude path: round 2 carries round 1 findings, coverage gaps and the R2 calibration' \
+    "rc=$rc counter=$(<"$state" 2>/dev/null || true) err=$(<"$tmp/err")"
+fi
+
+# Budget accounting is shared: round 4 needs the user's words, whichever vendor reviews.
+printf '3\n' > "$state"
+seed_prior_findings 3
+rm -f "$tmp/claude-argv"
+run
+if [ "$rc" -eq 1 ] && grep -Fq 'user approval is required after round 3' "$tmp/err" && [ ! -e "$tmp/claude-argv" ]; then
+  pass 'Claude path: round 4 is refused without user approval and no reviewer starts'
+else
+  fail 'Claude path: round 4 is refused without user approval and no reviewer starts' "rc=$rc err=$(<"$tmp/err")"
+fi
+
+reset_state
+rm -f "$tmp/claude-argv"
+RR_ACCEPTANCE='' run
+if [ "$rc" -eq 1 ] && grep -Fq 'no acceptance criteria resolved' "$tmp/err" && [ ! -e "$tmp/claude-argv" ]; then
+  pass 'Claude path: no acceptance criteria means no dispatch'
+else
+  fail 'Claude path: no acceptance criteria means no dispatch' "rc=$rc err=$(<"$tmp/err")"
+fi
+
+reset_state
+rm -f "$tmp/claude-argv"
+run --self-check
+self_job=$(claude_job_from_output)
+if [ "$rc" -eq 0 ] && [ -n "$self_job" ] && wait_claude_exit "$self_job" &&
+  grep -Fq 'PRE-REVIEW SELF-CHECK' "$tmp/claude-stdin" && [ ! -e "$state" ] && [ ! -e "$state.scope" ]; then
+  run_subcommand --collect "$self_job" --round 0
+  if [ "$rc" -eq 0 ] && head -n 1 "$state-r0-self-review.md" | grep -Fq 'REVIEWER: vendor=anthropic'; then
+    pass 'Claude path: --self-check runs on Claude, spends no round, and collects as round 0'
+  else
+    fail 'Claude path: --self-check runs on Claude, spends no round, and collects as round 0' "rc=$rc err=$(<"$tmp/err")"
+  fi
+else
+  fail 'Claude path: --self-check runs on Claude, spends no round, and collects as round 0' "rc=$rc err=$(<"$tmp/err") out=$output"
+fi
+
+# A failed reviewer is named, never collected as an empty review.
+reset_state
+RR_CLAUDE_MODE=fail run
+fail_job=$(claude_job_from_output)
+wait_claude_exit "$fail_job" || true
+run_subcommand --collect "$fail_job" --round 1
+if [ "$rc" -eq 1 ] && grep -Fq "Claude reviewer $fail_job exited 1" "$tmp/err" && [ ! -e "$state-r1-findings.md" ] &&
+  grep -Fq '  | simulated reviewer failure' "$tmp/err"; then
+  pass 'Claude path: a failed reviewer is refused at collect with the tail of its own output'
+else
+  fail 'Claude path: a failed reviewer is refused at collect with the tail of its own output' "rc=$rc err=$(<"$tmp/err")"
+fi
+
+# A reviewer PROCESS failure is not a review: re-running re-dispatches the SAME round instead of
+# refusing round 2 over the hole the failure left. Shared with its negative control below.
+failed_round_redispatches() {
+  local job
+  job=$(claude_job_from_output)
+  [ "$rc" -eq 0 ] && [ -n "$job" ] && [ "$job" != "$fail_job" ] && wait_claude_exit "$job" &&
+    printf '%s\n' "$output" | grep -Fq "round 1's Claude reviewer $fail_job failed (exit 1) with no findings; it is not charged" &&
+    [ "$(<"$state")" = 1 ] && grep -Fq 'round 1 of 3' "$tmp/claude-stdin"
+}
+run
+if failed_round_redispatches; then
+  pass 'Claude path: a failed reviewer does not consume a round'
+else
+  fail 'Claude path: a failed reviewer does not consume a round' "rc=$rc out=$output err=$(<"$tmp/err")"
+fi
+
+# NEGATIVE CONTROL: charge the failed round anyway and the row above must go red.
+reset_state
+RR_CLAUDE_MODE=fail run
+fail_job=$(claude_job_from_output)
+wait_claude_exit "$fail_job" || true
+make_mutant 's/        previous=$((previous - 1))$/        :/'
+run
+if ! failed_round_redispatches; then
+  pass 'uncharged-failure source mutation goes red'
+else
+  fail 'uncharged-failure source mutation goes red' "rc=$rc out=$output"
+fi
+runner="$tool"
+
+# The Claude reviewer gets the diff as a file plus a reading budget, never inline: a large inline
+# diff plus whole-file reads is how a real round exhausted its context on 2026-10-14.
+reset_state
+rm -f "$tmp/claude-stdin"
+run
+diff_job=$(claude_job_from_output)
+diff_path="$common/review-rounds/claude-jobs/$diff_job.diff"
+if [ "$rc" -eq 0 ] && [ -n "$diff_job" ] && wait_claude_exit "$diff_job" &&
+  grep -q '^diff --git a/file.txt' "$diff_path" && ! grep -q '^diff --git' "$tmp/claude-stdin" &&
+  grep -Fq "claude-jobs/$diff_job.diff (" "$tmp/claude-stdin" &&
+  grep -Fq 'Never Read a whole file longer than 300 lines' "$tmp/claude-stdin"; then
+  pass 'Claude path: the diff goes to a file read in bounded chunks, with a reading budget'
+else
+  fail 'Claude path: the diff goes to a file read in bounded chunks, with a reading budget' "rc=$rc job=$diff_job err=$(<"$tmp/err")"
+fi
+
+# An empty diff is refused on the Claude path: it is usually uncommitted work, and a reviewer
+# handed nothing explores the repository instead. The Codex path is pinned unchanged below.
+reset_state
+rm -f "$tmp/claude-argv"
+printf 'uncommitted\n' > "$repo/untracked.txt"
+run_subcommand "$(git -C "$repo" rev-parse HEAD)"
+rm -f "$repo/untracked.txt"
+if [ "$rc" -eq 1 ] && grep -Fq 'is empty, so there is nothing to review' "$tmp/err" &&
+  grep -Fq 'uncommitted changes' "$tmp/err" && [ ! -e "$tmp/claude-argv" ] && [ ! -e "$state" ]; then
+  pass 'an empty diff is refused and names uncommitted work'
+else
+  fail 'an empty diff is refused and names uncommitted work' "rc=$rc err=$(<"$tmp/err")"
+fi
+
+# openai enabled: an empty base...HEAD dispatches exactly as before, and --dry-run still reports.
+codex_empty_diff_unchanged() {
+  reset_state
+  run_subcommand "$(git -C "$repo" rev-parse HEAD)" --dry-run
+  [ "$rc" -eq 0 ] && printf '%s\n' "$output" | grep -Fq 'Counter on disk: 0; next round would be 1' || return 1
+  run_subcommand "$(git -C "$repo" rev-parse HEAD)"
+  [ "$rc" -eq 0 ] && [ -f "$tmp/dispatch-argv" ] && [ "$(<"$state")" = 1 ] &&
+    ! grep -Fq 'nothing to review' "$tmp/err"
+}
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"
+if codex_empty_diff_unchanged; then
+  pass 'openai enabled: an empty diff keeps the existing dispatch and dry-run behaviour'
+else
+  fail 'openai enabled: an empty diff keeps the existing dispatch and dry-run behaviour' "rc=$rc out=$output err=$(<"$tmp/err")"
+fi
+
+# NEGATIVE CONTROL: drop the vendor scope from the refusal and the Codex row must go red.
+make_mutant 's/if \[ -z "$diff" \] \&\& \[ "$reviewer_vendor" = anthropic \]; then/if [ -z "$diff" ]; then/'
+if ! codex_empty_diff_unchanged; then
+  pass 'empty-diff vendor-scope source mutation goes red'
+else
+  fail 'empty-diff vendor-scope source mutation goes red' "rc=$rc out=$output"
+fi
+runner="$tool"
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-off.conf"
+
+# Vendor enabled: the Codex path is unchanged and the Claude stub is never invoked.
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"
+reset_state
+rm -f "$tmp/claude-argv"
+run
+if [ "$rc" -eq 0 ] && [ -f "$tmp/dispatch-argv" ] && [ ! -e "$tmp/claude-argv" ] &&
+  printf '%s\n' "$output" | grep -Fq 'REVIEW ROUND: job review-job' &&
+  printf '%s\n' "$output" | grep -Fq 'REVIEW ROUND: reviewer vendor=openai'; then
+  pass 'openai enabled: the round still goes to Codex and no Claude reviewer starts'
+else
+  fail 'openai enabled: the round still goes to Codex and no Claude reviewer starts' "rc=$rc out=$output"
+fi
+
+# NEGATIVE CONTROL: remove the vendor branch (always pick openai) and the vendor-disabled row must
+# go red — the dispatch stub runs, the Claude reviewer never does.
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-off.conf"
+reset_state
+rm -f "$tmp/claude-argv" "$tmp/claude-stdin"
+make_mutant 's/\&\& vendor_enabled openai; then/|| true; then/'
+run
+if ! claude_round_ok; then
+  pass 'vendor-branch source mutation goes red'
+else
+  fail 'vendor-branch source mutation goes red' "rc=$rc out=$output"
+fi
+runner="$tool"
+export CC_HARNESS_VENDORS_FILE="$tmp/vendors-on.conf"
 
 if [ "$failures" -eq 0 ]; then printf '%s\n' 'REVIEW ROUND SELFTEST: PASS'; completed=1; exit 0; fi
 printf '%s\n' 'REVIEW ROUND SELFTEST: FAIL'; completed=1; exit 1
