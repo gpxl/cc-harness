@@ -89,11 +89,12 @@ index_groups() {  # index_groups <claude-md> -> "<always|scoped|none> <name>" pe
 has_paths_frontmatter() {  # has_paths_frontmatter <file> -> 0 when line 1 opens a frontmatter block holding a non-empty paths: list
   awk '
     NR == 1 { if ($0 != "---") exit 1; next }
-    $0 == "---" { exit (items > 0 ? 0 : 1) }
+    $0 == "---" { closed = 1; exit }
     /^paths:[[:space:]]*$/ { inpaths = 1; next }
     inpaths && /^[[:space:]]+-[[:space:]]*[^[:space:]]/ { items++; next }
     /^[^[:space:]]/ { inpaths = 0 }
-    END { if (NR < 2) exit 1 }' "$1"
+    # An unclosed block is not frontmatter, however many globs it lists.
+    END { exit ((closed && items > 0) ? 0 : 1) }' "$1"
 }
 
 check_scoping() {  # check_scoping <rules-dir> <claude-md> -> prints each disagreement, 1 when any
@@ -110,7 +111,7 @@ check_scoping() {  # check_scoping <rules-dir> <claude-md> -> prints each disagr
         fi ;;
       scoped)
         if ! has_paths_frontmatter "$file"; then
-          printf 'rules/%s is indexed under Path-scoped but has no non-empty paths: frontmatter — it loads every turn; add the paths: list or move its entry under Always loaded\n' "$name"
+          printf 'rules/%s is indexed under Path-scoped but has no non-empty paths: frontmatter — it loads every turn; add a leading ---/--- block holding `paths:` then indented `- "glob"` lines (block style; flow-style [a, b] is not read), or move its entry under Always loaded\n' "$name"
           problems=$((problems + 1))
         fi ;;
       *)
@@ -241,6 +242,11 @@ expect_scoping 'a paths: key with no globs does not count as path-scoped' 1 'rul
 sc_body="$workdir/sc-body"; make_scoped_fixture "$sc_body"
 printf -- '# Beta\n---\npaths:\n  - "**/*beta*"\n---\n' > "$sc_body/rules/beta.md"
 expect_scoping 'a paths: list that is not leading frontmatter does not count' 1 'rules/beta.md is indexed under Path-scoped' "$sc_body/rules" "$sc_body/global/CLAUDE.md"
+
+# An unclosed frontmatter block (no closing ---) is not frontmatter, even with globs in it.
+sc_unclosed="$workdir/sc-unclosed"; make_scoped_fixture "$sc_unclosed"
+printf -- '---\npaths:\n  - "**/*beta*"\n# Beta\nrule\n' > "$sc_unclosed/rules/beta.md"
+expect_scoping 'an unclosed frontmatter block does not count as path-scoped' 1 'rules/beta.md is indexed under Path-scoped' "$sc_unclosed/rules" "$sc_unclosed/global/CLAUDE.md"
 
 # Negative control: a rule that gained paths: but whose index entry still says Always loaded.
 sc_gained="$workdir/sc-gained"; make_scoped_fixture "$sc_gained"
