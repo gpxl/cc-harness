@@ -323,6 +323,10 @@ require_claude_job_finished() {
       printf 'review-round: Claude reviewer %s is still running (pid %s); collect it after it exits\n' "$job_id" "$pid" >&2
     else
       printf 'review-round: Claude reviewer %s has no recorded exit status and its worker is gone — orphaned; read %s before re-dispatching\n' "$job_id" "$log" >&2
+      case "$pid" in  # same condition prepare_round uncharges on: a recorded numeric pid, now gone
+        ''|*[!0-9]*) ;;
+        *) printf '%s\n' 'review-round: an orphaned Claude reviewer is not charged against the round budget; re-run the same command to re-dispatch this round' >&2 ;;
+      esac
     fi
     exit 1
   fi
@@ -626,8 +630,16 @@ prepare_round() {
   # produced nothing to charge: re-dispatch the same round number instead of refusing round N+1
   # over a hole the failure itself created (the 2026-10-14 context-thrash failure spent round 1).
   # A Codex job has no such recorded exit here, so its failures keep their existing handling.
+  # An ORPHANED worker (no .exit at all: wrapper SIGKILLed, machine slept or rebooted) produced no
+  # review either, and is uncharged the same way — but only on positive evidence that it is dead:
+  # a recorded pid that `kill -0` no longer reaches. A live pid is a review still in progress and
+  # stays charged. A MISSING or empty pid file stays charged too, deliberately: the launcher
+  # writes <id>.pid before the round's job file, so its absence means the record was tampered
+  # with or lost, and "cannot prove the worker is dead" must never be read as "dead" — that would
+  # let a live reviewer's round be re-dispatched under it. (A recycled pid errs the safe way: it
+  # reads as live, so the round stays charged and `--collect` reports it as still running.)
   if [ "$previous" -gt 0 ] && [ -f "$job_file" ] && [ ! -f "$state_dir/$slug-r$previous-findings.md" ]; then
-    local last_job last_exit
+    local last_job last_exit last_pid
     last_job=$(tr -d '[:space:]' < "$job_file")
     if is_claude_job "$last_job" && [ -f "$claude_jobs_dir/$last_job.exit" ]; then
       last_exit=$(tr -d '[:space:]' < "$claude_jobs_dir/$last_job.exit")
@@ -636,6 +648,18 @@ prepare_round() {
           "$previous" "$last_job" "$last_exit" "$previous"
         previous=$((previous - 1))
       fi
+    elif is_claude_job "$last_job"; then
+      last_pid=$(tr -d '[:space:]' < "$claude_jobs_dir/$last_job.pid" 2>/dev/null || true)
+      case "$last_pid" in
+        ''|*[!0-9]*) ;;  # no usable pid recorded: cannot prove the worker is dead — stays charged
+        *)
+          if ! kill -0 "$last_pid" 2>/dev/null; then
+            printf 'REVIEW ROUND: round %s'"'"'s Claude reviewer %s was orphaned (no recorded exit, worker pid %s gone) with no findings; it is not charged — re-dispatching round %s\n' \
+              "$previous" "$last_job" "$last_pid" "$previous"
+            previous=$((previous - 1))
+          fi
+          ;;
+      esac
     fi
   fi
   if [ -e "$scope_file" ]; then
