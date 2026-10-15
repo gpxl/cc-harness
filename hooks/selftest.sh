@@ -192,6 +192,29 @@ first_edit_openai_disabled_is_silent() {
   first_edit_fires 'vendor-off-session'
 }
 
+# cch-ypu: the Codex-first mechanics live in a path-scoped rule. With openai primary every
+# routing reminder must point at it; with openai disabled none may (route silently).
+codex_rule_pointer='Read ~/.claude/rules/model-routing-codex.md'
+
+routing_reminders_point_at_codex_rule_when_openai_primary() {
+  output=$(printf '{"tool_input":{"command":"bd ready"}}' | bash "$root/bd-ready-model-routing.sh" 2>/dev/null) || return 1
+  printf '%s' "$output" | grep -Fq "$codex_rule_pointer" || return 1
+  output=$(bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
+  printf '%s' "$output" | grep -Fq "$codex_rule_pointer" || return 1
+  output=$(printf '{"session_id":"%s"}' 'codex-rule-pointer-session' | bash "$root/first-edit-codex-gate.sh" 2>/dev/null) || return 1
+  check_json "$output" && printf '%s' "$output" | grep -Fq "$codex_rule_pointer"
+}
+
+routing_reminders_omit_codex_rule_when_openai_disabled() {
+  output=$(printf '{"tool_input":{"command":"bd ready"}}' | CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/bd-ready-model-routing.sh" 2>/dev/null) || return 1
+  [ -n "$output" ] || return 1
+  printf '%s' "$output" | grep -Fq 'model-routing-codex' && return 1
+  output=$(CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$root/exitplan-model-routing.sh" </dev/null 2>/dev/null) || return 1
+  [ -n "$output" ] || return 1
+  printf '%s' "$output" | grep -Fq 'model-routing-codex' && return 1
+  return 0
+}
+
 first_edit_invalid_table_is_silent() {
   local copy="$tmp_state/degraded-hooks"
   mkdir -p "$copy" || return 1
@@ -860,6 +883,8 @@ record 'vendor switch: openai disabled routes bd-ready to Claude only' bd_openai
 record 'vendor switch: openai disabled exitplan forbids Codex' exitplan_openai_disabled_forbids_codex
 record 'vendor switch: openai disabled first-edit is silent without burning the marker' first_edit_openai_disabled_is_silent
 record 'vendor switch: first-edit is silent on an invalid or missing table' first_edit_invalid_table_is_silent
+record 'codex rule pointer: every routing reminder names model-routing-codex.md when openai is primary' routing_reminders_point_at_codex_rule_when_openai_primary
+record 'codex rule pointer: no routing reminder names it while openai is disabled' routing_reminders_omit_codex_rule_when_openai_disabled
 record 'vendor switch: local override wins over tracked default' vendor_local_override_wins
 record 'vendor switch: unknown value fails closed' vendor_unknown_value_fails_closed
 record 'vendor switch: missing config fails closed' vendor_missing_config_fails_closed

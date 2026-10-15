@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PostToolUse hook (matcher: Bash). Fires ONLY when the executed command actually
 # invokes `bd ready`, injecting a reminder to tag each ready issue with a
-# suggested model per the Model Routing policy in ~/.claude/CLAUDE.md.
+# suggested model per the Model Routing policy in ~/.claude/CLAUDE.md (Codex-first
+# mechanics: ~/.claude/rules/model-routing-codex.md, pointed to only when openai is primary).
 #
 # Self-gating: reads the tool input on stdin and exits silently unless the command
 # is a `bd ready` invocation. This does NOT rely on the settings.json `if:` filter
@@ -52,6 +53,9 @@ for ((vendor_index = primary + 1; vendor_index < ${#MODEL_ROUTING_VENDORS[@]}; v
   break
 done
 context="$context This governs the dev-driving model, not any repo's EVAL_MODEL."
+if [ "$vendor" = openai ]; then
+  context="$context Before delegating, Read ~/.claude/rules/model-routing-codex.md (Codex-first mechanics) if it is not already loaded this session."
+fi
 case "$context" in
   *\"*|*\\*|*"$MODEL_ROUTING_NEWLINE"*) exit 0 ;;
 esac

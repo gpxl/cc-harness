@@ -293,7 +293,8 @@ forward by inertia into rounds that were plain build/debug work. Separately,
 liveness (pid, mtime, wall cap) — it had no signature for this pattern, which spans many
 individually-completed job records.
 
-Fix: `~/.claude/CLAUDE.md` § Equivalence table now states that an escalation is scoped to the
+Fix: `~/.claude/CLAUDE.md` § Equivalence table (since cch-ypu: `rules/model-routing-codex.md`
+§ Tier selection beyond the equivalence table) now states that an escalation is scoped to the
 round that needed it, and names three consecutive rounds held *above* the Build / implementation
 row (not merely "same tier as before or higher" — that earlier wording tripped on the compliant
 case of three rounds correctly held at `gpt-5.6-terra`, caught in review round 2 before it shipped)
@@ -334,7 +335,8 @@ normal for "just do the work" prompts — silently inherited the wrong tier at h
 Fix (`cch-w50`): flipped `~/.codex/config.toml` to `model = "gpt-5.6-terra"`,
 `model_reasoning_effort = "high"`, matching the Build / implementation row exactly, since that row
 is what most real dispatches are. `~/.claude/CLAUDE.md` § Equivalence table's "local Codex default"
-annotation moved from the Architecture row to the Build row; the "leave `--model` unset" bullet now
+annotation moved from the Architecture row to the Build row; the "leave `--model` unset" bullet
+(since cch-ypu in `rules/model-routing-codex.md`) now
 says escalating to `gpt-6-astra` requires `--model` explicitly (previously the reverse — routine
 work needed the explicit flag to step *down*). `codex-dispatch-protocol.md` §4a's illustrative
 "which is `gpt-6-astra` locally" was time-bound to the measurement it cites; corrected to record

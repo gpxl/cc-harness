@@ -89,7 +89,8 @@ Claude keeps the orchestrator's turn, tools Codex cannot reach, and bookkeeping 
 state, PR flow, and running the gate. The gate stays with the orchestrator for correctness: a gate
 is evidence only when the reporting party ran it.
 
-→ `## Model Routing` in [`global/CLAUDE.md`](../global/CLAUDE.md),
+→ `## Model Routing` in [`global/CLAUDE.md`](../global/CLAUDE.md) (the always-loaded core),
+[`rules/model-routing-codex.md`](../rules/model-routing-codex.md) (the Codex-first mechanics),
 [`rules/codex-dispatch-protocol.md`](../rules/codex-dispatch-protocol.md),
 [`rules/codex-job-status-integrity.md`](../rules/codex-job-status-integrity.md)
 

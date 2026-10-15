@@ -1,6 +1,7 @@
 # Model-routing hooks
 
-These hooks enforce the Model Routing policy in `global/CLAUDE.md`.
+These hooks enforce the Model Routing policy in `global/CLAUDE.md` (always-loaded core) and
+`rules/model-routing-codex.md` (Codex-first mechanics, read when `openai` is the primary route).
 `model-routing-table.sh` is the source of truth; `hooks/selftest.sh` checks the markdown table
 against it.
 
@@ -14,7 +15,10 @@ against it.
 for `vendor_enabled`, or run `bash hooks/vendors.sh` to print the state). Anything but an explicit
 `enabled` is disabled, and `anthropic` cannot be disabled. The first enabled vendor in
 `MODEL_ROUTING_VENDORS` (`model-routing-table.sh`) is the primary route; every hook below reads
-it, and `scripts/codex.sh` refuses new Codex work while `openai` is off.
+it, and `scripts/codex.sh` refuses new Codex work while `openai` is off. Adding a vendor is one
+model column in `model-routing-table.sh`, one entry in its vendor arrays, and one line in
+`vendors.conf`. When `openai` is the primary route, the three reminders below tell the model to
+Read `~/.claude/rules/model-routing-codex.md`; while it is disabled they never mention that file.
 
 - `bd-ready-model-routing.sh` runs after a real `bd ready` Bash command and maps ready work to the primary vendor's model and effort in the equivalence table.
 - `exitplan-model-routing.sh` runs when a plan is approved. With `openai` enabled it stops the plan-to-build transition so work can be delegated through `/codex:rescue`; with it disabled it names the Claude build model and forbids the Codex route.
