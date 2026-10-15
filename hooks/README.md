@@ -17,12 +17,13 @@ for `vendor_enabled`, or run `bash hooks/vendors.sh` to print the state). Anythi
 `MODEL_ROUTING_VENDORS` (`model-routing-table.sh`) is the primary route; every hook below reads
 it, and `scripts/codex.sh` refuses new Codex work while `openai` is off. Adding a vendor is one
 model column in `model-routing-table.sh`, one entry in its vendor arrays, and one line in
-`vendors.conf`. When `openai` is the primary route, the three reminders below tell the model to
+`vendors.conf`. When `openai` is the primary route, the three PostToolUse reminders below tell the model to
 Read `~/.claude/rules/model-routing-codex.md`; while it is disabled they never mention that file.
 
 - `bd-ready-model-routing.sh` runs after a real `bd ready` Bash command and maps ready work to the primary vendor's model and effort in the equivalence table.
 - `exitplan-model-routing.sh` runs when a plan is approved. With `openai` enabled it stops the plan-to-build transition so work can be delegated through `/codex:rescue`; with it disabled it names the Claude build model and forbids the Codex route.
 - `first-edit-codex-gate.sh` runs once per session after the first `Edit`, `Write`, or `NotebookEdit`, covering implementation that bypasses plan mode. It is silent while `openai` is not the primary vendor.
+- `vendor-state.sh` runs at `SessionStart` (`startup|resume|clear|compact`: after `/clear` or compaction the earlier context is gone, so the line is re-injected). It is silent unless a routing vendor is disabled; then it adds one line (~40 tokens) naming the disabled vendors and the primary route, and says to route there silently, with no readiness check, so the model never has to run `vendors.sh` itself. It is also silent when the evidence is missing (no readable config names a routing vendor, or the table or resolver is unreadable): it never reports "disabled by config" without a config line behind it.
 
 `settings-hooks.json` defines the required hook registrations. `./install.sh` links this
 directory, then runs `hooks/install-hooks.sh` to merge the registrations and resolver-derived
@@ -30,8 +31,8 @@ directory, then runs `hooks/install-hooks.sh` to merge the registrations and res
 unrelated settings. Set `CC_HARNESS_CLAUDE_DIR=/path/to/.claude` to use an isolated Claude
 directory for installation or removal, and `--manifest <path>` to install from another manifest.
 
-The manifest takes two shapes. A bare JSON array (the current file) is a list of `PostToolUse`
-entries. An object maps event names to entry arrays, for example
+The manifest takes two shapes. A bare JSON array (the legacy form) is a list of `PostToolUse`
+entries. An object (the current file) maps event names to entry arrays, for example
 `{"PostToolUse": [...], "SessionStart": [...]}`. Each manifest entry has an identity within its
 event, and install replaces the one settings entry with that identity (dropping duplicates),
 `--check` reports it `missing` or `wrong`, and `--remove` deletes only entries identical to the
@@ -57,7 +58,8 @@ installer), `<event> <matcher>` for other tool events, and `<event> <command>` o
 Check a machine's registrations with `bash hooks/install-hooks.sh --check`. Run
 `bash hooks/selftest.sh` for the hermetic regression suite, which covers hook output,
 registration installation and removal, idempotency, preservation of unrelated settings,
-multi-event (`SessionStart`) manifests from a fixture, and negative controls.
+multi-event (`SessionStart`) manifests from a fixture, the shipped manifest's install/check/remove
+round trip in an isolated directory, the `vendor-state.sh` output states, and negative controls.
 
 ## Measuring
 

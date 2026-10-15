@@ -1,34 +1,48 @@
-[
-  {
-    "matcher": "Bash",
-    "hooks": [
-      {
-        "type": "command",
-        "command": "bash $HOME/.claude/hooks/bd-ready-model-routing.sh",
-        "timeout": 5
-      }
-    ]
-  },
-  {
-    "matcher": "ExitPlanMode",
-    "hooks": [
-      {
-        "type": "command",
-        "command": "bash $HOME/.claude/hooks/exitplan-model-routing.sh",
-        "timeout": 5,
-        "statusMessage": "Model routing gate check"
-      }
-    ]
-  },
-  {
-    "matcher": "Edit|Write|NotebookEdit",
-    "hooks": [
-      {
-        "type": "command",
-        "command": "bash $HOME/.claude/hooks/first-edit-codex-gate.sh",
-        "timeout": 5,
-        "statusMessage": "Codex-first delegation check"
-      }
-    ]
-  }
-]
+{
+  "PostToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash $HOME/.claude/hooks/bd-ready-model-routing.sh",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "matcher": "ExitPlanMode",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash $HOME/.claude/hooks/exitplan-model-routing.sh",
+          "timeout": 5,
+          "statusMessage": "Model routing gate check"
+        }
+      ]
+    },
+    {
+      "matcher": "Edit|Write|NotebookEdit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash $HOME/.claude/hooks/first-edit-codex-gate.sh",
+          "timeout": 5,
+          "statusMessage": "Codex-first delegation check"
+        }
+      ]
+    }
+  ],
+  "SessionStart": [
+    {
+      "matcher": "startup|resume|clear|compact",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash $HOME/.claude/hooks/vendor-state.sh",
+          "timeout": 5
+        }
+      ]
+    }
+  ]
+}
