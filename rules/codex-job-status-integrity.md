@@ -61,7 +61,8 @@ vocabulary is stable across plugin upgrades without checking `scripts/lib/job-co
 
 ## Why this matters here
 
-Delegating implementation work to Codex is now the default (`## Model Routing` in this file),
+Delegating implementation work to Codex is now the default while vendor `openai` is enabled (global `## Model Routing`;
+mechanics in `model-routing-codex.md`),
 and a growing share of that work runs `--background`. A background job you can't see finish is
 exactly the situation `verification-integrity.md`'s "instruments must distinguish healthy from
 not looking" principle describes: if the job's status can't tell you "the worker actually died"
@@ -72,5 +73,5 @@ from "everything is fine, just still going," it isn't an instrument you can trus
 
 - `verification-integrity.md` — the general instrument-integrity principle this specializes for
   Codex job status.
-- Global `## Model Routing` → "Codex-first (default)" table — the delegation entry point this
+- `model-routing-codex.md` § Codex-first (default) table — the delegation entry point this
   rule governs the follow-through for.

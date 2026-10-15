@@ -30,6 +30,9 @@ else
     done
   done
   context="MODEL ROUTING GATE (~/.claude/CLAUDE.md, mismatch protocol): the plan was just approved, so the work type is ${MODEL_ROUTING_LABELS[$build_index]}. STOP before implementing and delegate to $vendor through ${MODEL_ROUTING_VENDOR_ROUTES[$primary]}: use ${build_models// / then } at $build_effort effort. Check both axes: (1) is delegable work about to be done inline anyway? (2) for work that is genuinely irreducible in Claude, does the session/subagent model match the fallback column? On a mismatch, STOP: delegate, ask the user to run /model <correct-id>, or use an explicit model override. Never proceed inline after merely mentioning the mismatch. Current fallback ids are ${fallback_text:-none}; they apply only when $vendor is genuinely unavailable. Disabled vendors: $disabled."
+  if [ "$vendor" = openai ]; then
+    context="$context Before delegating, Read ~/.claude/rules/model-routing-codex.md (Codex-first mechanics) if it is not already loaded this session."
+  fi
 fi
 case "$context" in
   *\"*|*\\*|*"$MODEL_ROUTING_NEWLINE"*) exit 0 ;;

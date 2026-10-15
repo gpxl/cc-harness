@@ -116,7 +116,7 @@ trend: three rounds correctly held at `gpt-6-sol` is the compliant case, not a s
 an instrumented run — not the previous round's own findings carried forward as context, which a
 fix round always does (`templates/review-fix-round.md`) and would otherwise make this signature
 never fire. This is the cross-round form of the Model Routing "escalation is scoped to the round
-that needed it" rule (`~/.claude/CLAUDE.md` § Equivalence table) — that rule asks the orchestrator
+that needed it" rule (`model-routing-codex.md` § Tier selection beyond the equivalence table) — that rule asks the orchestrator
 to catch the pattern before it starts; this entry is what to do once it didn't. The two conditions
 are related but not identical, deliberately: the Mismatch protocol trigger there fires on framing
 alone (three rounds still read as a fix), while cancelling a round here additionally wants
@@ -132,8 +132,8 @@ already runs a duplicate-job check before launch, and `scripts/codex-jobs.sh --j
 enumerates job records with `request.model` — but that field is `null`, not absent, whenever
 `--model` was left unset. Measured: 138 of 258 `task`-class records in this machine's
 `codex-openai-codex` job store (53%; 219 of 358, 61%, across all this machine's job stores) carry
-`request.model: null`, because leaving `--model` unset (the documented default path, `~/.claude/CLAUDE.md`
-§ Equivalence table) inherits whatever `~/.codex/config.toml` sets — `gpt-6-astra` at the time of
+`request.model: null`, because leaving `--model` unset (the documented default path, `model-routing-codex.md`
+§ Tier selection beyond the equivalence table) inherits whatever `~/.codex/config.toml` sets — `gpt-6-astra` at the time of
 this measurement, flipped to `gpt-5.6-terra` on 2026-09-20 (`cch-w50`, after the same job-store
 data showed 69% of dispatches resolving to the architecture tier by unset-default alone, most of
 it routine build/fix work), then moved to `gpt-6-sol` on 2026-09-23 — so a naive
