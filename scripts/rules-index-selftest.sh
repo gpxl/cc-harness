@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Every file in rules/ must have a one-line entry in the [Rules] index of global/CLAUDE.md, and
-# every entry must name a file that exists.
+# every entry must name a file that exists. Each entry's group (Always loaded / Path-scoped) must
+# also agree with whether the rule carries a non-empty `paths:` frontmatter list.
 #
 # CLAUDE.md § Contributing states the requirement and the reason: "a rule that isn't indexed is a
 # file nothing loads". That failure is silent and invisible — the rule file is present, readable,
@@ -68,6 +69,56 @@ EOF
     }
   done <<EOF
 $entries
+EOF
+  [ "$problems" -eq 0 ]
+}
+
+# The index splits [Rules] into `|Always loaded:` and `|Path-scoped ...` groups, and that split is
+# a claim about each file's frontmatter: a rule with a `paths:` list loads only on a matching file,
+# one without it loads every turn. When the two disagree the index lies about load cost or, worse,
+# about whether a rule is in context at all — a "path-scoped" rule whose frontmatter was dropped
+# silently becomes always loaded, and an "always loaded" rule that gained `paths:` silently stops
+# loading. Neither shows up in the presence check above.
+index_groups() {  # index_groups <claude-md> -> "<always|scoped|none> <name>" per [Rules] entry
+  sed -n '/^\[Rules\]/,/^\[[^]]/p' "$1" | awk '
+    /^\|Always loaded:/ { group = "always"; next }
+    /^\|Path-scoped/    { group = "scoped"; next }
+    match($0, /^\|[A-Za-z0-9._\/-]+\.md:/) { print (group == "" ? "none" : group), substr($0, 2, RLENGTH - 2) }'
+}
+
+has_paths_frontmatter() {  # has_paths_frontmatter <file> -> 0 when line 1 opens a frontmatter block holding a non-empty paths: list
+  awk '
+    NR == 1 { if ($0 != "---") exit 1; next }
+    $0 == "---" { exit (items > 0 ? 0 : 1) }
+    /^paths:[[:space:]]*$/ { inpaths = 1; next }
+    inpaths && /^[[:space:]]+-[[:space:]]*[^[:space:]]/ { items++; next }
+    /^[^[:space:]]/ { inpaths = 0 }
+    END { if (NR < 2) exit 1 }' "$1"
+}
+
+check_scoping() {  # check_scoping <rules-dir> <claude-md> -> prints each disagreement, 1 when any
+  local rules_dir=$1 claude_md=$2 problems=0 group name file
+  while read -r group name; do
+    [ -n "$name" ] || continue
+    file="$rules_dir/$name"
+    [ -f "$file" ] || continue  # a missing file is check_index's finding, not this one
+    case "$group" in
+      always)
+        if has_paths_frontmatter "$file"; then
+          printf 'rules/%s is indexed under Always loaded but has a paths: frontmatter list — it loads only on a matching file; move its entry under Path-scoped\n' "$name"
+          problems=$((problems + 1))
+        fi ;;
+      scoped)
+        if ! has_paths_frontmatter "$file"; then
+          printf 'rules/%s is indexed under Path-scoped but has no non-empty paths: frontmatter — it loads every turn; add the paths: list or move its entry under Always loaded\n' "$name"
+          problems=$((problems + 1))
+        fi ;;
+      *)
+        printf 'rules/%s is indexed before any |Always loaded: or |Path-scoped group marker\n' "$name"
+        problems=$((problems + 1)) ;;
+    esac
+  done <<EOF
+$(index_groups "$claude_md")
 EOF
   [ "$problems" -eq 0 ]
 }
@@ -151,7 +202,81 @@ expect 'a correctly indexed rule in a subdirectory passes' 0 '' "$nested_ok/rule
 expect 'a missing rules directory is refused' 1 'rules directory not found' "$workdir/absent" "$ok/global/CLAUDE.md"
 expect 'a missing index file is refused' 1 'index file not found' "$ok/rules" "$workdir/absent/CLAUDE.md"
 
+# --- index group vs frontmatter -----------------------------------------------------------------
+
+expect_scoping() {  # expect_scoping <name> <expected-rc> <needle-or-empty> <rules-dir> <claude-md>
+  local name=$1 expected=$2 needle=$3 out rc
+  out=$(check_scoping "$4" "$5" 2>&1); rc=$?
+  if [ "$rc" -ne "$expected" ]; then fail "$name" "rc=$rc (want $expected) output=$out"; return; fi
+  if [ -n "$needle" ] && ! printf '%s' "$out" | grep -Fq "$needle"; then fail "$name" "missing '$needle' in: $out"; return; fi
+  pass "$name"
+}
+
+make_scoped_fixture() {  # make_scoped_fixture <dir>: alpha always loaded, beta path-scoped, both agreeing
+  local dir=$1
+  mkdir -p "$dir/rules" "$dir/global" || return 1
+  printf '# Alpha\nrule\n' > "$dir/rules/alpha.md"
+  printf -- '---\npaths:\n  - "**/*beta*"\n---\n# Beta\nrule\n' > "$dir/rules/beta.md"
+  {
+    printf '%s\n' '```' '[Rules]|root: ~/.claude/rules/' '|Always loaded:' '|alpha.md: one line'
+    printf '%s\n' '|Path-scoped (load only on a matching file):' '|beta.md: one line — *beta*'
+    printf '%s\n' '[Scripts]|root: scripts/' '```'
+  } > "$dir/global/CLAUDE.md"
+}
+
+sc_ok="$workdir/sc-ok"; make_scoped_fixture "$sc_ok"
+expect_scoping 'index groups that match frontmatter pass' 0 '' "$sc_ok/rules" "$sc_ok/global/CLAUDE.md"
+
+# Negative control: a rule moved back to always-loaded (frontmatter dropped) without an index update.
+sc_dropped="$workdir/sc-dropped"; make_scoped_fixture "$sc_dropped"
+printf '# Beta\nrule\n' > "$sc_dropped/rules/beta.md"
+expect_scoping 'a Path-scoped entry whose rule has no paths: frontmatter fails, named' 1 'rules/beta.md is indexed under Path-scoped' "$sc_dropped/rules" "$sc_dropped/global/CLAUDE.md"
+
+# An empty paths: list is no scope at all: it must not pass as path-scoped.
+sc_emptylist="$workdir/sc-emptylist"; make_scoped_fixture "$sc_emptylist"
+printf -- '---\npaths:\n---\n# Beta\n' > "$sc_emptylist/rules/beta.md"
+expect_scoping 'a paths: key with no globs does not count as path-scoped' 1 'rules/beta.md is indexed under Path-scoped' "$sc_emptylist/rules" "$sc_emptylist/global/CLAUDE.md"
+
+# A paths: list outside a leading frontmatter block is prose, not scope.
+sc_body="$workdir/sc-body"; make_scoped_fixture "$sc_body"
+printf -- '# Beta\n---\npaths:\n  - "**/*beta*"\n---\n' > "$sc_body/rules/beta.md"
+expect_scoping 'a paths: list that is not leading frontmatter does not count' 1 'rules/beta.md is indexed under Path-scoped' "$sc_body/rules" "$sc_body/global/CLAUDE.md"
+
+# Negative control: a rule that gained paths: but whose index entry still says Always loaded.
+sc_gained="$workdir/sc-gained"; make_scoped_fixture "$sc_gained"
+printf -- '---\npaths:\n  - "**/*alpha*"\n---\n# Alpha\n' > "$sc_gained/rules/alpha.md"
+expect_scoping 'an Always loaded entry whose rule has paths: frontmatter fails, named' 1 'rules/alpha.md is indexed under Always loaded' "$sc_gained/rules" "$sc_gained/global/CLAUDE.md"
+
+# Negative control: the index entry moved to Always loaded while the frontmatter still scopes it.
+sc_moved="$workdir/sc-moved"; make_scoped_fixture "$sc_moved"
+python3 - "$sc_moved/global/CLAUDE.md" <<'PYEOF'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace('|beta.md: one line — *beta*\n', '').replace('|alpha.md: one line\n', '|alpha.md: one line\n|beta.md: one line\n')
+open(p, 'w').write(t)
+PYEOF
+expect_scoping 'a scoped rule listed under Always loaded fails, named' 1 'rules/beta.md is indexed under Always loaded' "$sc_moved/rules" "$sc_moved/global/CLAUDE.md"
+
+# An entry above both group markers has no stated load cost.
+sc_ungrouped="$workdir/sc-ungrouped"; make_scoped_fixture "$sc_ungrouped"
+python3 - "$sc_ungrouped/global/CLAUDE.md" <<'PYEOF'
+import sys
+p = sys.argv[1]
+t = open(p).read().replace('|Always loaded:\n|alpha.md: one line\n', '|alpha.md: one line\n|Always loaded:\n')
+open(p, 'w').write(t)
+PYEOF
+expect_scoping 'an entry before any group marker fails, named' 1 'rules/alpha.md is indexed before any' "$sc_ungrouped/rules" "$sc_ungrouped/global/CLAUDE.md"
+
 # --- the real repository --------------------------------------------------------------------
+
+scope_out=$(check_scoping "$root/rules" "$root/global/CLAUDE.md" 2>&1); scope_rc=$?
+scoped_count=$(index_groups "$root/global/CLAUDE.md" | grep -c '^scoped ' || true)
+always_count=$(index_groups "$root/global/CLAUDE.md" | grep -c '^always ' || true)
+if [ "$scope_rc" -eq 0 ] && [ "$scoped_count" -gt 0 ] && [ "$always_count" -gt 0 ]; then
+  pass "every index group in this repository matches its rule's frontmatter ($always_count always loaded, $scoped_count path-scoped)"
+else
+  fail 'every index group in this repository matches its rule frontmatter' "rc=$scope_rc always=$always_count scoped=$scoped_count $scope_out"
+fi
 
 real_out=$(check_index "$root/rules" "$root/global/CLAUDE.md" 2>&1); real_rc=$?
 real_count=$(index_entries "$root/global/CLAUDE.md" | grep -c . || true)
