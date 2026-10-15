@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*codex*"
+  - "**/*codex*/**"
+  - "**/review-round*"
+---
 # Codex Background-Job Status Integrity
 
 A backgrounded `codex-companion.mjs task` (via `/codex:rescue --background`, or any direct

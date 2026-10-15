@@ -13,8 +13,6 @@ Always consult documentation index and project files rather than relying on trai
 |branch-discipline.md: Feature-branch-first — never commit on main/master, branch BEFORE first edit
 |testing-guidelines.md: Universal test quality (Q1-Q8), test types, session close protocol
 |verification-integrity.md: Never read a gate's exit code through a pipe (`cmd | tail` returns tail's status); a green must be able to be red
-|codex-job-status-integrity.md: `unknown`/`orphaned` on a backgrounded Codex job is an integrity incident, not a pending result — inspect log/git diff/threadId before claiming completion or rerunning
-|codex-dispatch-protocol.md: The wrapper is not the job — liveness = worker PID + log under the per-workspace state dir; status is per-session/per-`--cwd`; verify placement at dispatch; wait via `codex-wait.sh` PID bridge (one wake, never polling); written cancellation criteria; prompt-side completion contracts; broker housekeeping
 |agent-purpose-statements.md: Purpose statement pattern for agents, skills, and manual orchestration
 |public-surface-hygiene.md: Never write a real client/project/ticket/feature name on a public surface — files, commit messages, PR bodies, tracker text; substitute the purpose-based pseudonym from `~/.claude/private/project-pseudonyms.md`; enforced by `scripts/name-hygiene.sh` in the gate
 |Path-scoped (load only on a matching file; Read directly if needed elsewhere):
@@ -28,6 +26,8 @@ Always consult documentation index and project files rather than relying on trai
 |computer-control-release.md: Hand back interactive control when active use ends — GUI paths, .claude/{skills,agents}
 |unattended-runs.md: A text-only end of turn in an unattended run is a report, not completion — continue with the open items named, cap at 2–3 automatic continuations, running background work means not done; standing no-early-stop paragraph for unattended prompts only — .claude/{skills,agents,rules}, *worktree*
 |native-codex-routing.md: Shared native Codex roles and project adoption checks; use `harness_*` roles without copying model defaults — AGENTS.md, .codex/**
+|codex-job-status-integrity.md: `unknown`/`orphaned` on a backgrounded Codex job is an integrity incident, not a pending result — inspect log/git diff/threadId before claiming completion or rerunning — `**/*codex*`, `**/*codex*/**` (scripts/codex*, .codex/, the plugin dir), `**/review-round*`; not triggered by a Bash dispatch, so Read before dispatching or waiting on a background Codex job
+|codex-dispatch-protocol.md: The wrapper is not the job — liveness = worker PID + log under the per-workspace state dir; status is per-session/per-`--cwd`; verify placement at dispatch; wait via `codex-wait.sh` PID bridge (one wake, never polling); written cancellation criteria; prompt-side completion contracts; broker housekeeping — same scope
 
 [Scripts]|root: .claude/scripts/
 |git-snapshot: Structured git state (branch, status, log, diff) as JSON — replaces 2-3 git Bash calls
@@ -222,6 +222,9 @@ in context) show a vendor disabled, go straight to the Claude column — no read
 reasoning. Mention the vendor only if the user asks or the work genuinely cannot proceed without it.
 
 ### Codex-first (default)
+
+Before a session's first background Codex dispatch or `codex-wait.sh`, Read `~/.claude/rules/codex-dispatch-protocol.md` (and `codex-job-status-integrity.md` on an `unknown`/`orphaned` status):
+both are path-scoped, and a Bash or `/codex:rescue` dispatch opens no matching file.
 
 | Step | How |
 |------|-----|

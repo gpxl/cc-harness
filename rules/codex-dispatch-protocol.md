@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*codex*"
+  - "**/*codex*/**"
+  - "**/review-round*"
+---
 # Codex Dispatch Protocol
 
 **The wrapper is not the job.** `codex-companion.mjs task --background` spawns a *detached*
@@ -164,6 +170,9 @@ the pitfall.
 - Sandbox extension is `[sandbox_workspace_write] writable_roots = [...]` + `network_access`
   (key verified in codex-cli 0.147.0; `writeable_roots` is silently ignored).
 
-This file is the AGENT-RULES file: it is always loaded, and any subagent or workflow that
-dispatches Codex gets it by reference (`~/.claude/rules/codex-dispatch-protocol.md`) rather than
-a paraphrase.
+This file is the AGENT-RULES file. It is path-scoped (it loads on Codex-named files and
+directories, so a session that opens no Codex file — the normal case while vendor `openai` is
+disabled — does not pay for it every turn), which means it does not load
+by itself when a dispatch is a Bash call: read it before dispatching or waiting on a background
+Codex job, and any subagent or workflow that dispatches Codex gets it by reference
+(`~/.claude/rules/codex-dispatch-protocol.md`) rather than a paraphrase.
