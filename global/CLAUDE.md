@@ -192,7 +192,7 @@ Routable vendors are **configuration, not prose**: `hooks/vendors.conf`, overrid
 route:** use the Claude column below (not a fallback), take every "Codex; Claude as fallback"
 branch with no readiness check (a paused subscription can report `ready: true`); `scripts/codex.sh`
 refuses `task`/`review`/`adversarial-review` with exit 69. **Disabled is the steady state: route
-silently** — no readiness check, no "Codex unavailable" remark or nudge, unless the user asks.
+silently** — no readiness check, no "Codex unavailable" remark or nudge, unless the user asks or the work genuinely cannot proceed without that vendor.
 
 ### Equivalence table
 
@@ -207,7 +207,7 @@ Claude effort runs a step below Codex on purpose; `xhigh`/`max` needs a measured
 `hooks/selftest.sh` fails if this table drifts from `hooks/model-routing-table.sh`.
 
 **Mismatch protocol (GATE):** at every work-type change — plan approval, each fix-loop round
-boundary — check (1) is delegable work for an enabled vendor about to be done inline? (2) does
+boundary (trigger: `rules/model-routing-codex.md`) — check (1) is delegable work for an enabled vendor about to be done inline? (2) does
 the Claude session/subagent model match the Claude column? On mismatch, STOP: delegate, ask the
 user to run `/model <correct-id>`, or spawn subagents with an explicit `model:` override. Never
 proceed inline on the wrong model after merely mentioning the mismatch — a one-line "you may want
