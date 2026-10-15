@@ -1578,6 +1578,124 @@ else
 fi
 runner="$tool"
 
+# An ORPHANED reviewer (no .exit: wrapper SIGKILLed, machine slept) is not a review either. Each
+# row runs a real stub round, waits for its worker to finish, then deletes the .exit file, which is
+# exactly what a worker killed before its last line leaves on disk: a recorded pid that is gone.
+orphan_round_1() {  # orphan_round_1 -> sets orphan_job; round 1 dispatched, its .exit removed
+  local i pid
+  reset_state
+  run
+  orphan_job=$(claude_job_from_output)
+  wait_claude_exit "$orphan_job" || return 1
+  pid=$(tr -d '[:space:]' < "$common/review-rounds/claude-jobs/$orphan_job.pid")
+  for ((i = 0; i < 100; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  ! kill -0 "$pid" 2>/dev/null || return 1
+  rm -f "$common/review-rounds/claude-jobs/$orphan_job.exit"
+}
+orphan_round_redispatches() {  # shared with its negative control below
+  local job
+  job=$(claude_job_from_output)
+  [ "$rc" -eq 0 ] && [ -n "$job" ] && [ "$job" != "$orphan_job" ] && wait_claude_exit "$job" &&
+    printf '%s\n' "$output" | grep -Fq "round 1's Claude reviewer $orphan_job was orphaned (no recorded exit, worker pid" &&
+    printf '%s\n' "$output" | grep -Fq 'it is not charged — re-dispatching round 1' &&
+    [ "$(<"$state")" = 1 ] && grep -Fq 'round 1 of 3' "$tmp/claude-stdin"
+}
+if orphan_round_1; then
+  run_subcommand --collect "$orphan_job" --round 1
+  if [ "$rc" -eq 1 ] && grep -Fq 'orphaned' "$tmp/err" &&
+    grep -Fq 'an orphaned Claude reviewer is not charged' "$tmp/err" && [ ! -e "$state-r1-findings.md" ]; then
+    pass 'Claude path: an orphaned reviewer is refused at collect and says re-running re-dispatches'
+  else
+    fail 'Claude path: an orphaned reviewer is refused at collect and says re-running re-dispatches' "rc=$rc err=$(<"$tmp/err")"
+  fi
+  rm -f "$tmp/claude-stdin"
+  run
+  if orphan_round_redispatches; then
+    pass 'Claude path: an orphaned reviewer (dead pid, no .exit, no findings) does not consume a round'
+  else
+    fail 'Claude path: an orphaned reviewer (dead pid, no .exit, no findings) does not consume a round' \
+      "rc=$rc out=$output err=$(<"$tmp/err")"
+  fi
+else
+  fail 'Claude path: an orphaned reviewer (dead pid, no .exit, no findings) does not consume a round' 'setup: worker did not finish'
+fi
+
+# A LIVE pid with no .exit is a review in progress: it stays charged and round 2 is refused.
+live_pid_stays_charged() {  # shared with its negative control below
+  local live_pid
+  orphan_round_1 || return 1
+  sleep 60 &
+  live_pid=$!
+  printf '%s\n' "$live_pid" > "$common/review-rounds/claude-jobs/$orphan_job.pid"
+  rm -f "$tmp/claude-argv"
+  run
+  kill "$live_pid" 2>/dev/null || true
+  wait "$live_pid" 2>/dev/null || true
+  [ "$rc" -eq 1 ] && grep -Fq 'no findings recorded for round(s) 1' "$tmp/err" &&
+    ! printf '%s\n' "$output" | grep -Fq 'not charged' && [ "$(<"$state")" = 1 ] && [ ! -e "$tmp/claude-argv" ]
+}
+if live_pid_stays_charged; then
+  pass 'Claude path: a reviewer whose pid is still alive is never uncharged'
+else
+  fail 'Claude path: a reviewer whose pid is still alive is never uncharged' "rc=$rc out=$output err=$(<"$tmp/err")"
+fi
+
+# NEGATIVE CONTROL: drop the liveness check (treat every recorded pid as dead) and the row above
+# must go red — the live reviewer's round would be re-dispatched underneath it.
+make_mutant 's/if ! kill -0 "$last_pid" 2>\/dev\/null; then/if true; then/'
+if ! live_pid_stays_charged; then
+  pass 'orphan liveness-check source mutation goes red'
+else
+  fail 'orphan liveness-check source mutation goes red' "rc=$rc out=$output"
+fi
+runner="$tool"
+
+# No pid file at all cannot prove the worker is dead: it stays charged (the conservative choice).
+if orphan_round_1; then
+  rm -f "$common/review-rounds/claude-jobs/$orphan_job.pid" "$tmp/claude-argv"
+  run
+  if [ "$rc" -eq 1 ] && grep -Fq 'no findings recorded for round(s) 1' "$tmp/err" &&
+    ! printf '%s\n' "$output" | grep -Fq 'not charged' && [ "$(<"$state")" = 1 ] && [ ! -e "$tmp/claude-argv" ]; then
+    pass 'Claude path: a reviewer with no recorded pid is not uncharged'
+  else
+    fail 'Claude path: a reviewer with no recorded pid is not uncharged' "rc=$rc out=$output err=$(<"$tmp/err")"
+  fi
+else
+  fail 'Claude path: a reviewer with no recorded pid is not uncharged' 'setup: worker did not finish'
+fi
+
+# Findings recorded for the round: the orphan branch never fires and round 2 proceeds as normal.
+if orphan_round_1; then
+  seed_prior_findings 1
+  rm -f "$tmp/claude-stdin"
+  run
+  next_job=$(claude_job_from_output)
+  if [ "$rc" -eq 0 ] && [ -n "$next_job" ] && wait_claude_exit "$next_job" &&
+    ! printf '%s\n' "$output" | grep -Fq 'not charged' && [ "$(<"$state")" = 2 ] &&
+    grep -Fq 'round 2 of 3' "$tmp/claude-stdin"; then
+    pass 'Claude path: an orphaned job whose round has findings is charged as usual'
+  else
+    fail 'Claude path: an orphaned job whose round has findings is charged as usual' "rc=$rc out=$output err=$(<"$tmp/err")"
+  fi
+else
+  fail 'Claude path: an orphaned job whose round has findings is charged as usual' 'setup: worker did not finish'
+fi
+
+# NEGATIVE CONTROL: charge the orphaned round anyway (only the orphan branch's decrement, which is
+# the one indented 12 spaces) and the re-dispatch row must go red.
+if orphan_round_1; then
+  make_mutant 's/^            previous=$((previous - 1))$/            :/'
+  run
+  if ! orphan_round_redispatches; then
+    pass 'uncharged-orphan source mutation goes red'
+  else
+    fail 'uncharged-orphan source mutation goes red' "rc=$rc out=$output"
+  fi
+  runner="$tool"
+else
+  fail 'uncharged-orphan source mutation goes red' 'setup: worker did not finish'
+fi
+
 # The Claude reviewer gets the diff as a file plus a reading budget, never inline: a large inline
 # diff plus whole-file reads is how a real round exhausted its context on 2026-10-14.
 reset_state
