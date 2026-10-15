@@ -301,13 +301,16 @@ import sys
 with open(sys.argv[1]) as settings_file:
     settings = json.load(settings_file)
 with open(sys.argv[2]) as manifest_file:
-    required = json.load(manifest_file)
+    manifest = json.load(manifest_file)
+# The shipped manifest is the object form; its PostToolUse entries are what these rows check.
+required = manifest["PostToolUse"] if isinstance(manifest, dict) else manifest
+session_required = manifest.get("SessionStart", []) if isinstance(manifest, dict) else []
 
 assert settings["$schema"] == "https://json.schemastore.org/claude-code-settings.json"
 assert settings["permissions"] == {"allow": ["Bash(git status)"], "defaultMode": "auto"}
 assert settings["enabledPlugins"] == {"example@marketplace": True}
 assert settings["autoMode"] == {"allow": ["$defaults"]}
-assert settings["hooks"]["SessionStart"] == [{"matcher": "", "hooks": [{"type": "command", "command": "echo session"}]}]
+assert settings["hooks"]["SessionStart"] == [{"matcher": "", "hooks": [{"type": "command", "command": "echo session"}]}] + session_required
 post_tool_use = settings["hooks"]["PostToolUse"]
 assert {entry["matcher"] for entry in post_tool_use} == {"Other"} | {entry["matcher"] for entry in required}
 for entry in required:
@@ -390,7 +393,10 @@ import sys
 with open(sys.argv[1]) as settings_file:
     settings = json.load(settings_file)
 with open(sys.argv[2]) as manifest_file:
-    required = json.load(manifest_file)
+    manifest = json.load(manifest_file)
+# The shipped manifest is the object form; its PostToolUse entries are what these rows check.
+required = manifest["PostToolUse"] if isinstance(manifest, dict) else manifest
+session_required = manifest.get("SessionStart", []) if isinstance(manifest, dict) else []
 
 assert settings["permissions"] == {"allow": ["Bash(git status)"], "defaultMode": "auto"}
 assert settings["enabledPlugins"] == {"example@marketplace": True}
@@ -445,11 +451,15 @@ import sys
 with open(sys.argv[1]) as settings_file:
     settings = json.load(settings_file)
 with open(sys.argv[2]) as manifest_file:
-    required = json.load(manifest_file)
+    manifest = json.load(manifest_file)
+# The shipped manifest is the object form; its PostToolUse entries are what these rows check.
+required = manifest["PostToolUse"] if isinstance(manifest, dict) else manifest
+session_required = manifest.get("SessionStart", []) if isinstance(manifest, dict) else []
 
 assert set(settings) == {"env", "hooks"}
 assert settings["env"] == {"CODEX_PLUGIN": sys.argv[3]}
 assert settings["hooks"]["PostToolUse"] == required
+assert settings["hooks"].get("SessionStart", []) == session_required
 PY
   [ ! -e "$missing_settings_file".backup.* ]
 }
@@ -536,7 +546,10 @@ import sys
 with open(sys.argv[1]) as settings_file:
     settings = json.load(settings_file)
 with open(sys.argv[2]) as manifest_file:
-    required = json.load(manifest_file)
+    manifest = json.load(manifest_file)
+# The shipped manifest is the object form; its PostToolUse entries are what these rows check.
+required = manifest["PostToolUse"] if isinstance(manifest, dict) else manifest
+session_required = manifest.get("SessionStart", []) if isinstance(manifest, dict) else []
 
 assert settings["permissions"] == {"allow": ["Bash(git status)"], "defaultMode": "auto"}
 assert settings["enabledPlugins"] == {"example@marketplace": True}
@@ -864,6 +877,138 @@ ss_negative_control_remove_keeps_empty_key() {
     ss_remove_drops_emptied_session_start
 }
 
+# --- SessionStart vendor-state hook (cch-1ry) ----------------------------------------------
+# `vendor_state_hook` is swapped for a mutant by the negative controls below.
+vendor_state_hook="$root/vendor-state.sh"
+
+invoke_vendor_state() {
+  output=$(printf '{"hook_event_name":"SessionStart","source":"startup"}' | bash "$vendor_state_hook" 2>/dev/null) || return 1
+}
+
+vendor_state_disabled_emits_one_line() {
+  local lines
+  output=$(printf '{"source":"startup"}' | CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$vendor_state_hook" 2>/dev/null) || return 1
+  lines=$(printf '%s\n' "$output" | wc -l | tr -d ' ') || return 1
+  [ "$lines" = 1 ] || return 1
+  printf '%s' "$output" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert set(data) == {"hookSpecificOutput"}
+out = data["hookSpecificOutput"]
+assert out["hookEventName"] == "SessionStart"
+text = out["additionalContext"]
+assert "openai disabled by config" in text, text
+assert "bash ~/.claude/hooks/vendors.sh" in text
+assert "Claude column" in text
+assert "no readiness check" in text
+assert len(text.split()) <= 40, len(text.split())
+' >/dev/null 2>&1
+}
+
+vendor_state_all_enabled_is_silent() {
+  invoke_vendor_state && [ -z "$output" ]
+}
+
+vendor_state_unreadable_config_is_silent() {
+  output=$(CC_HARNESS_VENDORS_FILE="$tmp_state/does-not-exist.conf" bash "$vendor_state_hook" </dev/null 2>/dev/null) || return 1
+  [ -z "$output" ] || return 1
+  # A config that exists but names no routing vendor is no evidence either.
+  printf 'anthropic=enabled\n' > "$tmp_state/vendors-anthropic-only.conf" || return 1
+  output=$(CC_HARNESS_VENDORS_FILE="$tmp_state/vendors-anthropic-only.conf" bash "$vendor_state_hook" </dev/null 2>/dev/null) || return 1
+  [ -z "$output" ]
+}
+
+vendor_state_local_override_is_reported() {
+  printf 'openai=disabled\n' > "$tmp_state/vendors-local-off.conf" || return 1
+  output=$(CC_HARNESS_VENDORS_LOCAL="$tmp_state/vendors-local-off.conf" bash "$vendor_state_hook" </dev/null 2>/dev/null) || return 1
+  printf '%s' "$output" | grep -Fq 'openai disabled by config'
+}
+
+vendor_state_invalid_table_is_silent() {
+  local copy="$tmp_state/degraded-vendor-state"
+  mkdir -p "$copy" || return 1
+  cp "$root/vendor-state.sh" "$root/vendors.sh" "$root/model-routing-table.sh" "$copy/" || return 1
+  printf 'MODEL_ROUTING_VENDOR_COLUMNS[0]=%s\n' "'MODEL_ROUTING_X;true'" >> "$copy/model-routing-table.sh" || return 1
+  output=$(CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$copy/vendor-state.sh" </dev/null 2>/dev/null) || return 1
+  [ -z "$output" ] || return 1
+  rm -f "$copy/model-routing-table.sh" || return 1
+  output=$(CC_HARNESS_VENDORS_FILE="$vendors_off" bash "$copy/vendor-state.sh" </dev/null 2>/dev/null) || return 1
+  [ -z "$output" ]
+}
+
+# The SHIPPED manifest (not a fixture) into an isolated Claude dir: the real ~/.claude is untouched.
+vendor_state_shipped_manifest_round_trip() {
+  local dir="$tmp_state/claude-shipped"
+  rm -rf "$dir" && mkdir -p "$dir" || return 1
+  CC_HARNESS_CLAUDE_DIR="$dir" bash "$root/install-hooks.sh" >/dev/null 2>&1 || return 1
+  python3 - "$dir/settings.json" "$root/settings-hooks.json" <<'PY' || return 1
+import json
+import sys
+
+settings = json.load(open(sys.argv[1]))
+manifest = json.load(open(sys.argv[2]))
+session = manifest["SessionStart"]
+assert [entry["hooks"][0]["command"] for entry in session] == ["bash $HOME/.claude/hooks/vendor-state.sh"]
+# Re-injected after /clear and compaction, which drop the earlier context.
+assert [entry["matcher"] for entry in session] == ["startup|resume|clear|compact"]
+assert settings["hooks"]["SessionStart"] == session
+assert settings["hooks"]["PostToolUse"] == manifest["PostToolUse"]
+PY
+  CC_HARNESS_CLAUDE_DIR="$dir" bash "$root/install-hooks.sh" --check >/dev/null 2>&1 || return 1
+  CC_HARNESS_CLAUDE_DIR="$dir" bash "$root/install-hooks.sh" --remove >/dev/null 2>&1 || return 1
+  python3 - "$dir/settings.json" <<'PY' || return 1
+import json
+import sys
+
+settings = json.load(open(sys.argv[1]))
+assert "SessionStart" not in settings["hooks"]
+assert settings["hooks"]["PostToolUse"] == []
+PY
+  # After --remove, --check must go red again: the check can fail.
+  if CC_HARNESS_CLAUDE_DIR="$dir" bash "$root/install-hooks.sh" --check >"$tmp_state/shipped-check.out" 2>&1; then
+    return 1
+  fi
+  grep -Fx 'SessionStart bash $HOME/.claude/hooks/vendor-state.sh: missing' "$tmp_state/shipped-check.out" >/dev/null
+}
+
+# Negative controls: a mutant hook missing one guard must turn the named row red.
+vendor_state_mutant_turns_row_red() {
+  local anchor="$1" replacement="$2" row="$3"
+  local mutant_dir="$tmp_state/mutant-vendor-state"
+  local verdict=0
+  mkdir -p "$mutant_dir" || return 1
+  cp "$root/vendors.sh" "$root/model-routing-table.sh" "$mutant_dir/" || return 1
+  python3 - "$root/vendor-state.sh" "$mutant_dir/vendor-state.sh" "$anchor" "$replacement" <<'PY' || return 1
+import sys
+
+source = open(sys.argv[1]).read()
+anchor = sys.argv[3] + "\n"
+if source.count(anchor) != 1:
+    sys.exit("mutation anchor not found exactly once; the control would be vacuous")
+open(sys.argv[2], "w").write(source.replace(anchor, sys.argv[4] + "\n"))
+PY
+  vendor_state_hook="$mutant_dir/vendor-state.sh"
+  if "$row" >/dev/null 2>&1; then
+    verdict=1
+  fi
+  vendor_state_hook="$root/vendor-state.sh"
+  return "$verdict"
+}
+
+vendor_state_negative_control_prints_when_enabled() {
+  vendor_state_mutant_turns_row_red \
+    '[ "$disabled" = none ] && exit 0' \
+    ':' \
+    vendor_state_all_enabled_is_silent
+}
+
+vendor_state_negative_control_without_evidence_guard() {
+  vendor_state_mutant_turns_row_red \
+    "  [ \"\$(vendor_source \"\$vendor\")\" = '(not configured)' ] && exit 0" \
+    '  :' \
+    vendor_state_unreadable_config_is_silent
+}
+
 record 'bd-ready fires: bd ready' bd_fires 'bd ready'
 record 'bd-ready fires: foo; bd ready' bd_fires 'foo; bd ready'
 record 'bd-ready fires: bd ready --json' bd_fires 'bd ready --json'
@@ -914,6 +1059,14 @@ record 'negative control: SessionStart row fails without event handling' ss_nega
 record 'negative control: check row fails without event handling' ss_negative_control_check_without_event_handling
 record 'negative control: remove row fails without event handling' ss_negative_control_remove_without_event_handling
 record 'negative control: emptied-key row fails if the key is kept' ss_negative_control_remove_keeps_empty_key
+record 'vendor-state: openai disabled emits exactly one valid SessionStart JSON line' vendor_state_disabled_emits_one_line
+record 'vendor-state: silent when every vendor is enabled' vendor_state_all_enabled_is_silent
+record 'vendor-state: silent when no config names the vendor' vendor_state_unreadable_config_is_silent
+record 'vendor-state: a machine-local disable is reported' vendor_state_local_override_is_reported
+record 'vendor-state: silent on an invalid or missing table' vendor_state_invalid_table_is_silent
+record 'vendor-state: shipped manifest installs, checks ok, removes clean into an isolated dir' vendor_state_shipped_manifest_round_trip
+record 'negative control: enabled-silent row fails when the hook prints regardless' vendor_state_negative_control_prints_when_enabled
+record 'negative control: no-evidence row fails without the evidence guard' vendor_state_negative_control_without_evidence_guard
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'HOOKS SELFTEST RESULT: PASS'

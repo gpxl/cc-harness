@@ -41,6 +41,7 @@ Always consult documentation index and project files rather than relying on trai
 
 [Hooks]|root: ~/.claude/hooks/ → symlinked from ~/projects/cc-harness/hooks/ (Model Routing enforcement; run `bash hooks/selftest.sh` after changes)
 |vendors.conf: Vendor switch — `<vendor>=enabled|disabled` per model vendor; `~/.claude/private/vendors.conf` overrides per machine; `bash ~/.claude/hooks/vendors.sh` prints the resolved state
+|vendor-state.sh: SessionStart hook — when a vendor is disabled, states it and the primary route up front, so the state is already in context; silent when all are enabled or the config is unreadable
 
 [Beads]|binary: bd (in PATH) — see Task Management below
 |session-start: run bd prime if .beads/ exists (prints the full command reference)
