@@ -315,6 +315,25 @@ review budget is left, since the fixer can neither see nor spend it and answers 
 widening its own scope; `scripts/fix-prompt-check.sh <prompt-file>` checks a written prompt for that
 phrasing and names the offending line, so the ban is gated rather than remembered. A FIX task goes through the normal pipeline: code-quality gate (or `verify_cmd` when `quality_gate_pattern` is `(none)`) → commit agent (one `fix(...)` commit). R2/R3 re-run the same adversary to re-trace reproduced failures and check fix regressions; only `GO`, or the user decision above, proceeds to PR-body drafting.
 
+### Converging a loop: fix the class, consolidate, then scope
+
+A round's finding is one instance of a class. Patching instances is how a branch collects one new
+NO-GO per round: each fix moves the defect to the next ordering or encoding. Incident:
+`docs/reference/rule-histories.md` §review-loop-convergence.
+
+| Step | Requirement |
+|---|---|
+| Name the class | Every FIX finding gets a one-line class name before any edit ("undecided result reported as measured", "secret reaches output"). The fix round's SIBLINGS sweep (`templates/review-fix-round.md`) is mandatory per finding and reports what it searched; a fix without it is not done. |
+| Consolidate before round 3 | If rounds 1 and 2 each produced a finding of the same class, stop patching. Introduce ONE shared predicate or boundary the class must pass through (one `isDecided()` every consumer calls; one error builder that never interpolates upstream data), plus a **table-driven truth-table test** whose cases are generated from the table and run against every consumer, not hand-picked repros. A consumer that re-derives the predicate is a finding. |
+| Asymmetries are rows | A deliberate asymmetry (e.g. positive evidence counts even when the check was PARTIAL) is written into the table as an explicit case, so a later reorder cannot silently break it. |
+| Never filter-and-leak | For secrets, do not scrub upstream data (body, headers, request id, error text) after the fact: each scrub invites one more encoding (literal, URL-encoded, base64). Build messages only from a fixed allowlist of safe fields. Test with a stub whose body, headers and error message carry the secret in literal, URL-encoded and base64 forms. |
+| Bound the final review | After consolidation the review is scoped to a checklist (the truth table and the boundary), not an open hunt: an open hunt over a large surface always finds something. State the round budget and the checklist up front. Exceeding the budget is an escalation to the user with a consolidation proposal (see § Requesting rounds beyond the budget), never a silent extra patch round. |
+
+Fix-round briefs for a consolidated class additionally require: each new test fails on the previous
+commit (run against a pristine archive of it), at least N named mutation checks each restored and
+confirmed with `cmp`, the real exit code by redirect-to-file (`verification-integrity.md`), and a live
+rerun with the row-by-row diff against the prior output explained.
+
 ### Skip conditions
 
 **The risk-class trigger at the top is the only one.** A branch touching none of the five classes
