@@ -703,6 +703,129 @@ else
   fail 'round 3 refused when only round 1 has findings' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
+seed_classed_findings() {  # seed_classed_findings <round> <class>...: one CLASS: line per class
+  local round=$1 c
+  shift
+  mkdir -p "$(dirname "$state")"
+  { printf '%s\n' "MAJOR: seeded r$round finding" 'Disposition: FIX'
+    for c in "$@"; do printf 'CLASS: %s\n' "$c"; done
+    printf '%s\n' 'VERDICT: NO-GO'; } > "$state-r$round-findings.md"
+}
+
+# Class convergence: a class that recurs in two prior rounds is patched per-repro until the
+# mechanism is consolidated, so round 3 needs the consolidation named.
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 undecided-as-measured secret-in-output
+seed_classed_findings 2 secret-in-output
+run
+if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 2 ] && grep -Fq 'secret-in-output' "$tmp/err" && grep -Fq -- '--consolidated' "$tmp/err" && ! grep -Fq 'undecided-as-measured' "$tmp/err"; then
+  pass 'round 3 refused when a class recurs in rounds 1 and 2, naming only the recurring class'
+else
+  fail 'round 3 refused when a class recurs in rounds 1 and 2, naming only the recurring class' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+run --consolidated 'one isDecided predicate and a truth-table test across all consumers'
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 3 ] && printf '%s' "$output" | grep -Fq 'ROUND 3/3'; then
+  pass 'round 3 proceeds once the consolidation is declared'
+else
+  fail 'round 3 proceeds once the consolidation is declared' "rc=$rc counter=$(<"$state" 2>/dev/null || true) err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 undecided-as-measured
+seed_classed_findings 2 secret-in-output
+run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 3 ]; then
+  pass 'round 3 proceeds when the classes in rounds 1 and 2 are distinct'
+else
+  fail 'round 3 proceeds when the classes in rounds 1 and 2 are distinct' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_prior_findings 2
+run
+if [ "$rc" -eq 0 ] && [ "$(<"$state")" = 3 ] && printf '%s\n%s' "$output" "$(<"$tmp/err")" | grep -Fq 'class convergence not checked'; then
+  pass 'untagged rounds proceed but say the class check did not run'
+else
+  fail 'untagged rounds proceed but say the class check did not run' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+run --self-check --consolidated 'x'
+if [ "$rc" -eq 2 ] && grep -Fq -- '--consolidated' "$tmp/err"; then
+  pass 'a self-check refuses --consolidated rather than ignoring it'
+else
+  fail 'a self-check refuses --consolidated rather than ignoring it' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+# A CLASS: line the extractor cannot parse must be refused, not counted as tagged: underscore,
+# trailing text and several slugs on one line all used to read as tagged while yielding no slug.
+for bad_tag in 'secret_in_output' 'secret-in-output (MAJOR)' 'secret-in-output, undecided'; do
+  reset_state
+  mkdir -p "$(dirname "$state")"
+  printf '2\n' > "$state"
+  seed_classed_findings 1 secret-in-output
+  seed_classed_findings 2 "$bad_tag"
+  run
+  if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 2 ] && grep -Fq 'malformed CLASS: line' "$tmp/err"; then
+    pass "round 3 refused on a malformed CLASS line: $bad_tag"
+  else
+    fail "round 3 refused on a malformed CLASS line: $bad_tag" "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+  fi
+done
+
+run --consolidated '   '
+if [ "$rc" -eq 2 ] && grep -Fq -- '--consolidated needs' "$tmp/err"; then
+  pass 'a whitespace-only --consolidated is rejected'
+else
+  fail 'a whitespace-only --consolidated is rejected' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 secret-in-output
+seed_classed_findings 2 secret-in-output
+run --consolidated 'one error builder over allowlisted fields'
+if [ "$rc" -eq 0 ] && grep -Fq 'one error builder over allowlisted fields' "$tmp/dispatched-prompt" && grep -Fq 'CLASS: <slug>' "$tmp/dispatched-prompt"; then
+  pass 'the round prompt asks for CLASS lines and carries the declared consolidation'
+else
+  fail 'the round prompt asks for CLASS lines and carries the declared consolidation' "rc=$rc prompt=$(grep -c . "$tmp/dispatched-prompt" 2>&1) note=$(grep -n 'consolidation' "$tmp/dispatched-prompt" 2>&1 | head -3)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 secret-in-output
+seed_classed_findings 2 'secret_in_output'
+make_mutant 's/^  if \[ -n "\$bad" \]; then$/  if false; then/'
+run
+if [ "$rc" -eq 0 ]; then
+  pass 'malformed-tag refusal source mutation goes red'
+else
+  fail 'malformed-tag refusal source mutation goes red' "rc=$rc"
+fi
+runner="$tool"
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 secret-in-output
+seed_classed_findings 2 secret-in-output
+make_mutant 's/^  class_recurrence_refusal "\$round"$/  true/'
+run
+if [ "$rc" -eq 0 ]; then
+  pass 'class-convergence source mutation goes red'
+else
+  fail 'class-convergence source mutation goes red' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+runner="$tool"
+
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '1\n' > "$state"
