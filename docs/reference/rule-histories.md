@@ -272,6 +272,26 @@ Later rounds therefore resume conditionally; otherwise they receive a controlled
 
 ---
 
+## review-loop-convergence (2026-10-20)
+
+A measurement-reporting CLI command in an internal tooling repo returned NO-GO in five consecutive
+adversarial rounds (rounds 2-5, after a first round that found the initial set). Each round was
+fixed per repro and the next round found the next ordering or encoding of one of two recurring
+classes: an undecided result reported as measured, fixed, caught or agreed; and a secret reaching
+error output (literal, then URL-encoded, then base64 forms, via body, header and request id). Both
+fit the existing 2026-09-16 pattern, where a mechanism patched repeatedly produced a defect per
+round until restructured.
+
+What ended it was a consolidation pass: a single `isDecided` predicate used by every consumer with
+a truth-table test run across all of them, a single error boundary that builds messages only from
+allowlisted fields, and a final review scoped to that checklist. The rule edit (`rules/
+branch-completion-review.md` § Converging a loop) makes that sequence the default instead of the
+fallback: name the class, sweep siblings, consolidate after two same-class rounds, and escalate
+rather than grant another patch round. Not yet measured: whether branches that follow it end in
+fewer rounds; compare `loop-report.sh` rounds-per-branch after a few cycles.
+
+---
+
 ## model-routing (2026-09-18)
 
 A usage-dashboard review found `gpt-6-astra` dominating recent days' Codex spend. Job-record

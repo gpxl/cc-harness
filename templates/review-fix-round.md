@@ -83,6 +83,7 @@ that produces a defect every round is not unlucky; it is the finding.
 - **No git.** Do not stage, commit, push, or rebase. Report the paths you changed and an intended
   commit subject; the supervisor commits through the normal pipeline.
 - Run the project's own verification and read its exit code directly, never through a pipe.
+- Each new test must fail on the previous commit (run it against a pristine archive of that commit); list at least `<N>` mutation checks, each restored and confirmed with `cmp`; where the finding's class has a shared predicate or boundary, add the case to its truth table rather than a one-off test; finish with a live rerun and an explained row-by-row diff against the prior output (`rules/branch-completion-review.md` § Converging a loop).
 - Stay inside the acceptance criteria quoted above. A defect you find outside them goes in your
   report as a candidate for the tracker, not into this commit.
 
