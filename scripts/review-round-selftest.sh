@@ -763,6 +763,55 @@ else
   fail 'a self-check refuses --consolidated rather than ignoring it' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
 fi
 
+# A CLASS: line the extractor cannot parse must be refused, not counted as tagged: underscore,
+# trailing text and several slugs on one line all used to read as tagged while yielding no slug.
+for bad_tag in 'secret_in_output' 'secret-in-output (MAJOR)' 'secret-in-output, undecided'; do
+  reset_state
+  mkdir -p "$(dirname "$state")"
+  printf '2\n' > "$state"
+  seed_classed_findings 1 secret-in-output
+  seed_classed_findings 2 "$bad_tag"
+  run
+  if [ "$rc" -ne 0 ] && [ "$(<"$state")" = 2 ] && grep -Fq 'malformed CLASS: line' "$tmp/err"; then
+    pass "round 3 refused on a malformed CLASS line: $bad_tag"
+  else
+    fail "round 3 refused on a malformed CLASS line: $bad_tag" "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+  fi
+done
+
+run --consolidated '   '
+if [ "$rc" -eq 2 ] && grep -Fq -- '--consolidated needs' "$tmp/err"; then
+  pass 'a whitespace-only --consolidated is rejected'
+else
+  fail 'a whitespace-only --consolidated is rejected' "rc=$rc err=$(<"$tmp/err" 2>/dev/null || true)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 secret-in-output
+seed_classed_findings 2 secret-in-output
+run --consolidated 'one error builder over allowlisted fields'
+if [ "$rc" -eq 0 ] && grep -Fq 'one error builder over allowlisted fields' "$tmp/dispatched-prompt" && grep -Fq 'CLASS: <slug>' "$tmp/dispatched-prompt"; then
+  pass 'the round prompt asks for CLASS lines and carries the declared consolidation'
+else
+  fail 'the round prompt asks for CLASS lines and carries the declared consolidation' "rc=$rc prompt=$(grep -c . "$tmp/dispatched-prompt" 2>&1) note=$(grep -n 'consolidation' "$tmp/dispatched-prompt" 2>&1 | head -3)"
+fi
+
+reset_state
+mkdir -p "$(dirname "$state")"
+printf '2\n' > "$state"
+seed_classed_findings 1 secret-in-output
+seed_classed_findings 2 'secret_in_output'
+make_mutant 's/^  if \[ -n "\$bad" \]; then$/  if false; then/'
+run
+if [ "$rc" -eq 0 ]; then
+  pass 'malformed-tag refusal source mutation goes red'
+else
+  fail 'malformed-tag refusal source mutation goes red' "rc=$rc"
+fi
+runner="$tool"
+
 reset_state
 mkdir -p "$(dirname "$state")"
 printf '2\n' > "$state"
