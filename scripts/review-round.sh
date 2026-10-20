@@ -13,7 +13,7 @@
 set -euo pipefail
 
 usage() {
-  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--self-check] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run] [--selftest]' >&2
+  printf '%s\n' 'Usage: scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--self-check] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--consolidated "<words>"] [--dry-run] [--selftest]' >&2
   printf '%s\n' '       scripts/review-round.sh --collect <job-id> [--round <k>]' >&2
   printf '%s\n' '       scripts/review-round.sh --adopt <round> <job-id>' >&2
 }
@@ -23,6 +23,7 @@ mode='review'
 base=''
 bead=''
 user_approved=''
+consolidated=''
 dry_run=false
 selftest=false
 collect_job=''
@@ -65,6 +66,7 @@ case "$1" in
         --scope-changed) [ "$#" -ge 2 ] || { usage; exit 2; }; scope_changed=$2; shift 2 ;;
         --acceptance-reworded) [ "$#" -ge 2 ] || { usage; exit 2; }; acceptance_reworded=$2; shift 2 ;;
         --user-approved) [ "$#" -ge 2 ] || { usage; exit 2; }; user_approved=$2; shift 2 ;;
+        --consolidated) [ "$#" -ge 2 ] || { usage; exit 2; }; consolidated=$2; shift 2 ;;
         --self-check) self_check=true; shift ;;
         --dry-run) dry_run=true; shift ;;
         --selftest) selftest=true; shift ;;
@@ -588,6 +590,36 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+# Class convergence (rules/branch-completion-review.md § Converging a loop). A finding the
+# orchestrator dispositions FIX carries a `CLASS: <slug>` line in its round's findings file. A slug
+# that appears in two or more prior rounds is being patched per repro; the next round is refused
+# until --consolidated names the shared predicate/boundary. A prior round with no CLASS lines is
+# reported as not checked, never as clean: no tags and no recurrence look the same otherwise.
+recurring_classes() {  # recurring_classes <highest-prior-round> -> slugs seen in >=2 rounds
+  local k
+  for ((k = 1; k <= $1; k++)); do
+    sed -nE 's/^[[:space:]]*CLASS:[[:space:]]*([a-z0-9][a-z0-9-]*)[[:space:]]*$/\1/p' "$state_dir/$slug-r$k-findings.md" 2>/dev/null | sort -u
+  done | sort | uniq -d
+}
+
+class_recurrence_refusal() {  # class_recurrence_refusal <round>
+  local round=$1 k untagged='' recurring
+  [ "$round" -ge 3 ] || return 0
+  for ((k = 1; k < round; k++)); do
+    grep -Eq '^[[:space:]]*CLASS:[[:space:]]*[a-z0-9]' "$state_dir/$slug-r$k-findings.md" 2>/dev/null || untagged="$untagged $k"
+  done
+  [ -z "$untagged" ] || printf 'REVIEW ROUND: class convergence not checked for round(s)%s: no CLASS: lines recorded\n' "$untagged" >&2
+  recurring=$(recurring_classes $((round - 1)))
+  [ -n "$recurring" ] || return 0
+  [ -z "$consolidated" ] || return 0
+  printf 'review-round: round %s refused — the same finding class recurred across prior rounds:\n' "$round" >&2
+  printf '%s\n' "$recurring" | sed 's/^/  CLASS: /' >&2
+  printf '%s\n' 'Per-repro patching produces one new finding per round. Introduce ONE shared predicate or' >&2
+  printf '%s\n' 'boundary for the class plus a table-driven truth-table test across every consumer, then re-run' >&2
+  printf '%s\n' 'with --consolidated "<what was consolidated>" (rules/branch-completion-review.md § Converging a loop).' >&2
+  exit 1
+}
+
 prepare_round() {
   local recorded_stamp=''
 
@@ -607,6 +639,7 @@ prepare_round() {
     [ -z "$scope_changed" ] || ignored="$ignored --scope-changed"
     [ -z "$acceptance_reworded" ] || ignored="$ignored --acceptance-reworded"
     [ -z "$user_approved" ] || ignored="$ignored --user-approved"
+    [ -z "$consolidated" ] || ignored="$ignored --consolidated"
     if [ -n "$ignored" ]; then
       printf 'review-round: refused —%s mean nothing to a self-check; it spends no round and stamps no scope\n' "$ignored" >&2
       exit 2
@@ -759,6 +792,8 @@ prepare_round() {
       exit 1
     fi
   fi
+
+  class_recurrence_refusal "$round"
 
   goal_line=$(printf '%s' "$goal" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
   printf 'GOAL: %s | ROUND %s/3 | OPEN BLOCKERS ? | NEXT: wait for verdict\n' "$goal_line" "$round"

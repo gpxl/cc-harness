@@ -13,6 +13,7 @@ without dispatching or changing state.
 | `--scope-changed "<words>"` | Declare that the branch grew, archiving the prior rounds and restarting the budget |
 | `--acceptance-reworded "<words>"` | Declare that only the wording of the acceptance text changed — same commits, same criteria; the round counter is kept |
 | `--user-approved "<words>"` | The owner's words authorising a round beyond three |
+| `--consolidated "<words>"` | What shared predicate or boundary replaced per-repro patching; required from round 3 when a `CLASS: <slug>` line recurs across prior rounds (untagged rounds print "class convergence not checked") |
 | `--self-check` | Dispatch the author's own pre-round pass over the same diff, acceptance and evidence. Spends no round: no counter, scope stamp or reviewer thread is written, and it is refused once round 1 has been dispatched |
 | `--collect <job-id> --round 0` | Record that pass as `<branch-slug>-r0-self-review.md`; every later round's prompt inlines it, and says so when it is absent. Collecting the same job twice is idempotent; a second, later self-check is refused rather than silently discarded |
 
