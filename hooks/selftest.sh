@@ -185,8 +185,8 @@ exitplan_openai_disabled_forbids_codex() {
   return 0
 }
 
-# cch-jaf: the exitplan gate classifies the approved plan by difficulty. Mechanical and mixed
-# plans stay on the cheap Claude tier with no STOP; build and architecture keep their model and STOP.
+# cch-jaf: the exitplan gate classifies the approved plan by difficulty. A positively mechanical
+# plan stays on the cheap Claude tier with no STOP; build and architecture keep their model and STOP.
 exitplan_with_plan() {
   local plan="$1"; shift
   output=$(jq -n --arg plan "$plan" '{tool_input:{plan:$plan}}' | env "$@" bash "$root/exitplan-model-routing.sh" 2>/dev/null) || return 1
@@ -196,7 +196,6 @@ exitplan_with_plan() {
 mech_plan='Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.'
 build_plan='Debug the race condition in the sync worker, find the root cause, then fix it.'
 arch_plan='Write an ADR for the new system design and weigh the trade-offs between queue backends.'
-mixed_plan='Bump patch versions, then investigate any failing typecheck.'
 
 exitplan_mechanical_plan_stays_on_sonnet() {
   local mi bi
@@ -207,19 +206,15 @@ exitplan_mechanical_plan_stays_on_sonnet() {
   printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$mi]} at ${MODEL_ROUTING_CLAUDE_EFFORT[$mi]} effort" || return 1
   printf '%s' "$output" | grep -Fq 'MATCH, not a mismatch' || return 1
   printf '%s' "$output" | grep -Fq 'Escalation trigger' || return 1
-  printf '%s' "$output" | grep -Fq 'STOP' && return 1
+  # The only STOP allowed is the one scoped to a below-row session (the mismatch sentence).
+  printf '%s' "$output" | sed 's/On that mismatch, STOP: //' | grep -Fq 'STOP' && return 1
   printf '%s' "$output" | grep -Fq "Implement in Claude on ${MODEL_ROUTING_CLAUDE_FALLBACKS[$bi]}" && return 1
   return 0
 }
 
-exitplan_mixed_plan_takes_cheaper_tier_with_escalation() {
-  local mi
-  load_model_routing_table || return 1
-  mi=$(model_routing_index_for_key mechanical) || return 1
-  exitplan_with_plan "$mixed_plan" CC_HARNESS_VENDORS_FILE="$vendors_off" || return 1
-  printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$mi]} at ${MODEL_ROUTING_CLAUDE_EFFORT[$mi]} effort" || return 1
-  printf '%s' "$output" | grep -Fq 'Escalation trigger' || return 1
-  printf '%s' "$output" | grep -Fq 'needs real debugging'
+exitplan_mechanical_mismatch_names_stop() {
+  exitplan_with_plan "$mech_plan" CC_HARNESS_VENDORS_FILE="$vendors_off" || return 1
+  printf '%s' "$output" | grep -Fq 'On that mismatch, STOP: ask the user to run /model <id> or use an Agent model override.'
 }
 
 exitplan_build_plan_requires_build_model_and_stops() {
@@ -238,7 +233,7 @@ exitplan_architecture_plan_requires_top_model_and_stops() {
   load_model_routing_table || return 1
   ai=$(model_routing_index_for_key architecture) || return 1
   exitplan_with_plan "$arch_plan" CC_HARNESS_VENDORS_FILE="$vendors_off" || return 1
-  printf '%s' "$output" | grep -Fq "claude-fable-5-1 then claude-opus-5-5 at ${MODEL_ROUTING_CLAUDE_EFFORT[$ai]} effort" || return 1
+  printf '%s' "$output" | grep -Fq "${MODEL_ROUTING_CLAUDE_FALLBACKS[$ai]// / then } at ${MODEL_ROUTING_CLAUDE_EFFORT[$ai]} effort" || return 1
   printf '%s' "$output" | grep -Fq 'STOP'
 }
 
@@ -251,14 +246,35 @@ exitplan_mechanical_plan_with_openai_still_delegates() {
   printf '%s' "$output" | grep -Fq 'STOP before implementing and delegate'
 }
 
-exitplan_empty_plan_keeps_build_tier() {
-  local bi
+# Truth table over both error directions: build plans wrongly downgraded, mechanical plans
+# wrongly escalated. Rows are "expected|plan"; the bare no-signal and unreadable cases map to build.
+exitplan_classifier_truth_table() {
+  local row want plan got
   load_model_routing_table || return 1
-  bi=$(model_routing_index_for_key build) || return 1
   [ "$(model_routing_classify_plan '')" = build ] || return 1
-  [ "$(model_routing_classify_plan "$mech_plan")" = mechanical ] || return 1
-  [ "$(model_routing_classify_plan "$mixed_plan")" = mixed ] || return 1
-  [ "$(model_routing_classify_plan 'Tidy the settings page copy.')" = mixed ]
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    want=${row%%|*}; plan=${row#*|}
+    got=$(model_routing_classify_plan "$plan")
+    [ "$got" = "$want" ] || { printf 'classify %s: want %s got %s\n' "$plan" "$want" "$got" >&2; return 1; }
+  done <<'ROWS'
+build|Fix the bug where auth tokens are not refreshed; add retry logic across the API client and UI.
+build|Implement OAuth login with PKCE, add session storage and wire it into three services.
+build|Refactor the payment service into separate modules and add integration tests.
+build|Add a new caching layer with eviction and invalidation across services
+build|Design the persistence layer for the new cache
+build|Debug the race condition in the sync worker, then rename the helper.
+build|Rewrite the scheduler algorithm; regenerate the lockfile afterwards.
+build|Investigate the memory leak; bump the dependency if it is the cause.
+build|Tidy the settings page.
+build|Bump patch versions, then investigate any failing typecheck.
+architecture|Write an ADR for the queue backends.
+build|Update the quadrant chart.
+mechanical|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.
+mechanical|Bump patch-level dependencies in the lockfile and run yarn up -R on the vulnerable packages.
+mechanical|Rename the helper across the repo with a codemod.
+mechanical|Fix typos in the README and update the copy on the pricing page.
+ROWS
 }
 
 first_edit_openai_disabled_is_silent() {
@@ -1095,11 +1111,11 @@ record 'bd-ready silent: quoted phrase' bd_silent "printf 'bd ready'"
 record 'model-routing data slugs exactly match the CLAUDE equivalence table' model_routing_table_matches_claude
 record 'exitplan emits valid Codex-first JSON' exitplan_valid
 record 'exitplan: mechanical plan stays on the cheap Claude tier with no STOP' exitplan_mechanical_plan_stays_on_sonnet
-record 'exitplan: mixed plan takes the cheaper tier and names an escalation trigger' exitplan_mixed_plan_takes_cheaper_tier_with_escalation
+record 'exitplan: mechanical mismatch names the STOP and the /model ask' exitplan_mechanical_mismatch_names_stop
 record 'exitplan: build plan requires the build model and STOPs on mismatch' exitplan_build_plan_requires_build_model_and_stops
 record 'exitplan: architecture plan requires the top model and STOPs on mismatch' exitplan_architecture_plan_requires_top_model_and_stops
 record 'exitplan: mechanical plan with openai enabled still delegates at the mechanical tier' exitplan_mechanical_plan_with_openai_still_delegates
-record 'exitplan: classifier maps empty to build, ambiguous to mixed' exitplan_empty_plan_keeps_build_tier
+record 'exitplan: classifier truth table, build never downgraded and mechanical never escalated' exitplan_classifier_truth_table
 record 'first-edit fires once: fresh session' first_edit_fires 'fresh-session'
 record 'first-edit silent: repeated session' first_edit_silent 'fresh-session'
 record 'first-edit fires: session alpha' first_edit_fires 'session-alpha'

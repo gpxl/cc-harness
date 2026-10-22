@@ -126,22 +126,24 @@ model_routing_disabled_vendors() {
   printf '%s\n' "${text:-none}"
 }
 
-# Classify an approved plan's text by difficulty: architecture | build | mechanical | mixed.
-# Architecture signals win; build signals alone mean build; mechanical signals alone mean
-# mechanical; build AND mechanical together, or no signal either way, is "mixed" (the caller
-# recommends the cheaper adequate tier and names the escalation trigger). Empty text means the
-# plan was unreadable, so nothing is known: report build, the pre-classifier behaviour.
+# Classify an approved plan's text by difficulty: architecture | build | mechanical.
+# "mechanical" is a POSITIVE classification only: mechanical signals present AND no build or
+# architecture signal. Everything else (no signal, or build+mechanical together, or an
+# unreadable plan) is build, so an unclear plan keeps the build tier and its STOP rather than
+# being downgraded. Build keywords track the Build row's description. Negation ("no
+# architecture change") is deliberately not handled: over-escalating is the safe direction.
 model_routing_classify_plan() {
   local text arch=0 build=0 mech=0
   text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   [ -n "$text" ] || { printf '%s\n' build; return 0; }
-  printf '%s' "$text" | grep -Eq 'adr\b|system design|architecture|novel abstraction|trade-?off' && arch=1
-  printf '%s' "$text" | grep -Eq 'debug|root cause|race condition|investigate|new feature|new endpoint|new module|redesign|rewrite|algorithm|migrat' && build=1
-  printf '%s' "$text" | grep -Eq 'lockfile|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate' && mech=1
+  # Trivial "fix" phrasings are mechanical edits, not bug fixes.
+  text=$(printf '%s' "$text" | sed -E 's/fix(es|ing)? (a |the |some )?(typos?|formatting|lint|whitespace)//g')
+  printf '%s' "$text" | grep -Eq '(^|[^a-z])adr([^a-z]|$)|system design|architecture|novel abstraction|trade-?off' && arch=1
+  printf '%s' "$text" | grep -Eq 'implement|fix|bug|refactor|feature|design|persistence|debug|root cause|race condition|investigate|rewrite|algorithm|migrat|new (module|endpoint|service|layer|cache)|(^|[^a-z])add(s|ed|ing)?([^a-z]|$)|(add|write|new|failing) [a-z ]*tests?|logic|wire |integration|retry' && build=1
+  printf '%s' "$text" | grep -Eq 'lockfile|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate|copy (edit|change)|update (the )?copy|wording' && mech=1
   if [ "$arch" = 1 ]; then printf '%s\n' architecture
-  elif [ "$build" = 1 ] && [ "$mech" = 0 ]; then printf '%s\n' build
   elif [ "$build" = 0 ] && [ "$mech" = 1 ]; then printf '%s\n' mechanical
-  else printf '%s\n' mixed
+  else printf '%s\n' build
   fi
 }
 
