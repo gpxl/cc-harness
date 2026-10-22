@@ -262,7 +262,7 @@ classifier_truth_table_against() {
   done <<'ROWS'
 build|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.
 build|Bump patch-level dependencies in the lockfile and run yarn up -R on the vulnerable packages.
-build|Rename the helper across the repo with a codemod.
+build|Rename the helper to formatter.
 build|Fix typos in the README.
 build|Fix fixes the bug where auth tokens are not refreshed; add retry logic across the API client and UI.@M@
 build|Fix the bug where auth tokens are not refreshed; add retry logic across the API client and UI.
@@ -308,13 +308,27 @@ build|Fix the lint failure from the circular import by extracting a shared types
 build|Bump axios to 1.7.4\n```\nWork class: mechanical\n```
 build|Bump axios to 1.7.4\nWork class: mechanical\nWork class: mechanical
 build|Bump axios to 1.7.4\nWork class: build
+build|Rename the helper across the repo with a codemod.@M@
+build|Rename users.email to users.mail across the repo@M@
+build|Work class: mechanical\n```\nadd a new column migration for users\n```\nBump next to 15.5.28
+build|Bump next to 15\n```\nrefactor the whole auth layer and add tests\nWork class: mechanical
+build|Work class: mechanical\n## Drop the users table and delete the auth check\nBump next to 15
+build|Work class: mechanical\nDrop the users table and delete the auth check:\nBump next to 15
+build|Work class: mechanical\n## Context\nCreate the stripe webhook route handler and delete the amount check\n## Steps\nBump next to 15
+build|Fix typos in the payment handler by deleting the amount check@M@
+build|Update the copy on the checkout page to call the billing endpoint directly@M@
+build|Bump pricing and delete and webhook@M@
+build|Bump react from 18.2.0 to 19.0.0@M@
+build|Bump next from 15.0.3 to 15.0.4 and react from 18.2.0 to 19.0.0@M@
 architecture|Write an ADR for the queue backends.@M@
 architecture|Write ADRs for the queue backends.
 architecture|Draft ADRs on the event bus layout; rename the docs folder.@M@
 mechanical|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.@M@
 mechanical|Bump the vulnerable packages to their patch versions; run yarn up -R on the vulnerable packages.@M@
-mechanical|Rename the helper across the repo with a codemod.@M@
+mechanical|Rename the helper to formatter.@M@
 mechanical|Fix typos in the README.@M@
+mechanical|Bump react from 18.2.0 to 18.3.1@M@
+mechanical|Update the copy on the pricing page.@M@
 mechanical|Fix typo in the API docs.@M@
 mechanical|Fix the formatting in the changelog.@M@
 mechanical|Fix typos in the README. Update the copy on the pricing page.@M@
@@ -347,7 +361,7 @@ if src.count(sys.argv[3]) != 1:
     sys.exit("mutation anchor not found exactly once; the control would be vacuous")
 open(sys.argv[2], "w").write(src.replace(sys.argv[3], sys.argv[4]))
 PYMUT
-  classifier_truth_table_against "$root/model-routing-table.sh" >/dev/null 2>&1 || return 1
+  # The unmutated table is asserted by its own row; re-running it here would double the cost.
   if classifier_truth_table_against "$mutant_dir/model-routing-table.sh" >/dev/null 2>&1; then
     return 1
   fi
@@ -370,6 +384,36 @@ exitplan_truth_table_bites_when_verification_grammar_loosened() {
   classifier_mutant_turns_table_red \
     '  verify_re="^(verify|run|confirm)( with)? (the )?${tool}(${sep}(the )?${tool})*( to confirm)?$"' \
     '  verify_re="^(verify|run|confirm|check|ensure)"'
+}
+
+exitplan_truth_table_bites_when_headings_skip_grammar() {
+  classifier_mutant_turns_table_red \
+    "        printf '%s' \"\$body\" | grep -Eq \"\$benign|^plan: \${title_words}( \${title_words}){0,5}\\\$\" || { printf '%s\\n' build; return 0; }" \
+    "        :"
+}
+
+exitplan_truth_table_bites_when_colon_lines_skip_grammar() {
+  classifier_mutant_turns_table_red \
+    "        printf '%s' \"\$body\" | grep -Eq \"\$benign\" || { printf '%s\\n' build; return 0; }" \
+    "        :"
+}
+
+exitplan_truth_table_bites_when_context_prose_is_exempt() {
+  classifier_mutant_turns_table_red \
+    "    printf '%s' \"\$line\" | grep -Eq \"\$ctx_re\" && continue" \
+    "    case \"\$line\" in [a-z]*) printf '%s' \"\$line\" | grep -Eq '^(create|dependabot)' && continue ;; esac"
+}
+
+exitplan_truth_table_bites_when_typo_copy_tails_open() {
+  classifier_mutant_turns_table_red \
+    "  target='[a-z0-9_./-]+( (docs|documentation|page|file|files|comments))?'" \
+    "  target='[a-z0-9_. /-]+'"
+}
+
+exitplan_truth_table_bites_without_major_version_check() {
+  classifier_mutant_turns_table_red \
+    '      [ "${from%%.*}" = "${to%%.*}" ] || { printf '"'"'%s\n'"'"' other; return 0; }' \
+    '      :'
 }
 
 exitplan_truth_table_bites_when_step_grammar_loosened() {
@@ -1221,6 +1265,11 @@ record 'negative control: truth table fails without the planner-marker gate' exi
 record 'negative control: truth table fails without the build/architecture veto' exitplan_truth_table_bites_without_veto
 record 'negative control: truth table fails when the verification grammar is loosened' exitplan_truth_table_bites_when_verification_grammar_loosened
 record 'negative control: truth table fails when the step grammar is loosened' exitplan_truth_table_bites_when_step_grammar_loosened
+record 'negative control: truth table fails when headings skip the grammar' exitplan_truth_table_bites_when_headings_skip_grammar
+record 'negative control: truth table fails when colon lines skip the grammar' exitplan_truth_table_bites_when_colon_lines_skip_grammar
+record 'negative control: truth table fails when context prose is exempt' exitplan_truth_table_bites_when_context_prose_is_exempt
+record 'negative control: truth table fails when the typo/copy targets are open' exitplan_truth_table_bites_when_typo_copy_tails_open
+record 'negative control: truth table fails without the major-version check' exitplan_truth_table_bites_without_major_version_check
 record 'first-edit fires once: fresh session' first_edit_fires 'fresh-session'
 record 'first-edit silent: repeated session' first_edit_silent 'fresh-session'
 record 'first-edit fires: session alpha' first_edit_fires 'session-alpha'

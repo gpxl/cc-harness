@@ -218,9 +218,11 @@ to switch" does not satisfy this gate.
 the approved plan, and **the Mechanical row is opt-in**. A plan is Mechanical only if the planner
 wrote the line `Work class: mechanical` (own line, outside code fences, exactly once) **and** the plan
 passes two checks that can only force Build: no build or architecture signal anywhere in it, and every
-non-heading, non-context, non-verification step matches a small anchored grammar (version bumps,
-lockfile delete/regenerate, `yarn install`, rename, typo/copy edits; verification is only
-`verify|run|confirm [with] lint|typecheck|build|tests|ci`). Planning models: write `Work class:
+line matches a small anchored grammar (same-major version bumps with a target version,
+lockfile delete/regenerate, `yarn install`, simple rename, typo/copy edits on a single named target; verification is only
+`verify|run|confirm [with] lint|typecheck|build|tests|ci`). Hidden or unchecked text fails closed: code
+fences, headings or colon lines outside a short benign list, and context prose outside a fixed
+sentence form all force Build. Planning models: write `Work class:
 mechanical` only for lockfile, dependency-patch, copy or rename style work with a known outcome and an
 easy check, and omit it otherwise. An unmarked plan is **Build** even when it looks mechanical;
 judgment lives in the planner, not in keyword guessing. ADR/system design takes **Architecture**.

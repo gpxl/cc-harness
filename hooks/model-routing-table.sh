@@ -139,7 +139,7 @@ MODEL_ROUTING_ARCH_SIGNALS='(^|[^a-z])adrs?([^a-z]|$)|system design|architecture
 # Classify one plan step: verify | mechanical | other. A step is verification only if the WHOLE
 # step matches the anchored grammar; leftover text ("... after migrating callers") is "other".
 model_routing_step_class() {
-  local step="$1" pkg ver item items lockf tool sep verify_re
+  local step="$1" pkg ver item_v items lockf tool sep verify_re target pair from to
   step=$(printf '%s' "$step" | sed -E 's/^(then|and|finally) //')
   tool='(yarn |npm run |pnpm )?(lint|typecheck|build|tests?|ci)'
   sep='(, and |, | and )'
@@ -147,16 +147,25 @@ model_routing_step_class() {
   if printf '%s' "$step" | grep -Eq "$verify_re"; then
     printf '%s\n' verify; return 0
   fi
-  pkg='[@a-z0-9][@a-z0-9/._-]*'
+  pkg='(@[a-z0-9-]+/)?[a-z0-9][a-z0-9._-]*'
   ver='v?[0-9][0-9a-z.*^~-]*'
-  item="(the )?${pkg}( (from )?${ver} (to|->) ${ver}| to ${ver})?"
-  items="${item}(( and |, | and the |, and )${item})*( \(patch\))?"
-  rename_re='^rename (the )?[`a-z0-9_.-]+( to [`a-z0-9_.-]+)?( across the (repo|codebase))?( with a codemod)?$'
+  # A bump item names the package AND its target version; bare words are not packages.
+  item_v="(the )?${pkg}( (from )?${ver} (to|->) ${ver}| to ${ver})"
+  items="${item_v}(( and |, | and the |, and )${item_v})*( \(patch\))?"
   lockf='(yarn\.lock|package-lock\.json|pnpm-lock\.yaml|lockfiles?)'
-  if printf '%s' "$step" | grep -Eq "^bump ${items}$|^bump (all |the )?([a-z0-9]+ )?(packages|dependencies|deps)( to (their|the latest) (patch|minor) versions?)?$|^bump (the )?(patch|minor) versions of ${pkg}(( and |, )${pkg})*$|^apply (the )?patch-level (version )?(bumps|updates)$|^(regenerate|refresh|delete|remove)( the)?( (stale|unused|old))? ${lockf}( and ${lockf})*( files?)?( after the (dependabot )?bump)?$|^(run )?(yarn|npm|pnpm) (install|update)$|^(run )?yarn up -r( [@a-z0-9/._-]+)*( on the vulnerable packages)?$|^fix (a |the |some )?(typos?|formatting)( in (the )?[a-z0-9_. /-]+)?$|^update (the )?copy on (the )?[a-z0-9 -]+$"; then
+  # Edit targets are a single path-like token plus an optional closed noun: no verbs or clauses.
+  target='[a-z0-9_./-]+( (docs|documentation|page|file|files|comments))?'
+  rename_re='^rename (the )?[a-z0-9_-]+( to [a-z0-9_-]+)?$'
+  if printf '%s' "$step" | grep -Eq "^bump ${items}$"; then
+    # A major-version change needs code changes: build, not mechanical.
+    for pair in $(printf '%s' "$step" | grep -Eo "${ver} (to|->) ${ver}" | sed -E 's/ (to|->) /@/'); do
+      from=${pair%%@*}; to=${pair#*@}
+      from=${from#v}; to=${to#v}
+      [ "${from%%.*}" = "${to%%.*}" ] || { printf '%s\n' other; return 0; }
+    done
     printf '%s\n' mechanical; return 0
   fi
-  if printf '%s' "$step" | grep -Eq "$rename_re"; then
+  if printf '%s' "$step" | grep -Eq "^bump (all |the )?((three|two|four|five|vulnerable|affected|flagged|[0-9]+) )?(packages|dependencies|deps)( to (their|the latest) (patch|minor) versions?)?$|^bump (the )?(patch|minor) versions of ${pkg}( and ${pkg})?$|^apply (the )?patch-level (version )?(bumps|updates)$|^(regenerate|refresh|delete|remove)( the)?( (stale|unused|old))? ${lockf}( and ${lockf})*( files?)?( after the (dependabot )?bump)?$|^(run )?(yarn|npm|pnpm) (install|update)$|^(run )?yarn up -r( ${pkg})?( on the vulnerable packages)?$|^fix (a |the |some )?(typos?|formatting)( in (the )?${target})?$|^update (the )?copy on (the )?[a-z0-9-]+( page)?$|${rename_re}"; then
     printf '%s\n' mechanical; return 0
   fi
   printf '%s\n' other
@@ -181,18 +190,22 @@ EOF4
 }
 
 # Classify an approved plan's text by difficulty: architecture | build | mechanical.
+# Hidden or unchecked text fails closed: any code fence, any heading or colon line outside a
+# closed benign list, and any context prose outside a closed sentence form all force build.
 model_routing_classify_plan() {
-  local text line kept='' fence=0 markers=0 mech_markers=0 section_ctx=0 mech_steps=0
-  local step class marker_re
-  text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  local text line body kept='' markers=0 mech_markers=0 mech_steps=0
+  local step class marker_re benign title_words ctx_re
+  text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '\r')
   [ -n "$text" ] || { printf '%s\n' build; return 0; }
   if printf '%s' "$text" | grep -Eq "$MODEL_ROUTING_ARCH_SIGNALS"; then
     printf '%s\n' architecture; return 0
   fi
+  # Fenced content is unchecked text; an unclosed fence hides everything after it.
+  if printf '%s' "$text" | grep -Eq '^[[:space:]]*(```|~~~)'; then
+    printf '%s\n' build; return 0
+  fi
   marker_re='^[[:space:]]*(\*\*)?work class:(\*\*)?[[:space:]]*mechanical[[:space:]]*$'
   while IFS= read -r line; do
-    case "$line" in '```'*|'~~~'*) fence=$((1 - fence)); continue ;; esac
-    [ "$fence" = 0 ] || continue
     if printf '%s' "$line" | grep -Eq '^[[:space:]]*(\*\*)?work class:'; then
       markers=$((markers + 1))
       printf '%s' "$line" | grep -Eq "$marker_re" && mech_markers=$((mech_markers + 1))
@@ -209,16 +222,24 @@ EOF
   if printf '%s' "$kept" | sed -E 's/fix(es)? (a |the |some )?(typos?|formatting)/ /g' | grep -Eq "$MODEL_ROUTING_BUILD_SIGNALS"; then
     printf '%s\n' build; return 0
   fi
+  benign='^(plan|steps?|context|summary|background|verification|overview|changes)$'
+  title_words='(patch|minor|security|dependency|dependencies|lockfile|lockfiles|version|versions|update|updates|bump|bumps|copy|typo|typos|rename|renames|cleanup|refresh|and|of|for)'
+  ctx_re='^(dependabot|renovate) (flagged|reported|opened)( (three|two|four|five|several|[0-9]+|patch|minor|patch-level|security|dependency|dependencies|updates?|alerts?|vulnerabilities|advisories|in|the|web|monorepo|repo|repository|for|and))+\.?$'
   while IFS= read -r line; do
-    line=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*([-*]|[0-9]+[.)])?[[:space:]]*//; s/[[:space:]]+$//')
+    line=$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
     [ -n "$line" ] || continue
     case "$line" in
-      '#'*|*:) section_ctx=0
-        printf '%s' "$line" | grep -Eq '^#* *(context|background|summary|why|motivation|overview)' && section_ctx=1
+      '#'*)
+        body=$(printf '%s' "$line" | sed -E 's/^#+[[:space:]]*//')
+        printf '%s' "$body" | grep -Eq "$benign|^plan: ${title_words}( ${title_words}){0,5}\$" || { printf '%s\n' build; return 0; }
+        continue ;;
+      *:)
+        body=${line%:}
+        printf '%s' "$body" | grep -Eq "$benign" || { printf '%s\n' build; return 0; }
         continue ;;
     esac
-    [ "$section_ctx" = 0 ] || continue
-    line=$(printf '%s' "$line" | sed -E 's/^plan: //')
+    line=$(printf '%s' "$line" | sed -E 's/^([-*]|[0-9]+[.)])[[:space:]]+//; s/^plan: //')
+    printf '%s' "$line" | grep -Eq "$ctx_re" && continue
     while IFS= read -r step; do
       step=$(printf '%s' "$step" | sed -E 's/^[[:space:]]+//; s/[.[:space:]]+$//')
       [ -n "$step" ] || continue
