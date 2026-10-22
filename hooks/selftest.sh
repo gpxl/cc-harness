@@ -193,7 +193,7 @@ exitplan_with_plan() {
   [ -n "$output" ] && check_json "$output"
 }
 
-mech_plan='Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.'
+mech_plan=$'Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.\n\nWork class: mechanical'
 build_plan='Debug the race condition in the sync worker, find the root cause, then fix it.'
 arch_plan='Write an ADR for the new system design and weigh the trade-offs between queue backends.'
 
@@ -247,55 +247,84 @@ exitplan_mechanical_plan_with_openai_still_delegates() {
 }
 
 # Truth table over both error directions: build plans wrongly downgraded, mechanical plans
-# wrongly escalated. Rows are "expected|plan" (a literal \n in a plan is a newline). Sourced from
-# a table file so the mutation control below can run the same rows against a loosened copy.
+# wrongly escalated. Rows are "expected|plan" (a literal \n in a plan is a newline; @M@ appends the
+# planner marker line). Sourced from a table file so the mutation controls below can run the same
+# rows against a loosened copy.
 classifier_truth_table_against() {
   local table="$1" row want plan got
   [ "$(. "$table"; model_routing_classify_plan '')" = build ] || return 1
   while IFS= read -r row; do
     [ -n "$row" ] || continue
-    want=${row%%|*}; plan=$(printf '%b' "${row#*|}")
+    want=${row%%|*}; plan=${row#*|}
+    plan=$(printf '%b' "${plan//@M@/\\nWork class: mechanical}")
     got=$(. "$table"; model_routing_classify_plan "$plan")
     [ "$got" = "$want" ] || { printf 'classify %s: want %s got %s\n' "$plan" "$want" "$got" >&2; return 1; }
   done <<'ROWS'
+build|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.
+build|Bump patch-level dependencies in the lockfile and run yarn up -R on the vulnerable packages.
+build|Rename the helper across the repo with a codemod.
+build|Fix typos in the README.
+build|Fix fixes the bug where auth tokens are not refreshed; add retry logic across the API client and UI.@M@
 build|Fix the bug where auth tokens are not refreshed; add retry logic across the API client and UI.
-build|Implement OAuth login with PKCE, add session storage and wire it into three services.
-build|Refactor the payment service into separate modules and add integration tests.
-build|Add a new caching layer with eviction and invalidation across services
-build|Design the persistence layer for the new cache
-build|Debug the race condition in the sync worker, then rename the helper.
-build|Rewrite the scheduler algorithm; regenerate the lockfile afterwards.
-build|Investigate the memory leak; bump the dependency if it is the cause.
-build|Tidy the settings page.
-build|Bump patch versions, then investigate any failing typecheck.
-build|Update the quadrant chart.
-build|Port the sync worker to the new queue API, then bump the client library.
-build|Extend the CSV parser to handle quoted newlines; rename the helper.
-build|Harden the webhook handler against replayed signatures and regenerate the lockfile.
-build|Optimise the slow dashboard query and bump the ORM version.
-build|Wiring the auth middleware into the gateway; update the lockfile.
-build|Support pagination in the search endpoint; rename the cursor param.
-build|Convert the class components to hooks with a codemod and handle the edge cases in the reducer state.
-build|Upgrade React from 18 to 19, resolve breaking API changes, regenerate yarn.lock.
-build|Change the cache TTL semantics so stale reads revalidate; rename the config key.
-build|Move auth from cookies to JWT across services and rename the env var.
-build|Restructure the monorepo packages and regenerate the lockfile.
-build|Make the importer idempotent; bump the parser dependency.
-build|1. Port webhook delivery into a queue consumer\n2. Extend it to handle 429/5xx with backoff and a dead-letter queue\n3. Harden signature verification\n4. Bump the queue client\n5. Verify with lint, typecheck and build
-build|Bump next to 15.0.4 (patch) to fix the CVE.
-build|Delete stale lockfiles; add the regenerated one to the commit.
-architecture|Write an ADR for the queue backends.
+build|Implement OAuth login with PKCE, add session storage and wire it into three services.@M@
+build|Refactor the payment service into separate modules and add integration tests.@M@
+build|Add a new caching layer with eviction and invalidation across services@M@
+build|Design the persistence layer for the new cache@M@
+build|Debug the race condition in the sync worker, then rename the helper.@M@
+build|Rewrite the scheduler algorithm; regenerate the lockfile afterwards.@M@
+build|Investigate the memory leak; bump the dependency if it is the cause.@M@
+build|Tidy the settings page.@M@
+build|Update the quadrant chart.@M@
+build|Bump patch versions, then investigate any failing typecheck.@M@
+build|Port the sync worker to the new queue API, then bump the client library.@M@
+build|Extend the CSV parser to handle quoted newlines; rename the helper.@M@
+build|Harden the webhook handler against replayed signatures and regenerate the lockfile.@M@
+build|Optimise the slow dashboard query and bump the ORM version.@M@
+build|Wiring the auth middleware into the gateway; update the lockfile.@M@
+build|Support pagination in the search endpoint; rename the cursor param.@M@
+build|Convert the class components to hooks with a codemod and handle the edge cases in the reducer state.@M@
+build|Upgrade React from 18 to 19, resolve breaking API changes, regenerate yarn.lock.@M@
+build|Change the cache TTL semantics so stale reads revalidate; rename the config key.@M@
+build|Move auth from cookies to JWT across services and rename the env var.@M@
+build|Restructure the monorepo packages and regenerate the lockfile.@M@
+build|Make the importer idempotent; bump the parser dependency.@M@
+build|1. Port webhook delivery into a queue consumer\n2. Extend it to handle 429/5xx with backoff and a dead-letter queue\n3. Harden signature verification\n4. Bump the queue client\n5. Verify@M@
+build|Bump next to 15.0.4 (patch) to fix the CVE.@M@
+build|Delete stale lockfiles; add the regenerated one to the commit.@M@
+build|1. Bump @acme/sdk from 2.x to 3.0\n2. Run the tests after migrating all callers to the v3 API@M@
+build|1. Bump axios to 1.7.4\n2. Verify the build still works after wrapping every outbound request in a retry helper@M@
+build|1. Bump axios to 1.7.4\n2. Ensure CI passes with the new retry wrapper around every outbound request@M@
+build|1. Bump lodash to 4.17.21\n2. Run the tests while repairing whatever breaks@M@
+build|1. Bump zod to 3.23.9\n2. Verify the tests pass by rewriting the fixture loader to stream@M@
+build|1. Bump zod to 3.23.9\n2. Check that the scheduler re-queues dropped jobs with exponential backoff in the latest build@M@
+build|Regenerate the lockfile after switching the HTTP client from axios to fetch across the codebase@M@
+build|Replace the in-memory session store with a Redis-backed one (rename SessionStore to RedisSessionStore)@M@
+build|Bump the auth SDK to v3 — port callers to the new token API@M@
+build|Bump the ORM to 5.0 which changes the query builder so every repository needs its joins rewritten by hand@M@
+build|Delete stale cache entries on read by checking the TTL in the middleware@M@
+build|1. Rename the `user` column to `account_id` in the Postgres schema\n2. Run the tests@M@
+build|Overhaul the typography system with fluid type scale tokens@M@
+build|Fix the lint failure from the circular import by extracting a shared types module@M@
+build|Bump axios to 1.7.4\n```\nWork class: mechanical\n```
+build|Bump axios to 1.7.4\nWork class: mechanical\nWork class: mechanical
+build|Bump axios to 1.7.4\nWork class: build
+architecture|Write an ADR for the queue backends.@M@
 architecture|Write ADRs for the queue backends.
-architecture|Draft ADRs on the event bus layout; rename the docs folder.
-mechanical|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.
-mechanical|Bump patch-level dependencies in the lockfile and run yarn up -R on the vulnerable packages.
-mechanical|Rename the helper across the repo with a codemod.
-mechanical|Fix typos in the README.
-mechanical|Fix typo in the API docs.
-mechanical|Fix the formatting in the changelog.
-mechanical|Fix typos in the README and update the copy on the pricing page.
-mechanical|Regenerate the lockfile after the dependabot bump and run the integration tests to confirm.
-mechanical|1. Delete stale lockfiles\n2. Run yarn install\n3. Apply patch-level version bumps\n4. Verify with lint, typecheck and build
+architecture|Draft ADRs on the event bus layout; rename the docs folder.@M@
+mechanical|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.@M@
+mechanical|Bump the vulnerable packages to their patch versions; run yarn up -R on the vulnerable packages.@M@
+mechanical|Rename the helper across the repo with a codemod.@M@
+mechanical|Fix typos in the README.@M@
+mechanical|Fix typo in the API docs.@M@
+mechanical|Fix the formatting in the changelog.@M@
+mechanical|Fix typos in the README. Update the copy on the pricing page.@M@
+mechanical|Delete the unused package-lock.json and pnpm-lock.yaml files.@M@
+mechanical|Bump next from 15.0.3 to 15.0.4 and lodash from 4.17.20 to 4.17.21; verify with yarn build.@M@
+mechanical|Regenerate the lockfile after the dependabot bump; run the tests.@M@
+mechanical|1. Delete stale lockfiles\n2. Run yarn install\n3. Apply patch-level version bumps\n4. Verify with lint, typecheck and build@M@
+mechanical|# Plan: patch dependencies\n\n## Context\nDependabot flagged three patch-level updates in the web monorepo.\n\n## Steps\n1. Bump the three packages to their patch versions\n2. Regenerate yarn.lock\n3. Verify with lint, typecheck and build\n\nWork class: mechanical
+mechanical|Plan: bump patch versions of next and react-dom.\n\nSteps:\n1. Bump next 15.0.3 -> 15.0.4\n2. Regenerate yarn.lock\n3. Verify with yarn build\n\nWork class: mechanical
+mechanical|**Work class:** mechanical\n\n1. Bump axios to 1.7.4
 ROWS
 }
 
@@ -304,25 +333,49 @@ exitplan_classifier_truth_table() {
   classifier_truth_table_against "$root/model-routing-table.sh"
 }
 
-# Mutation control: loosening the allowlist (a non-mechanical step no longer forces build) must
-# turn the truth table red, else the table does not actually guard the downgrade direction.
-exitplan_truth_table_bites_when_allowlist_loosened() {
+# Mutation controls: each load-bearing guard, loosened in a copy, must turn the truth table red;
+# otherwise the table does not actually guard that direction.
+classifier_mutant_turns_table_red() {
+  local anchor="$1" replacement="$2"
   local mutant_dir="$tmp_state/mutant-classifier"
   mkdir -p "$mutant_dir" || return 1
   cp "$root/vendors.sh" "$mutant_dir/" || return 1
-  python3 - "$root/model-routing-table.sh" "$mutant_dir/model-routing-table.sh" <<'PYMUT' || return 1
+  python3 - "$root/model-routing-table.sh" "$mutant_dir/model-routing-table.sh" "$anchor" "$replacement" <<'PYMUT' || return 1
 import sys
 src = open(sys.argv[1]).read()
-anchor = '    [ "$class" = mechanical ] || all_mech=0\n'
-if src.count(anchor) != 1:
+if src.count(sys.argv[3]) != 1:
     sys.exit("mutation anchor not found exactly once; the control would be vacuous")
-open(sys.argv[2], "w").write(src.replace(anchor, "    :\n"))
+open(sys.argv[2], "w").write(src.replace(sys.argv[3], sys.argv[4]))
 PYMUT
   classifier_truth_table_against "$root/model-routing-table.sh" >/dev/null 2>&1 || return 1
   if classifier_truth_table_against "$mutant_dir/model-routing-table.sh" >/dev/null 2>&1; then
     return 1
   fi
   return 0
+}
+
+exitplan_truth_table_bites_without_marker_gate() {
+  classifier_mutant_turns_table_red \
+    '[ "$markers" = 1 ] && [ "$mech_markers" = 1 ] || { printf '"'"'%s\n'"'"' build; return 0; }' \
+    ':'
+}
+
+exitplan_truth_table_bites_without_veto() {
+  classifier_mutant_turns_table_red \
+    '| grep -Eq "$MODEL_ROUTING_BUILD_SIGNALS"; then' \
+    '| grep -Eq "^\$"; then'
+}
+
+exitplan_truth_table_bites_when_verification_grammar_loosened() {
+  classifier_mutant_turns_table_red \
+    '  verify_re="^(verify|run|confirm)( with)? (the )?${tool}(${sep}(the )?${tool})*( to confirm)?$"' \
+    '  verify_re="^(verify|run|confirm|check|ensure)"'
+}
+
+exitplan_truth_table_bites_when_step_grammar_loosened() {
+  classifier_mutant_turns_table_red \
+    "      [ \"\$class\" = mechanical ] || { printf '%s\\n' build; return 0; }" \
+    '      :'
 }
 
 first_edit_openai_disabled_is_silent() {
@@ -1164,7 +1217,10 @@ record 'exitplan: build plan requires the build model and STOPs on mismatch' exi
 record 'exitplan: architecture plan requires the top model and STOPs on mismatch' exitplan_architecture_plan_requires_top_model_and_stops
 record 'exitplan: mechanical plan with openai enabled still delegates at the mechanical tier' exitplan_mechanical_plan_with_openai_still_delegates
 record 'exitplan: classifier truth table, build never downgraded and mechanical never escalated' exitplan_classifier_truth_table
-record 'negative control: truth table fails when the mechanical allowlist is loosened' exitplan_truth_table_bites_when_allowlist_loosened
+record 'negative control: truth table fails without the planner-marker gate' exitplan_truth_table_bites_without_marker_gate
+record 'negative control: truth table fails without the build/architecture veto' exitplan_truth_table_bites_without_veto
+record 'negative control: truth table fails when the verification grammar is loosened' exitplan_truth_table_bites_when_verification_grammar_loosened
+record 'negative control: truth table fails when the step grammar is loosened' exitplan_truth_table_bites_when_step_grammar_loosened
 record 'first-edit fires once: fresh session' first_edit_fires 'fresh-session'
 record 'first-edit silent: repeated session' first_edit_silent 'fresh-session'
 record 'first-edit fires: session alpha' first_edit_fires 'session-alpha'

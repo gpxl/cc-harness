@@ -126,51 +126,113 @@ model_routing_disabled_vendors() {
   printf '%s\n' "${text:-none}"
 }
 
-# Classify one plan step: verify | mechanical | build. A verification step ("verify with lint",
-# "run the tests", a bare "build") is neutral. Otherwise the step is mechanical only when it
-# carries a mechanical signal and no build signal; a step with no mechanical signal is build.
-# This is the ONE predicate the plan classifier below aggregates; keywords track the Build row.
+# Plan classification is MARKER-GATED. A plan is mechanical only when the planner wrote exactly
+# one "Work class: mechanical" line (outside code fences) AND the plan survives two checks that
+# can only force build: a veto (any architecture or build signal anywhere in the plan) and an
+# anchored step grammar (every non-heading, non-context, non-verification step must match one of
+# a few mechanical forms in full). Presence-based keyword guessing is open by construction, so no
+# keyword list decides "mechanical"; no marker means build. Negation ("no architecture change")
+# is deliberately not handled: over-escalating is the safe direction.
+MODEL_ROUTING_BUILD_SIGNALS='implement|fix|bug|refactor|feature|design|persistence|debug|root cause|race condition|investigate|rewrite|rewritten|algorithm|migrat|schema|column|read-path|replace|switch|overhaul|extract|new (module|endpoint|service|layer|cache)|(^|[^a-z])(add|port)(s|ed|ing)?([^a-z]|$)|(add|write|new|failing) [a-z ]*tests?|logic|wir(e|ing)|integration|retry'
+MODEL_ROUTING_ARCH_SIGNALS='(^|[^a-z])adrs?([^a-z]|$)|system design|architecture|novel abstraction|trade-?off'
+
+# Classify one plan step: verify | mechanical | other. A step is verification only if the WHOLE
+# step matches the anchored grammar; leftover text ("... after migrating callers") is "other".
 model_routing_step_class() {
-  local step="$1"
-  if printf '%s' "$step" | grep -Eq '^[^a-z]*((then|and|finally) )?((verify|run|confirm|check|ensure)( [a-z-]+)* (with|that|the|all|lint|typecheck|type-check|build|tests?|ci)|(lint|typecheck|type-check|build|tests?|ci)([^a-z]|$))' \
-     && printf '%s' "$step" | grep -Eq '(lint|typecheck|type-check|build|tests?|(^|[^a-z])ci([^a-z]|$))' \
-     && ! printf '%s' "$step" | grep -Eq 'yarn (install|up)|npm (install|update)|pnpm (install|update)'; then
+  local step="$1" pkg ver item items lockf tool sep verify_re
+  step=$(printf '%s' "$step" | sed -E 's/^(then|and|finally) //')
+  tool='(yarn |npm run |pnpm )?(lint|typecheck|build|tests?|ci)'
+  sep='(, and |, | and )'
+  verify_re="^(verify|run|confirm)( with)? (the )?${tool}(${sep}(the )?${tool})*( to confirm)?$"
+  if printf '%s' "$step" | grep -Eq "$verify_re"; then
     printf '%s\n' verify; return 0
   fi
-  if printf '%s' "$step" | grep -Eq 'implement|fix|bug|refactor|feature|design|persistence|debug|root cause|race condition|investigate|rewrite|algorithm|migrat|new (module|endpoint|service|layer|cache)|(^|[^a-z])add(s|ed|ing)?([^a-z]|$)|(add|write|new|failing) [a-z ]*tests?|logic|wir(e|ing)|integration|retry'; then
-    printf '%s\n' build; return 0
-  fi
-  if printf '%s' "$step" | grep -Eq 'lockfile|yarn\.lock|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate|copy (edit|change)|update (the )?copy|wording'; then
+  pkg='[@a-z0-9][@a-z0-9/._-]*'
+  ver='v?[0-9][0-9a-z.*^~-]*'
+  item="(the )?${pkg}( (from )?${ver} (to|->) ${ver}| to ${ver})?"
+  items="${item}(( and |, | and the |, and )${item})*( \(patch\))?"
+  rename_re='^rename (the )?[`a-z0-9_.-]+( to [`a-z0-9_.-]+)?( across the (repo|codebase))?( with a codemod)?$'
+  lockf='(yarn\.lock|package-lock\.json|pnpm-lock\.yaml|lockfiles?)'
+  if printf '%s' "$step" | grep -Eq "^bump ${items}$|^bump (all |the )?([a-z0-9]+ )?(packages|dependencies|deps)( to (their|the latest) (patch|minor) versions?)?$|^bump (the )?(patch|minor) versions of ${pkg}(( and |, )${pkg})*$|^apply (the )?patch-level (version )?(bumps|updates)$|^(regenerate|refresh|delete|remove)( the)?( (stale|unused|old))? ${lockf}( and ${lockf})*( files?)?( after the (dependabot )?bump)?$|^(run )?(yarn|npm|pnpm) (install|update)$|^(run )?yarn up -r( [@a-z0-9/._-]+)*( on the vulnerable packages)?$|^fix (a |the |some )?(typos?|formatting)( in (the )?[a-z0-9_. /-]+)?$|^update (the )?copy on (the )?[a-z0-9 -]+$"; then
     printf '%s\n' mechanical; return 0
   fi
-  printf '%s\n' build
+  if printf '%s' "$step" | grep -Eq "$rename_re"; then
+    printf '%s\n' mechanical; return 0
+  fi
+  printf '%s\n' other
+}
+
+# A step that does not match whole may be a comma list of steps ("delete lockfiles, run yarn
+# install, verify with lint"): each piece must itself be verification or mechanical.
+model_routing_step_or_clauses_class() {
+  local step="$1" class piece any_mech=0
+  class=$(model_routing_step_class "$step")
+  if [ "$class" != other ]; then printf '%s\n' "$class"; return 0; fi
+  case "$step" in *', '*) ;; *) printf '%s\n' other; return 0 ;; esac
+  while IFS= read -r piece; do
+    piece=$(printf '%s' "$piece" | sed -E 's/^[[:space:]]+//')
+    class=$(model_routing_step_class "$piece")
+    [ "$class" != other ] || { printf '%s\n' other; return 0; }
+    [ "$class" = mechanical ] && any_mech=1
+  done <<EOF4
+$(printf '%s' "$step" | awk '{ gsub(/, /, "\n"); print }')
+EOF4
+  if [ "$any_mech" = 1 ]; then printf '%s\n' mechanical; else printf '%s\n' verify; fi
 }
 
 # Classify an approved plan's text by difficulty: architecture | build | mechanical.
-# "mechanical" is an ALLOWLIST over the whole plan: it is split into steps (lines, sentences,
-# clauses) and the plan is mechanical only if at least one step is not verification and EVERY
-# non-verification step is mechanical. Any other step, no signal, or an unreadable plan is
-# build, so an unclear plan keeps the build tier and its STOP. Negation ("no architecture
-# change") is deliberately not handled: over-escalating is the safe direction.
 model_routing_classify_plan() {
-  local text step class steps=0 all_mech=1
+  local text line kept='' fence=0 markers=0 mech_markers=0 section_ctx=0 mech_steps=0
+  local step class marker_re
   text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   [ -n "$text" ] || { printf '%s\n' build; return 0; }
-  if printf '%s' "$text" | grep -Eq '(^|[^a-z])adrs?([^a-z]|$)|system design|architecture|novel abstraction|trade-?off'; then
+  if printf '%s' "$text" | grep -Eq "$MODEL_ROUTING_ARCH_SIGNALS"; then
     printf '%s\n' architecture; return 0
   fi
-  # Trivial "fix" phrasings are mechanical edits: keep the mechanical signal, drop the verb.
-  text=$(printf '%s' "$text" | sed -E 's/fix(es|ing)? (a |the |some )?(typos?|formatting|lint|whitespace)/ typo /g')
-  while IFS= read -r step; do
-    [ -n "$step" ] || continue
-    class=$(model_routing_step_class "$step")
-    [ "$class" = verify ] && continue
-    steps=$((steps + 1))
-    [ "$class" = mechanical ] || all_mech=0
+  marker_re='^[[:space:]]*(\*\*)?work class:(\*\*)?[[:space:]]*mechanical[[:space:]]*$'
+  while IFS= read -r line; do
+    case "$line" in '```'*|'~~~'*) fence=$((1 - fence)); continue ;; esac
+    [ "$fence" = 0 ] || continue
+    if printf '%s' "$line" | grep -Eq '^[[:space:]]*(\*\*)?work class:'; then
+      markers=$((markers + 1))
+      printf '%s' "$line" | grep -Eq "$marker_re" && mech_markers=$((mech_markers + 1))
+      continue
+    fi
+    kept="${kept}${line}
+"
   done <<EOF
-$(printf '%s' "$text" | sed -E 's/^[[:space:]]*([-*]|[0-9]+[.)])[[:space:]]+//' | awk '{ gsub(/(, | and | then |; |\. )/, "\n"); print }')
+$text
 EOF
-  if [ "$steps" -gt 0 ] && [ "$all_mech" = 1 ]; then printf '%s\n' mechanical
+  [ "$markers" = 1 ] && [ "$mech_markers" = 1 ] || { printf '%s\n' build; return 0; }
+  # Veto: any build signal anywhere in the plan, context included, forces build.
+  # The one exempt phrasing is a typo/formatting fix, which is a copy edit, not a bug fix.
+  if printf '%s' "$kept" | sed -E 's/fix(es)? (a |the |some )?(typos?|formatting)/ /g' | grep -Eq "$MODEL_ROUTING_BUILD_SIGNALS"; then
+    printf '%s\n' build; return 0
+  fi
+  while IFS= read -r line; do
+    line=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*([-*]|[0-9]+[.)])?[[:space:]]*//; s/[[:space:]]+$//')
+    [ -n "$line" ] || continue
+    case "$line" in
+      '#'*|*:) section_ctx=0
+        printf '%s' "$line" | grep -Eq '^#* *(context|background|summary|why|motivation|overview)' && section_ctx=1
+        continue ;;
+    esac
+    [ "$section_ctx" = 0 ] || continue
+    line=$(printf '%s' "$line" | sed -E 's/^plan: //')
+    while IFS= read -r step; do
+      step=$(printf '%s' "$step" | sed -E 's/^[[:space:]]+//; s/[.[:space:]]+$//')
+      [ -n "$step" ] || continue
+      class=$(model_routing_step_or_clauses_class "$step")
+      [ "$class" = verify ] && continue
+      [ "$class" = mechanical ] || { printf '%s\n' build; return 0; }
+      mech_steps=$((mech_steps + 1))
+    done <<EOF2
+$(printf '%s' "$line" | awk '{ gsub(/(; | — |\. )/, "\n"); print }')
+EOF2
+  done <<EOF3
+$kept
+EOF3
+  if [ "$mech_steps" -gt 0 ]; then printf '%s\n' mechanical
   else printf '%s\n' build
   fi
 }

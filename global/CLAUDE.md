@@ -214,15 +214,20 @@ user to run `/model <correct-id>`, or spawn subagents with an explicit `model:` 
 proceed inline on the wrong model after merely mentioning the mismatch — a one-line "you may want
 to switch" does not satisfy this gate.
 
-**Effort-aware match:** the plan-approval gate (`hooks/exitplan-model-routing.sh`) classifies the
-approved plan's text by difficulty, not by "a plan was approved". Mechanical/known-outcome/easy-to-verify
-work (lockfile refreshes, patch-level bumps, renames, codemods) takes the **Mechanical** row; debugging,
-multi-file logic or new features take **Build**; ADR/system design takes **Architecture**. Mechanical is a positive
-classification only: every non-verification step of the plan must be mechanical; a plan with any
-unclear or build step stays on Build. A Mechanical plan names an escalation trigger (switch up only when a build/test
-failure needs real debugging). A session already on the row's Claude model — or a stronger
-one — is a **match**: do not STOP or ask for `/model`. STOP stays for genuine mismatches (a session
-below the row's model, or delegable work for an enabled vendor done inline).
+**Effort-aware match:** the plan-approval gate (`hooks/exitplan-model-routing.sh`) picks the row from
+the approved plan, and **the Mechanical row is opt-in**. A plan is Mechanical only if the planner
+wrote the line `Work class: mechanical` (own line, outside code fences, exactly once) **and** the plan
+passes two checks that can only force Build: no build or architecture signal anywhere in it, and every
+non-heading, non-context, non-verification step matches a small anchored grammar (version bumps,
+lockfile delete/regenerate, `yarn install`, rename, typo/copy edits; verification is only
+`verify|run|confirm [with] lint|typecheck|build|tests|ci`). Planning models: write `Work class:
+mechanical` only for lockfile, dependency-patch, copy or rename style work with a known outcome and an
+easy check, and omit it otherwise. An unmarked plan is **Build** even when it looks mechanical;
+judgment lives in the planner, not in keyword guessing. ADR/system design takes **Architecture**.
+A Mechanical plan names an escalation trigger (switch up only when a build/test failure needs real
+debugging). A session already on the row's Claude model, or a stronger one, is a **match**: do not
+STOP or ask for `/model`. STOP stays for genuine mismatches (a session below the row's model, or
+delegable work for an enabled vendor done inline).
 
 ## CLAUDE.md Optimization
 
