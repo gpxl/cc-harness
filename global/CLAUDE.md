@@ -214,6 +214,15 @@ user to run `/model <correct-id>`, or spawn subagents with an explicit `model:` 
 proceed inline on the wrong model after merely mentioning the mismatch — a one-line "you may want
 to switch" does not satisfy this gate.
 
+**Effort-aware match:** the plan-approval gate (`hooks/exitplan-model-routing.sh`) classifies the
+approved plan's text by difficulty, not by "a plan was approved". Mechanical/known-outcome/easy-to-verify
+work (lockfile refreshes, patch-level bumps, renames, codemods) takes the **Mechanical** row; debugging,
+multi-file logic or new features take **Build**; ADR/system design takes **Architecture**. Mixed or
+ambiguous plans take the cheaper adequate row and name an escalation trigger (switch up only when a
+build/test failure needs real debugging). A session already on the row's Claude model — or a stronger
+one — is a **match**: do not STOP or ask for `/model`. STOP stays for genuine mismatches (a session
+below the row's model, or delegable work for an enabled vendor done inline).
+
 ## CLAUDE.md Optimization
 
 **Auto-apply when user says:** "optimize Claude config", "update config", "improve CLAUDE.md", "set up Claude", "create CLAUDE.md".

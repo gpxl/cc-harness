@@ -126,6 +126,25 @@ model_routing_disabled_vendors() {
   printf '%s\n' "${text:-none}"
 }
 
+# Classify an approved plan's text by difficulty: architecture | build | mechanical | mixed.
+# Architecture signals win; build signals alone mean build; mechanical signals alone mean
+# mechanical; build AND mechanical together, or no signal either way, is "mixed" (the caller
+# recommends the cheaper adequate tier and names the escalation trigger). Empty text means the
+# plan was unreadable, so nothing is known: report build, the pre-classifier behaviour.
+model_routing_classify_plan() {
+  local text arch=0 build=0 mech=0
+  text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [ -n "$text" ] || { printf '%s\n' build; return 0; }
+  printf '%s' "$text" | grep -Eq 'adr\b|system design|architecture|novel abstraction|trade-?off' && arch=1
+  printf '%s' "$text" | grep -Eq 'debug|root cause|race condition|investigate|new feature|new endpoint|new module|redesign|rewrite|algorithm|migrat' && build=1
+  printf '%s' "$text" | grep -Eq 'lockfile|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate' && mech=1
+  if [ "$arch" = 1 ]; then printf '%s\n' architecture
+  elif [ "$build" = 1 ] && [ "$mech" = 0 ]; then printf '%s\n' build
+  elif [ "$build" = 0 ] && [ "$mech" = 1 ]; then printf '%s\n' mechanical
+  else printf '%s\n' mixed
+  fi
+}
+
 model_routing_value_is_json_safe() {
   local value="$1"
   case "$value" in
