@@ -247,15 +247,15 @@ exitplan_mechanical_plan_with_openai_still_delegates() {
 }
 
 # Truth table over both error directions: build plans wrongly downgraded, mechanical plans
-# wrongly escalated. Rows are "expected|plan"; the bare no-signal and unreadable cases map to build.
-exitplan_classifier_truth_table() {
-  local row want plan got
-  load_model_routing_table || return 1
-  [ "$(model_routing_classify_plan '')" = build ] || return 1
+# wrongly escalated. Rows are "expected|plan" (a literal \n in a plan is a newline). Sourced from
+# a table file so the mutation control below can run the same rows against a loosened copy.
+classifier_truth_table_against() {
+  local table="$1" row want plan got
+  [ "$(. "$table"; model_routing_classify_plan '')" = build ] || return 1
   while IFS= read -r row; do
     [ -n "$row" ] || continue
-    want=${row%%|*}; plan=${row#*|}
-    got=$(model_routing_classify_plan "$plan")
+    want=${row%%|*}; plan=$(printf '%b' "${row#*|}")
+    got=$(. "$table"; model_routing_classify_plan "$plan")
     [ "$got" = "$want" ] || { printf 'classify %s: want %s got %s\n' "$plan" "$want" "$got" >&2; return 1; }
   done <<'ROWS'
 build|Fix the bug where auth tokens are not refreshed; add retry logic across the API client and UI.
@@ -268,13 +268,61 @@ build|Rewrite the scheduler algorithm; regenerate the lockfile afterwards.
 build|Investigate the memory leak; bump the dependency if it is the cause.
 build|Tidy the settings page.
 build|Bump patch versions, then investigate any failing typecheck.
-architecture|Write an ADR for the queue backends.
 build|Update the quadrant chart.
+build|Port the sync worker to the new queue API, then bump the client library.
+build|Extend the CSV parser to handle quoted newlines; rename the helper.
+build|Harden the webhook handler against replayed signatures and regenerate the lockfile.
+build|Optimise the slow dashboard query and bump the ORM version.
+build|Wiring the auth middleware into the gateway; update the lockfile.
+build|Support pagination in the search endpoint; rename the cursor param.
+build|Convert the class components to hooks with a codemod and handle the edge cases in the reducer state.
+build|Upgrade React from 18 to 19, resolve breaking API changes, regenerate yarn.lock.
+build|Change the cache TTL semantics so stale reads revalidate; rename the config key.
+build|Move auth from cookies to JWT across services and rename the env var.
+build|Restructure the monorepo packages and regenerate the lockfile.
+build|Make the importer idempotent; bump the parser dependency.
+build|1. Port webhook delivery into a queue consumer\n2. Extend it to handle 429/5xx with backoff and a dead-letter queue\n3. Harden signature verification\n4. Bump the queue client\n5. Verify with lint, typecheck and build
+build|Bump next to 15.0.4 (patch) to fix the CVE.
+build|Delete stale lockfiles; add the regenerated one to the commit.
+architecture|Write an ADR for the queue backends.
+architecture|Write ADRs for the queue backends.
+architecture|Draft ADRs on the event bus layout; rename the docs folder.
 mechanical|Delete stale lockfiles, run yarn install, apply patch-level version bumps, verify with lint and build.
 mechanical|Bump patch-level dependencies in the lockfile and run yarn up -R on the vulnerable packages.
 mechanical|Rename the helper across the repo with a codemod.
+mechanical|Fix typos in the README.
+mechanical|Fix typo in the API docs.
+mechanical|Fix the formatting in the changelog.
 mechanical|Fix typos in the README and update the copy on the pricing page.
+mechanical|Regenerate the lockfile after the dependabot bump and run the integration tests to confirm.
+mechanical|1. Delete stale lockfiles\n2. Run yarn install\n3. Apply patch-level version bumps\n4. Verify with lint, typecheck and build
 ROWS
+}
+
+exitplan_classifier_truth_table() {
+  load_model_routing_table || return 1
+  classifier_truth_table_against "$root/model-routing-table.sh"
+}
+
+# Mutation control: loosening the allowlist (a non-mechanical step no longer forces build) must
+# turn the truth table red, else the table does not actually guard the downgrade direction.
+exitplan_truth_table_bites_when_allowlist_loosened() {
+  local mutant_dir="$tmp_state/mutant-classifier"
+  mkdir -p "$mutant_dir" || return 1
+  cp "$root/vendors.sh" "$mutant_dir/" || return 1
+  python3 - "$root/model-routing-table.sh" "$mutant_dir/model-routing-table.sh" <<'PYMUT' || return 1
+import sys
+src = open(sys.argv[1]).read()
+anchor = '    [ "$class" = mechanical ] || all_mech=0\n'
+if src.count(anchor) != 1:
+    sys.exit("mutation anchor not found exactly once; the control would be vacuous")
+open(sys.argv[2], "w").write(src.replace(anchor, "    :\n"))
+PYMUT
+  classifier_truth_table_against "$root/model-routing-table.sh" >/dev/null 2>&1 || return 1
+  if classifier_truth_table_against "$mutant_dir/model-routing-table.sh" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
 }
 
 first_edit_openai_disabled_is_silent() {
@@ -1116,6 +1164,7 @@ record 'exitplan: build plan requires the build model and STOPs on mismatch' exi
 record 'exitplan: architecture plan requires the top model and STOPs on mismatch' exitplan_architecture_plan_requires_top_model_and_stops
 record 'exitplan: mechanical plan with openai enabled still delegates at the mechanical tier' exitplan_mechanical_plan_with_openai_still_delegates
 record 'exitplan: classifier truth table, build never downgraded and mechanical never escalated' exitplan_classifier_truth_table
+record 'negative control: truth table fails when the mechanical allowlist is loosened' exitplan_truth_table_bites_when_allowlist_loosened
 record 'first-edit fires once: fresh session' first_edit_fires 'fresh-session'
 record 'first-edit silent: repeated session' first_edit_silent 'fresh-session'
 record 'first-edit fires: session alpha' first_edit_fires 'session-alpha'

@@ -218,8 +218,8 @@ to switch" does not satisfy this gate.
 approved plan's text by difficulty, not by "a plan was approved". Mechanical/known-outcome/easy-to-verify
 work (lockfile refreshes, patch-level bumps, renames, codemods) takes the **Mechanical** row; debugging,
 multi-file logic or new features take **Build**; ADR/system design takes **Architecture**. Mechanical is a positive
-classification only: a plan with no clear signal, or with build and mechanical signals together,
-stays on Build. A Mechanical plan names an escalation trigger (switch up only when a build/test
+classification only: every non-verification step of the plan must be mechanical; a plan with any
+unclear or build step stays on Build. A Mechanical plan names an escalation trigger (switch up only when a build/test
 failure needs real debugging). A session already on the row's Claude model — or a stronger
 one — is a **match**: do not STOP or ask for `/model`. STOP stays for genuine mismatches (a session
 below the row's model, or delegable work for an enabled vendor done inline).

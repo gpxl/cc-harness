@@ -126,23 +126,51 @@ model_routing_disabled_vendors() {
   printf '%s\n' "${text:-none}"
 }
 
+# Classify one plan step: verify | mechanical | build. A verification step ("verify with lint",
+# "run the tests", a bare "build") is neutral. Otherwise the step is mechanical only when it
+# carries a mechanical signal and no build signal; a step with no mechanical signal is build.
+# This is the ONE predicate the plan classifier below aggregates; keywords track the Build row.
+model_routing_step_class() {
+  local step="$1"
+  if printf '%s' "$step" | grep -Eq '^[^a-z]*((then|and|finally) )?((verify|run|confirm|check|ensure)( [a-z-]+)* (with|that|the|all|lint|typecheck|type-check|build|tests?|ci)|(lint|typecheck|type-check|build|tests?|ci)([^a-z]|$))' \
+     && printf '%s' "$step" | grep -Eq '(lint|typecheck|type-check|build|tests?|(^|[^a-z])ci([^a-z]|$))' \
+     && ! printf '%s' "$step" | grep -Eq 'yarn (install|up)|npm (install|update)|pnpm (install|update)'; then
+    printf '%s\n' verify; return 0
+  fi
+  if printf '%s' "$step" | grep -Eq 'implement|fix|bug|refactor|feature|design|persistence|debug|root cause|race condition|investigate|rewrite|algorithm|migrat|new (module|endpoint|service|layer|cache)|(^|[^a-z])add(s|ed|ing)?([^a-z]|$)|(add|write|new|failing) [a-z ]*tests?|logic|wir(e|ing)|integration|retry'; then
+    printf '%s\n' build; return 0
+  fi
+  if printf '%s' "$step" | grep -Eq 'lockfile|yarn\.lock|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate|copy (edit|change)|update (the )?copy|wording'; then
+    printf '%s\n' mechanical; return 0
+  fi
+  printf '%s\n' build
+}
+
 # Classify an approved plan's text by difficulty: architecture | build | mechanical.
-# "mechanical" is a POSITIVE classification only: mechanical signals present AND no build or
-# architecture signal. Everything else (no signal, or build+mechanical together, or an
-# unreadable plan) is build, so an unclear plan keeps the build tier and its STOP rather than
-# being downgraded. Build keywords track the Build row's description. Negation ("no
-# architecture change") is deliberately not handled: over-escalating is the safe direction.
+# "mechanical" is an ALLOWLIST over the whole plan: it is split into steps (lines, sentences,
+# clauses) and the plan is mechanical only if at least one step is not verification and EVERY
+# non-verification step is mechanical. Any other step, no signal, or an unreadable plan is
+# build, so an unclear plan keeps the build tier and its STOP. Negation ("no architecture
+# change") is deliberately not handled: over-escalating is the safe direction.
 model_routing_classify_plan() {
-  local text arch=0 build=0 mech=0
+  local text step class steps=0 all_mech=1
   text=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   [ -n "$text" ] || { printf '%s\n' build; return 0; }
-  # Trivial "fix" phrasings are mechanical edits, not bug fixes.
-  text=$(printf '%s' "$text" | sed -E 's/fix(es|ing)? (a |the |some )?(typos?|formatting|lint|whitespace)//g')
-  printf '%s' "$text" | grep -Eq '(^|[^a-z])adr([^a-z]|$)|system design|architecture|novel abstraction|trade-?off' && arch=1
-  printf '%s' "$text" | grep -Eq 'implement|fix|bug|refactor|feature|design|persistence|debug|root cause|race condition|investigate|rewrite|algorithm|migrat|new (module|endpoint|service|layer|cache)|(^|[^a-z])add(s|ed|ing)?([^a-z]|$)|(add|write|new|failing) [a-z ]*tests?|logic|wire |integration|retry' && build=1
-  printf '%s' "$text" | grep -Eq 'lockfile|dependabot|version bump|patch-level|bump|yarn (install|up)|npm (install|update)|pnpm (install|update)|rename|typo|codemod|reformat|delete stale|regenerate|copy (edit|change)|update (the )?copy|wording' && mech=1
-  if [ "$arch" = 1 ]; then printf '%s\n' architecture
-  elif [ "$build" = 0 ] && [ "$mech" = 1 ]; then printf '%s\n' mechanical
+  if printf '%s' "$text" | grep -Eq '(^|[^a-z])adrs?([^a-z]|$)|system design|architecture|novel abstraction|trade-?off'; then
+    printf '%s\n' architecture; return 0
+  fi
+  # Trivial "fix" phrasings are mechanical edits: keep the mechanical signal, drop the verb.
+  text=$(printf '%s' "$text" | sed -E 's/fix(es|ing)? (a |the |some )?(typos?|formatting|lint|whitespace)/ typo /g')
+  while IFS= read -r step; do
+    [ -n "$step" ] || continue
+    class=$(model_routing_step_class "$step")
+    [ "$class" = verify ] && continue
+    steps=$((steps + 1))
+    [ "$class" = mechanical ] || all_mech=0
+  done <<EOF
+$(printf '%s' "$text" | sed -E 's/^[[:space:]]*([-*]|[0-9]+[.)])[[:space:]]+//' | awk '{ gsub(/(, | and | then |; |\. )/, "\n"); print }')
+EOF
+  if [ "$steps" -gt 0 ] && [ "$all_mech" = 1 ]; then printf '%s\n' mechanical
   else printf '%s\n' build
   fi
 }
