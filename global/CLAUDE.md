@@ -214,6 +214,23 @@ user to run `/model <correct-id>`, or spawn subagents with an explicit `model:` 
 proceed inline on the wrong model after merely mentioning the mismatch — a one-line "you may want
 to switch" does not satisfy this gate.
 
+**Effort-aware match:** the plan-approval gate (`hooks/exitplan-model-routing.sh`) picks the row from
+the approved plan, and **the Mechanical row is opt-in**. A plan is Mechanical only if the planner
+wrote the line `Work class: mechanical` (own line, outside code fences, exactly once) **and** the plan
+passes two checks that can only force Build: no build or architecture signal anywhere in it, and every
+line matches a small anchored grammar (same-major version bumps with a target version,
+lockfile delete/regenerate, `yarn install`, simple rename, typo/copy edits on a single named target; verification is only
+`verify|run|confirm [with] lint|typecheck|build|tests|ci`). Hidden or unchecked text fails closed: code
+fences, headings or colon lines outside a short benign list, and context prose outside a fixed
+sentence form all force Build. Planning models: write `Work class:
+mechanical` only for lockfile, dependency-patch, copy or rename style work with a known outcome and an
+easy check, and omit it otherwise. An unmarked plan is **Build** even when it looks mechanical;
+judgment lives in the planner, not in keyword guessing. ADR/system design takes **Architecture**.
+A Mechanical plan names an escalation trigger (switch up only when a build/test failure needs real
+debugging). A session already on the row's Claude model, or a stronger one, is a **match**: do not
+STOP or ask for `/model`. STOP stays for genuine mismatches (a session below the row's model, or
+delegable work for an enabled vendor done inline).
+
 ## CLAUDE.md Optimization
 
 **Auto-apply when user says:** "optimize Claude config", "update config", "improve CLAUDE.md", "set up Claude", "create CLAUDE.md".
