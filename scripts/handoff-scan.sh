@@ -24,9 +24,10 @@
 # --repo/--client/--allow-domain/--terms default from the private registry line for the repo
 # (HANDOFF_REGISTRY, default ~/.claude/private/client-deliverables.conf):
 #   OWNER/REPO  client=<Pseudonym>  allow-domain=<d>[,<d>]  terms=<file of extra regexes>
-# --is-client exits 0 when the repo is a client deliverable (registry line, or `deliverable` =
-# `client` in its own Agent Config), 1 when not, 2 on error. It is the ONE predicate the commit
-# agent and scripts/trusted-pr-merge.sh share.
+# --is-client exits 0 when the repo has a registry line, 1 when not, 2 when it cannot decide: a
+# missing registry beside a private directory, or a clone whose own Agent Config says
+# `deliverable` = `client` but is not registered. It is the ONE predicate the commit agent and
+# scripts/trusted-pr-merge.sh share, and the registry is its only source of truth.
 # --install-hook writes a pre-push hook into the clone's .git/hooks (never shipped: .git is not
 # content) that runs the local half of this scan before every push.
 #
@@ -95,8 +96,12 @@ registry_field() {  # registry_field <line> <key>
 
 origin_repo() {  # origin_repo <dir> -> OWNER/REPO from the origin remote, if it is on GitHub
   local url
+  # Any form: https (with or without user@), scp-style with an SSH host alias, ssh://, a trailing
+  # slash. The registry keys on OWNER/REPO, so the last two path segments are what matter; a
+  # missed form would read a client repository as "not client", which fails open.
   url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
-  printf '%s\n' "$url" | sed -nE 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' | sed 's/\.git$//'
+  printf '%s\n' "$url" | sed -E 's#/+$##; s#\.git$##; s#^[^:/]+:([^/])#/\1#' \
+    | awk -F/ 'NF >= 2 && $(NF-1) != "" && $NF != "" { print $(NF-1) "/" $NF; ok = 1 } END { exit ok ? 0 : 1 }'
 }
 
 agent_config_says_client() {  # the repo's OWN Agent Config: `| deliverable | client |`
@@ -111,6 +116,12 @@ agent_config_says_client() {  # the repo's OWN Agent Config: `| deliverable | cl
 }
 
 if [ "$mode" = is-client ]; then
+  # A registry that should exist and does not is "cannot see", never "not a client": a machine
+  # with a private directory keeps its registry there. Only a host with no private directory at
+  # all (a fresh clone of the harness) reads a missing registry as an empty one.
+  if [ ! -f "$registry" ] && [ -d "$(dirname -- "$registry")" ]; then
+    die "client registry missing: $registry (create it, empty if there are no client repositories)"
+  fi
   if [ -n "$repo" ]; then
     registry_line "$repo" >/dev/null && exit 0
     exit 1
@@ -120,7 +131,12 @@ if [ "$mode" = is-client ]; then
   git -C "$is_client_dir" rev-parse --git-dir >/dev/null 2>&1 || exit 1
   r=$(origin_repo "$is_client_dir" || true)
   if [ -n "$r" ] && registry_line "$r" >/dev/null; then exit 0; fi
-  agent_config_says_client "$is_client_dir" && exit 0
+  # The registry is the one source of truth, because the merge wrapper can only ask it. A repo
+  # that calls itself a client deliverable but is not registered would get ledger-only acks from
+  # the commit agent and a body-ack demand from the wrapper: refuse until it is registered.
+  if agent_config_says_client "$is_client_dir"; then
+    die "$is_client_dir says \`deliverable: client\` but ${r:-its origin} is not in the client registry $registry; add its line (rules/client-handoff.md)"
+  fi
   exit 1
 fi
 
@@ -142,8 +158,9 @@ if [ "$mode" = install-hook ]; then
 #!/usr/bin/env bash
 $marker (installed by handoff-scan.sh --install-hook; see rules/client-handoff.md)
 # Every object about to leave this clone is already in its local history, so the local half of
-# the scan (all refs, all blobs, all messages) covers the push. Exit non-zero blocks the push.
-exec bash "$scanner" "\$(git rev-parse --show-toplevel)" --no-github
+# the scan over ALL history (every reachable blob, not only tips: a file added and removed inside
+# one push still ships) covers the push. Exit non-zero blocks the push.
+exec bash "$scanner" "\$(git rev-parse --show-toplevel)" --no-github --history
 EOF
   chmod +x "$hook" || die "cannot make $hook executable"
   printf 'HANDOFF SCAN: pre-push guard installed at %s\n' "$hook"
@@ -185,7 +202,7 @@ if [ -n "$repo" ] && line=$(registry_line "$repo"); then
   [ "$terms_set" = true ] || terms=$(registry_field "$line" terms)
   allow_domains="$allow_domains $(registry_field "$line" allow-domain | tr ',' ' ')"
 fi
-case "$terms" in "~/"*) terms="$HOME/${terms#~/}" ;; esac
+case "$terms" in "~/"*) terms="$HOME/${terms#\~/}" ;; esac
 [ -z "$terms" ] || [ -f "$terms" ] || die "terms file not found: $terms"
 
 if [ "$mode" = text ]; then
@@ -380,8 +397,8 @@ def fig_kiwi_chunks(data):
         else:
             try:
                 out.append(zlib.decompress(chunk, -15))
-            except zlib.error:
-                out.append(chunk)
+            except zlib.error as exc:
+                raise ValueError(f"fig-kiwi chunk is neither zstd nor deflate: {exc}")
     return out
 
 def png_text(data):
@@ -407,7 +424,7 @@ def png_text(data):
                     txt = zlib.decompress(txt)
                 texts.append(key.decode("latin-1") + ": " + txt.decode("utf-8", "replace"))
         except (zlib.error, IndexError) as exc:
-            texts.append(f"(unreadable {ctype!r} chunk: {exc})")
+            raise ValueError(f"unreadable {ctype!r} chunk: {exc}")
         if ctype == b"IEND":
             break
     return "\n".join(texts)
@@ -437,7 +454,10 @@ def scan_bytes(data, label, depth=0):
             emit(f"{label}#chunk{i}.strings", strings_of(chunk))
         return
     if data[:8] == b"\x89PNG\r\n\x1a\n":
-        emit(f"{label}#png-text", png_text(data))
+        try:
+            emit(f"{label}#png-text", png_text(data))
+        except ValueError as exc:
+            fail_incomplete(f"cannot decode {label}: {exc}")
     try:
         text = data.decode("utf-8")
         if "\0" in text:
@@ -492,8 +512,8 @@ def scan_git(gd, origin):
         for sha, path in pending:
             if sha in seen_blobs:
                 continue
-            if types.get(sha) == "tree":
-                continue
+            if types.get(sha) in ("tree", "tag"):
+                continue  # an annotated tag's message is scanned with the other tag messages
             if types.get(sha) != "blob":
                 fail_incomplete(f"unexpected object type for {path} ({sha[:9]}): {types.get(sha)}")
             seen_blobs.add(sha)
@@ -654,7 +674,7 @@ if hits:
         shown = text if len(text) <= 120 else text[:117] + "..."
         print(f"  {label}:{lineno}: [{cat}] '{shown}'")
     print("")
-    print("  Each hit is ours to keep (rules/client-handoff.md § Keep). Fix the source and, for text")
+    print("  Each hit is ours to keep (rules/client-handoff.md § What ships and what stays). Fix the source and, for text")
     print("  already on GitHub, delete the edit-history revision too: an edited body is still readable.")
     print(f"  Scanned: {summary}")
     sys.exit(1)

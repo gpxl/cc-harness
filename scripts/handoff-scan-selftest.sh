@@ -183,7 +183,7 @@ out=$(bash "$tool" --denylist "$denylist" "$workdir/personal" --no-github 2>&1)
 case "$out" in *'[email]'*) fail 'registry allow-domain applies to a registered clone' "$out" ;; *) pass 'registry allow-domain applies to a registered clone' ;; esac
 make_repo "$workdir/configured" || exit 1
 printf '%s\n' '## Agent Config' '' '| Key | Value |' '|-----|-------|' '| deliverable | client |' > "$workdir/configured/CLAUDE.md"
-run "a repo whose own Agent Config says client is one" 0 '' --is-client --dir "$workdir/configured"
+run "an unregistered repo whose Agent Config says client must be registered" 2 'not in the client registry' --is-client --dir "$workdir/configured"
 run 'an ordinary repo is not' 1 '' --is-client --dir "$clean"
 
 # --- the pre-push guard: a negative control on the guard itself ----------------------------
@@ -203,6 +203,72 @@ fi
 printf '#!/bin/sh\nexit 0\n' > "$workdir/foreign-hook"
 cp "$workdir/foreign-hook" "$(git -C "$clean" rev-parse --path-format=absolute --git-path hooks)/pre-push"
 run 'a foreign pre-push hook is never overwritten' 2 'is not this guard' --install-hook "$clean"
+
+# --- review round 0 fixes ----------------------------------------------------------------------
+# An annotated tag is a tag OBJECT in `rev-list --objects --all`: it must not read as INCOMPLETE.
+plant tagged
+git -C "$workdir/tagged" tag -a v1 -m 'First release' >/dev/null 2>&1
+run 'an annotated tag does not break --history' 0 'HANDOFF SCAN: PASS' "$workdir/tagged" --no-github --history --client OwnClient
+
+# Every remote form resolves to OWNER/REPO, so a client clone never reads as "not client".
+for url in git@github-work:octo/kit.git https://someone@github.com/octo/kit https://github.com/octo/kit/ ssh://git@github.com/octo/kit.git; do
+  plant remote_form
+  git -C "$workdir/remote_form" remote set-url origin "$url"
+  run "remote form $url is recognised" 0 '' --is-client --dir "$workdir/remote_form"
+done
+
+# A missing registry where the private directory exists cannot see, so it is not "not client".
+mkdir -p "$workdir/private"
+HANDOFF_REGISTRY="$workdir/private/none.conf" run 'a missing registry beside a private dir is an error' 2 'client registry missing' --is-client --repo octo/kit
+HANDOFF_REGISTRY="$workdir/no-such-dir/none.conf" run 'no private dir at all reads as not client' 1 '' --is-client --repo octo/kit
+
+# A `~/` terms path in the registry resolves against HOME.
+mkdir -p "$workdir/home"
+printf '%s\n' 'zzinternalterm' > "$workdir/home/kit.terms"
+printf '%s\n' 'octo/kit client=OwnClient terms=~/kit.terms' > "$workdir/private/terms.conf"
+printf '%s\n' 'Mentions zzinternalterm.' > "$workdir/body-term.md"
+HOME="$workdir/home" HANDOFF_REGISTRY="$workdir/private/terms.conf" run 'a ~/ terms path is read' 1 "[client-terms] 'zzinternalterm'" --text-file "$workdir/body-term.md" --repo octo/kit
+
+# An unreadable PNG text chunk or an undecodable fig-kiwi chunk cannot report clean.
+plant bad_binaries
+python3 - "$workdir/bad_binaries" <<'PY2' || fail 'build bad binary fixtures' 'python helper failed'
+import io, os, struct, sys, zipfile, zlib
+root = sys.argv[1]
+def chunk(t, body):
+    return struct.pack(">I", len(body)) + t + body + struct.pack(">I", zlib.crc32(t + body) & 0xffffffff)
+png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+png += chunk(b"zTXt", b"Source\x00\x00" + b"not deflate at all") + chunk(b"IEND", b"")
+open(os.path.join(root, "bad.png"), "wb").write(png)
+PY2
+git -C "$workdir/bad_binaries" add -A >/dev/null 2>&1 && git -C "$workdir/bad_binaries" commit --quiet -m 'Add art' >/dev/null 2>&1
+run 'an unreadable PNG text chunk is INCOMPLETE' 2 'INCOMPLETE' "$workdir/bad_binaries" --no-github --client OwnClient
+plant bad_fig
+python3 - "$workdir/bad_fig" <<'PY2' || fail 'build bad fig fixture' 'python helper failed'
+import io, os, struct, sys, zipfile
+garbage = b"\x07\x07neither zstd nor deflate\xff\xff"
+canvas = b"fig-kiwi" + struct.pack("<I", 15) + struct.pack("<I", len(garbage)) + garbage
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as zf:
+    zf.writestr("canvas.fig", canvas)
+open(os.path.join(sys.argv[1], "kit.fig"), "wb").write(buf.getvalue())
+PY2
+git -C "$workdir/bad_fig" add -A >/dev/null 2>&1 && git -C "$workdir/bad_fig" commit --quiet -m 'Add kit' >/dev/null 2>&1
+run 'an undecodable fig-kiwi chunk is INCOMPLETE' 2 'INCOMPLETE' "$workdir/bad_fig" --no-github --client OwnClient
+
+# The guard scans the whole push: a stamp added and removed inside one push still ships.
+guarded2="$workdir/guarded2"
+git init --quiet --bare "$workdir/remote2.git"
+git clone --quiet "$workdir/remote2.git" "$guarded2" 2>/dev/null
+git -C "$guarded2" config user.email selftest@example.invalid && git -C "$guarded2" config user.name 'Selftest'
+printf 'kit\n' | commit_file "$guarded2" README.md 'Add kit'
+run 'install the guard on a second clone' 0 'pre-push guard installed' --install-hook "$guarded2"
+printf '%s\n' "$(printf 'VERIFY %s: PASS sha=abc1234 tree=def5678' 'RESULT')" | commit_file "$guarded2" STATUS.md 'Add status'
+git -C "$guarded2" rm --quiet STATUS.md && git -C "$guarded2" commit --quiet -m 'Remove status' >/dev/null 2>&1
+if git -C "$guarded2" push --quiet origin main >/dev/null 2>&1; then
+  fail 'a stamp added and removed inside one push is blocked' 'push went through'
+else
+  pass 'a stamp added and removed inside one push is blocked'
+fi
 
 if [ "$failures" -eq 0 ]; then
   printf 'HANDOFF SCAN SELFTEST: PASS\n'

@@ -46,6 +46,7 @@ assert_file_present() {
 }
 
 mkdir -p "$tmpdir/bin" "$tmpdir/candidate"
+: > "$tmpdir/no-registry.conf"  # an empty registry: no client repositories
 
 cat > "$tmpdir/candidate/gate" <<'EOF'
 #!/usr/bin/env bash
@@ -591,6 +592,15 @@ assert_eq 0 "$run_status" || true
 assert_file_present "$tmpdir/merge-called" || true
 
 unset TEST_HANDOFF_REGISTRY
+# A registry that should exist and does not cannot decide: the wrapper stops, never "not client".
+TEST_HANDOFF_REGISTRY="$tmpdir/absent/none.conf"; mkdir -p "$tmpdir/absent"
+export TEST_HANDOFF_REGISTRY
+run_wrapper client_ordinary_clean --merge
+assert_eq 2 "$run_status" || true
+assert_contains "$run_stderr" 'could not decide whether this repository is a client deliverable' || true
+assert_file_absent "$tmpdir/merge-called" || true
+unset TEST_HANDOFF_REGISTRY
+
 # Control: the same stamped body in a repository the registry does not list merges, so the holds
 # above come from client mode and not from the body alone.
 run_wrapper client_ordinary_stamp_in_body

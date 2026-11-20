@@ -67,9 +67,9 @@ all key-value pairs. You need these keys:
 
 ### Client deliverables
 
-Decide client mode with the one shared predicate, never by reading the key yourself — it also
-consults the private registry, so a client repository whose own CLAUDE.md says nothing is still
-caught:
+Decide client mode with the one shared predicate, never by reading the key yourself — it reads
+the private registry, so a client repository whose own CLAUDE.md says nothing is still caught, and
+it refuses a repository whose key says `client` but which is not registered:
 
 ```bash
 client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --dir "$PWD" || client=$?

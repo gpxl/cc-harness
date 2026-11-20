@@ -53,9 +53,9 @@ first delivery set the precedent:
 
 1. **Register it** in the private registry (`~/.claude/private/client-deliverables.conf`, never
    committed): `OWNER/REPO client=<Pseudonym> allow-domain=<their domain>[,…] terms=<file>`. The
-   registry is what makes the commit agent and `scripts/trusted-pr-merge.sh` treat the repository
-   as a client deliverable. A repository whose own Agent Config has `| deliverable | client |` is
-   one too, but the registry is the reliable signal: it does not depend on the client's files.
+   registry is the one thing that makes the commit agent and `scripts/trusted-pr-merge.sh` treat
+   the repository as a client deliverable; it does not depend on the client's files. An Agent
+   Config with `| deliverable | client |` and no registry line is refused until it is registered.
 2. **Write the terms file** (private): one regex per line for client-specific internal terms the
    generic scan cannot know (internal ticket prefixes, internal site names, team handles).
 3. **Install the push guard** in every working clone: `scripts/handoff-scan.sh --install-hook <clone>`.

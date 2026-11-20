@@ -41,7 +41,7 @@ code-quality agent is skipped and `verify_cmd` is the only gate (`agent-enforcem
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `deliverable` | (absent → internal) | `client` marks a repository handed to a client: the commit agent and merge wrapper keep every stamp and harness term out of it (`client-handoff.md`). Also register the repository in the private registry, which works even when the client's own files say nothing |
+| `deliverable` | (absent → internal) | `client` marks a repository handed to a client: the commit agent and merge wrapper keep every stamp and harness term out of it (`client-handoff.md`). The private registry line is what actually turns client mode on; this key without one is refused, so the two can never disagree |
 
 ## Referencing global rules from a project file
 
