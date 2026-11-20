@@ -17,7 +17,8 @@ Config-driven dev workflow agents for Claude Code. This repo contains markdown a
 [Scripts]|root: scripts/
 |review-round.sh: Dispatches bounded read-only branch-review rounds (to Codex, or to a headless read-only Claude reviewer while vendor `openai` is disabled — findings then open `REVIEWER: vendor=anthropic`); budget is per reviewed SCOPE, and it refuses to dispatch without acceptance criteria or over a hole in the prior-findings record. `--self-check` runs the author's own pre-round-0 pass (spends no budget) and every round's report carries a COVERAGE map the next round targets; run `bash scripts/review-round.sh <base> [--bead <id>] [--evidence-file <path>] [--self-check] [--scope-changed "<words>"] [--acceptance-reworded "<words>"] [--user-approved "<words>"] [--dry-run]`|
 |fix-prompt-check.sh: Refuses review-budget and countdown phrasing in a written fix-round prompt, naming the line; run `bash scripts/fix-prompt-check.sh <prompt-file> [--label <what>]`|
-|name-hygiene.sh: Refuses denied names on any public surface — tracked files, commit messages, or one arbitrary text input; run `bash scripts/name-hygiene.sh [--range <git-range>] [--no-history] [--text-file <path> [--label <what>]]`|
+|name-hygiene.sh: Refuses denied names on any public surface — tracked files, commit messages, one arbitrary text input, or every file under a directory; run `bash scripts/name-hygiene.sh [--range <git-range>] [--no-history] [--text-file <path> | --text-dir <dir>] [--label <what>] [--exclude-pseudonym <P>]...`|
+|handoff-scan.sh: Pre-delivery audit of a client repo (`rules/client-handoff.md`) — every ref, blob, message, PR/issue text with edit history, `.fig` contents — for harness terms, stamps, personal paths, other clients' names, commercial terms, secrets; also `--text-file`, the shared `--is-client` predicate, `--install-hook`; run `bash scripts/handoff-scan.sh <clone|OWNER/REPO> [--history]`|
 |review-ack-check.sh: Validates portable bounded-review acknowledgement fields for any project gate, and is what `trusted-pr-merge.sh` calls before merging a PR that changes a check or its policy; run `bash scripts/review-ack-check.sh '<ack note>' [--max-rounds 3]`|
 |retro-evidence.sh: Assembles measured retrospective evidence without conclusions; run `bash scripts/retro-evidence.sh [--since YYYY-MM-DD | --days N] [--repo <owner/name> ...] [--acks <path> ...] [--out <file>]`|
 
@@ -74,7 +75,7 @@ anything from the merge gate: the § Merge policy table below still routes every
 
 | Surface | Why | Rounds |
 |---|---|---|
-| `scripts/trusted-pr-merge.sh`, `scripts/review-ack-check.sh`, `scripts/verify.sh`, `scripts/name-hygiene.sh` + `scripts/testdata/name-hashes.txt`, `hooks/` | These decide whether anything else is allowed to merge. A defect here is silent and disables the rest. | full budget (3) |
+| `scripts/trusted-pr-merge.sh`, `scripts/review-ack-check.sh`, `scripts/verify.sh`, `scripts/name-hygiene.sh` + `scripts/testdata/name-hashes.txt`, `scripts/handoff-scan.sh`, `hooks/` | These decide whether anything else is allowed to merge. A defect here is silent and disables the rest. | full budget (3) |
 | `rules/` where the change alters a trigger, a policy or a refusal | The rule that decides whether a check runs is the check (global rule, class 3, "including this file"). | full budget (3) |
 | Logic in any other `scripts/*.sh` | Real consequences, bounded blast radius, and the gate already exercises them. | 1, extend on findings |
 | Prompt prose sent to a reviewer or agent | A mistake surfaces in the next review's own output, which is a fast feedback loop. | 1 |
@@ -132,6 +133,7 @@ This repo has no server-side CI and no build/test commands. “Local green” me
 - `scripts/codex-dispatch-selftest.sh`
 - `scripts/trusted-pr-merge-selftest.sh`
 - `scripts/name-hygiene-selftest.sh`
+- `scripts/handoff-scan-selftest.sh`
 - `scripts/fix-prompt-check-selftest.sh`
 - `scripts/worktree-reap-selftest.sh`
 - `scripts/verify-selftest.sh`
