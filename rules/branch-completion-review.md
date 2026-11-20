@@ -275,7 +275,8 @@ evidence this rule refuses everywhere else.
 
 **Client deliverables are the exception** (`client-handoff.md`): on a repository the private
 registry lists, the acknowledgement is harness output the client must never see. Write the same
-line to the local ledger `~/.claude/private/handoff-ledger/<owner>/<repo>/pr-<n>.ack` instead;
+line, with ` head=<the PR head sha it reviewed>` appended, to the local ledger
+`~/.claude/private/handoff-ledger/<owner>/<repo>/pr-<n>.ack` instead;
 the merge wrapper reads it from there and holds a body that carries one.
 
 ### Requesting rounds beyond the budget

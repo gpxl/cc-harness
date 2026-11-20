@@ -286,11 +286,16 @@ touches_review_trigger() {
 review_ack_ok() {  # review_ack_ok <pr-json>
   local body ack
   if [ "$client_deliverable" = true ]; then
-    # The ledger is host-side and unpublished. Same line format, same trusted checker; the last
-    # unindented line wins, as in a body.
+    # The ledger is host-side and unpublished, so nothing on GitHub shows a stale entry: the line
+    # must name the head it reviewed (`head=<sha>`, an extra token the checker ignores), and a
+    # review of an earlier head of the same pull request number is no acknowledgement.
     [ -f "$ack_ledger" ] || return 1
     ack=$(sed -nE 's/^REVIEW ACK:[[:space:]]*//p' "$ack_ledger" | tail -1)
     [ -n "$ack" ] || return 1
+    local want_head ack_head
+    want_head=$(jq -r '.headRefOid // ""' <<<"$1") || return 1
+    ack_head=$(printf '%s\n' "$ack" | tr ' ' '\n' | sed -n 's/^head=//p' | tail -1)
+    [ -n "$want_head" ] && [ "$ack_head" = "$want_head" ] || return 1
     bash "$script_dir/review-ack-check.sh" "$ack" >/dev/null 2>&1
     return
   fi
@@ -412,8 +417,8 @@ enforce_review_ack() {  # enforce_review_ack <pr-json>
     report_disposition HUMAN_HOLD missing-review-ack
     if [ "$client_deliverable" = true ]; then
       printf 'TRUSTED PR MERGE: this client-deliverable pull request changes a check or the policy behind it,\n' >&2
-      printf 'so it merges only with a REVIEW ACK line in the local ledger %s,\n' "$ack_ledger" >&2
-      printf 'never in its body. See rules/client-handoff.md.\n' >&2
+      printf 'so it merges only with a REVIEW ACK line naming its head (head=<sha>) in the local ledger\n' >&2
+      printf '%s, never in its body. See rules/client-handoff.md.\n' "$ack_ledger" >&2
       exit "$HOLD_EXIT"
     fi
     printf 'TRUSTED PR MERGE: this pull request changes a check or the policy behind it, so it merges\n' >&2

@@ -94,14 +94,27 @@ registry_field() {  # registry_field <line> <key>
   printf '%s\n' "$1" | tr ' \t' '\n\n' | sed -n "s/^$2=//p" | tail -1
 }
 
-origin_repo() {  # origin_repo <dir> -> OWNER/REPO from the origin remote, if it is on GitHub
+url_repo() {  # url_repo <url> -> OWNER/REPO
   local url
   # Any form: https (with or without user@), scp-style with an SSH host alias, ssh://, a trailing
   # slash. The registry keys on OWNER/REPO, so the last two path segments are what matter; a
   # missed form would read a client repository as "not client", which fails open.
-  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
-  printf '%s\n' "$url" | sed -E 's#/+$##; s#\.git$##; s#^[^:/]+:([^/])#/\1#' \
+  printf '%s\n' "$1" | sed -E 's#/+$##; s#\.git$##; s#^[^:/]+:([^/])#/\1#' \
     | awk -F/ 'NF >= 2 && $(NF-1) != "" && $NF != "" { print $(NF-1) "/" $NF; ok = 1 } END { exit ok ? 0 : 1 }'
+}
+
+origin_repo() {  # origin_repo <dir> -> OWNER/REPO of the origin remote
+  local url
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
+  url_repo "$url"
+}
+
+remote_repos() {  # remote_repos <dir> -> OWNER/REPO of EVERY remote (fetch and push URLs)
+  # A fork as origin and the client as upstream, or a remote not named origin, must still read
+  # as a client clone: the pull request lands on the client's repository either way.
+  git -C "$1" remote -v 2>/dev/null | awk '{ print $2 }' | sort -u | while IFS= read -r url; do
+    url_repo "$url" || true
+  done
 }
 
 agent_config_says_client() {  # the repo's OWN Agent Config: `| deliverable | client |`
@@ -129,8 +142,11 @@ if [ "$mode" = is-client ]; then
   [ -n "$is_client_dir" ] || die '--is-client needs --repo OWNER/REPO or --dir <path>'
   [ -d "$is_client_dir" ] || die "not a directory: $is_client_dir"
   git -C "$is_client_dir" rev-parse --git-dir >/dev/null 2>&1 || exit 1
-  r=$(origin_repo "$is_client_dir" || true)
-  if [ -n "$r" ] && registry_line "$r" >/dev/null; then exit 0; fi
+  r=''
+  for candidate in $(remote_repos "$is_client_dir"); do
+    r=${r:-$candidate}
+    if registry_line "$candidate" >/dev/null; then exit 0; fi
+  done
   # The registry is the one source of truth, because the merge wrapper can only ask it. A repo
   # that calls itself a client deliverable but is not registered would get ledger-only acks from
   # the commit agent and a body-ack demand from the wrapper: refuse until it is registered.

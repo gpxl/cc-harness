@@ -73,6 +73,10 @@ first delivery set the precedent:
 | Merge | `scripts/trusted-pr-merge.sh` reads the `REVIEW ACK:` from the ledger, not the body, and holds a title or body with any harness term (`harness-text-in-title-or-body`) |
 | Branch-completion review | The acknowledgement is recorded in the ledger, never in the body (`branch-completion-review.md`) |
 
+**Coverage:** an ordinary client pull request (no check or policy change) merges with plain
+`gh pr merge`, so its title and body are checked only by the commit agent's Step 10 scan; a merge
+through `scripts/trusted-pr-merge.sh` checks them again.
+
 **Known gap:** a comment the orchestrator posts on a client pull request by hand is only caught by
 the next full scan, after the fact. Don't post review findings, stamps or gate output as comments
 on a client repository.

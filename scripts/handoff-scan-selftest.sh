@@ -217,6 +217,14 @@ for url in git@github-work:octo/kit.git https://someone@github.com/octo/kit http
   run "remote form $url is recognised" 0 '' --is-client --dir "$workdir/remote_form"
 done
 
+# A fork as origin and the client as upstream is still a client clone.
+plant forked
+git -C "$workdir/forked" remote set-url origin https://github.com/someone/kit-fork.git
+git -C "$workdir/forked" remote add upstream git@github.com:octo/kit.git
+run 'a client remote not named origin is found' 0 '' --is-client --dir "$workdir/forked"
+git -C "$workdir/forked" remote remove upstream
+run 'a fork alone is not a client clone' 1 '' --is-client --dir "$workdir/forked"
+
 # A missing registry where the private directory exists cannot see, so it is not "not client".
 mkdir -p "$workdir/private"
 HANDOFF_REGISTRY="$workdir/private/none.conf" run 'a missing registry beside a private dir is an error' 2 'client registry missing' --is-client --repo octo/kit

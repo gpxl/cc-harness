@@ -84,15 +84,19 @@ so no harness output may reach it:
   tree or sha stamps, tracker ids (no bead id in the title, overriding Step 10), harness, agent,
   rule or model names, personal paths, or vendor attribution of any kind. Describe the change and
   how it was checked in plain words.
+- **Check the base repository too.** Before writing a PR body, also run
+  `handoff-scan.sh --is-client --repo <the PR's base OWNER/REPO>`: a fork's clone can name the
+  client only as its base. Either answer 0 is client mode.
 - **The records go to the local ledger instead:** append each `VERIFY RESULT:` line, and the
-  orchestrator's `REVIEW ACK:` line, to
+  orchestrator's `REVIEW ACK:` line with ` head=<full PR head sha>` appended (the merge wrapper
+  refuses an ack for any other head), to
   `${HANDOFF_LEDGER_DIR:-$HOME/.claude/private/handoff-ledger}/<owner>/<repo>/pr-<n>.ack` (create
   the directories). `scripts/trusted-pr-merge.sh` reads the acknowledgement from there on a client
   repository and holds a body that carries one.
 - **Scan every message, the title and the body** with
   `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file <file> --label <what>`
   — see the Step 8 and Step 10 notes. Exit 1 or 2 is `COMMIT RESULT: FAIL`.
-- **Scan the clone before pushing** (Step 9): `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github`.
+- **Scan the clone before pushing** (Step 9): `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history`.
   If the clone has no `pre-push` guard yet, say so in the result and recommend
   `handoff-scan.sh --install-hook "$PWD"`; do not install it yourself.
 - The **Test plan** block in Step 10 is replaced by a plain `## Testing` section with no stamps.
@@ -401,7 +405,7 @@ git push -u origin HEAD
 Do **not** force-push if rejected. Output `COMMIT RESULT: FAIL` with
 instructions.
 
-**Client mode** (Step 0): before the push, run `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github`
+**Client mode** (Step 0): before the push, run `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history`
 redirected to a file and read its exit code on its own. Anything but 0 is `COMMIT RESULT: FAIL`
 with the hits listed; nothing is pushed.
 

@@ -561,7 +561,16 @@ assert_contains "$run_stderr" "$ledger_file" || true
 assert_file_absent "$tmpdir/gate-ran" || true
 
 mkdir -p "$(dirname "$ledger_file")"
+# A review of an earlier head of the same pull request is no acknowledgement.
+printf '%s head=old-head-sha\n' "$valid_ack" > "$ledger_file"
+run_wrapper client_rules_clean_body
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
 printf '%s\n' "$valid_ack" > "$ledger_file"
+run_wrapper client_rules_clean_body
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+printf '%s head=head-sha-1\n' "$valid_ack" > "$ledger_file"
 run_wrapper client_rules_clean_body --merge
 assert_eq 0 "$run_status" || true
 assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
