@@ -237,6 +237,29 @@ printf '%s\n' 'octo/kit client=OwnClient terms=~/kit.terms' > "$workdir/private/
 printf '%s\n' 'Mentions zzinternalterm.' > "$workdir/body-term.md"
 HOME="$workdir/home" HANDOFF_REGISTRY="$workdir/private/terms.conf" run 'a ~/ terms path is read' 1 "[client-terms] 'zzinternalterm'" --text-file "$workdir/body-term.md" --repo octo/kit
 
+# Round 2: ONE resolver (client_repo_of) feeds --is-client, the scan default and text --dir, so
+# the client's registry line (terms file, allowed domains, own name) loads whichever remote names it.
+plant forked_terms
+git -C "$workdir/forked_terms" remote set-url origin https://github.com/someone/kit-fork.git
+git -C "$workdir/forked_terms" remote add upstream git@github.com:octo/kit.git
+printf '%s\n' 'Notes on zzinternalterm.' > "$workdir/forked_terms/notes.md"
+git -C "$workdir/forked_terms" add notes.md >/dev/null && git -C "$workdir/forked_terms" commit -qm 'Add notes' >/dev/null
+while IFS='|' read -r name rc needle args; do
+  # shellcheck disable=SC2086 # args is a word list by design
+  HOME="$workdir/home" HANDOFF_REGISTRY="$workdir/private/terms.conf" run "fork+upstream: $name" "$rc" "$needle" $args
+done <<ROWS
+is-client via upstream|0||--is-client --dir $workdir/forked_terms
+text --dir loads the client terms|1|[client-terms] 'zzinternalterm'|--text-file $workdir/body-term.md --dir $workdir/forked_terms
+scan default loads the client terms|1|[client-terms] 'zzinternalterm'|$workdir/forked_terms --no-github
+ROWS
+
+# A submodule gitlink is another repository: reported as not scanned, never counted silently.
+plant gitlinked
+git -C "$workdir/gitlinked" update-index --add --cacheinfo 160000,"$(git -C "$workdir/gitlinked" rev-parse HEAD)",vendor/sub >/dev/null
+git -C "$workdir/gitlinked" commit -qm 'Add submodule' >/dev/null
+run 'a submodule gitlink is reported' 0 'submodule gitlinks NOT scanned' "$workdir/gitlinked" --no-github --client OwnClient
+run 'a submodule gitlink is reported under --history' 0 'submodule gitlinks NOT scanned' "$workdir/gitlinked" --no-github --history --client OwnClient
+
 # An unreadable PNG text chunk or an undecodable fig-kiwi chunk cannot report clean.
 plant bad_binaries
 python3 - "$workdir/bad_binaries" <<'PY2' || fail 'build bad binary fixtures' 'python helper failed'

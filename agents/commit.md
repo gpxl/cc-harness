@@ -74,6 +74,12 @@ it refuses a repository whose key says `client` but which is not registered:
 ```bash
 client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --dir "$PWD" || client=$?
 # 0 = client deliverable, 1 = not, anything else = COMMIT RESULT: FAIL (could not decide)
+# A fork's clone can name the client only as the PR's base, so ask about the base too, here in
+# Step 0 — before any commit message is written or pushed. Either 0 is client mode.
+base=$(gh repo view --json parent,nameWithOwner -q 'if .parent then .parent.owner.login + "/" + .parent.name else .nameWithOwner end' 2>/dev/null || true)
+if [ "$client" = 1 ] && [ -n "$base" ]; then
+  client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --repo "$base" || client=$?
+fi
 ```
 
 In client mode (`rules/client-handoff.md`) everything this agent publishes is the client's to keep,
@@ -84,9 +90,8 @@ so no harness output may reach it:
   tree or sha stamps, tracker ids (no bead id in the title, overriding Step 10), harness, agent,
   rule or model names, personal paths, or vendor attribution of any kind. Describe the change and
   how it was checked in plain words.
-- **Check the base repository too.** Before writing a PR body, also run
-  `handoff-scan.sh --is-client --repo <the PR's base OWNER/REPO>`: a fork's clone can name the
-  client only as its base. Either answer 0 is client mode.
+- **The base repository was already checked in Step 0.** If you open the PR against a base other
+  than the one Step 0 resolved, run `handoff-scan.sh --is-client --repo <that base>` before Step 8.
 - **The records go to the local ledger instead:** append each `VERIFY RESULT:` line, and the
   orchestrator's `REVIEW ACK:` line with ` head=<full PR head sha>` appended (the merge wrapper
   refuses an ack for any other head), to

@@ -103,11 +103,6 @@ url_repo() {  # url_repo <url> -> OWNER/REPO
     | awk -F/ 'NF >= 2 && $(NF-1) != "" && $NF != "" { print $(NF-1) "/" $NF; ok = 1 } END { exit ok ? 0 : 1 }'
 }
 
-origin_repo() {  # origin_repo <dir> -> OWNER/REPO of the origin remote
-  local url
-  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
-  url_repo "$url"
-}
 
 remote_repos() {  # remote_repos <dir> -> OWNER/REPO of EVERY remote (fetch and push URLs)
   # A fork as origin and the client as upstream, or a remote not named origin, must still read
@@ -115,6 +110,22 @@ remote_repos() {  # remote_repos <dir> -> OWNER/REPO of EVERY remote (fetch and 
   git -C "$1" remote -v 2>/dev/null | awk '{ print $2 }' | sort -u | while IFS= read -r url; do
     url_repo "$url" || true
   done
+}
+
+client_repo_of() {  # client_repo_of <dir> -> the repository a clone delivers to; exit 0 iff registered
+  # The ONE place a clone is resolved to OWNER/REPO, for --is-client, the scan default and text-mode
+  # --dir alike. Every remote counts (a fork as origin with the client as upstream, or a remote not
+  # named origin), so the registered one wins; with none registered it prints origin's repository
+  # (else the first remote's) and exits 1. Two resolvers answering differently is how client mode
+  # and the client's terms file came apart before.
+  local candidate first='' origin_r=''
+  origin_r=$(url_repo "$(git -C "$1" remote get-url origin 2>/dev/null)" 2>/dev/null || true)
+  for candidate in $(remote_repos "$1"); do
+    first=${first:-$candidate}
+    if registry_line "$candidate" >/dev/null; then printf '%s\n' "$candidate"; return 0; fi
+  done
+  [ -n "${origin_r:-$first}" ] && printf '%s\n' "${origin_r:-$first}"
+  return 1
 }
 
 agent_config_says_client() {  # the repo's OWN Agent Config: `| deliverable | client |`
@@ -142,11 +153,7 @@ if [ "$mode" = is-client ]; then
   [ -n "$is_client_dir" ] || die '--is-client needs --repo OWNER/REPO or --dir <path>'
   [ -d "$is_client_dir" ] || die "not a directory: $is_client_dir"
   git -C "$is_client_dir" rev-parse --git-dir >/dev/null 2>&1 || exit 1
-  r=''
-  for candidate in $(remote_repos "$is_client_dir"); do
-    r=${r:-$candidate}
-    if registry_line "$candidate" >/dev/null; then exit 0; fi
-  done
+  r=$(client_repo_of "$is_client_dir") && exit 0
   # The registry is the one source of truth, because the merge wrapper can only ask it. A repo
   # that calls itself a client deliverable but is not registered would get ledger-only acks from
   # the commit agent and a body-ack demand from the wrapper: refuse until it is registered.
@@ -194,7 +201,7 @@ if [ "$mode" = scan ]; then
   [ -n "$target" ] || die 'name a clone path or OWNER/REPO to scan'
   if [ -d "$target" ]; then
     git_dir=$(git -C "$target" rev-parse --path-format=absolute --git-dir 2>/dev/null) || die "not a git repository: $target"
-    [ -n "$repo" ] || repo=$(origin_repo "$target" || true)
+    [ -n "$repo" ] || repo=$(client_repo_of "$target" || true)
   else
     case "$target" in
       */*) repo=${repo:-$target} ;;
@@ -211,7 +218,7 @@ fi
 # --dir in text mode: the registry defaults of the repository that clone pushes to.
 if [ "$mode" = text ] && [ -z "$repo" ] && [ -n "$is_client_dir" ]; then
   [ -d "$is_client_dir" ] || die "not a directory: $is_client_dir"
-  repo=$(origin_repo "$is_client_dir" || true)
+  repo=$(client_repo_of "$is_client_dir" || true)
 fi
 if [ -n "$repo" ] && line=$(registry_line "$repo"); then
   [ "$client_set" = true ] || client=$(registry_field "$line" client)
@@ -500,9 +507,17 @@ def scan_git(gd, origin):
     if not refs:
         return
     pending = []
+    gitlinks = set()
     if history:
         # Every object reachable from every ref. A file deleted on main is still one checkout away
         # for the client, so a FIRST delivery (or one whose history was never audited) runs this.
+        # rev-list never descends into a submodule gitlink, so find them at every tip as well.
+        for ref in refs:
+            for entry in git(gd, "ls-tree", "-r", "-z", "--full-tree", ref + "^{tree}", binary=True).split(b"\0"):
+                meta, _, path = entry.partition(b"\t")
+                parts = meta.split()
+                if len(parts) == 3 and parts[1] == b"commit":
+                    gitlinks.add(path)
         for line in git(gd, "rev-list", "--objects", "--all").splitlines():
             sha, _, path = line.partition(" ")
             if path and sha not in seen_blobs:
@@ -519,6 +534,11 @@ def scan_git(gd, origin):
                 parts = meta.split()
                 if len(parts) == 3 and parts[1] == b"blob":
                     pending.append((parts[2].decode(), f"{short}:{path.decode('utf-8', 'replace')}"))
+                elif len(parts) == 3 and parts[1] == b"commit":
+                    gitlinks.add(path)
+    if gitlinks:
+        # A submodule's content is another repository: never silently counted as scanned.
+        bump("submodule gitlinks NOT scanned (scan each submodule's repository too)", len(gitlinks))
     if pending:
         p = subprocess.run(["git", "--git-dir", gd, "cat-file", "--batch-check=%(objectname) %(objecttype)"],
                            input="\n".join(s for s, _ in pending).encode(), capture_output=True)
