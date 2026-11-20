@@ -120,6 +120,21 @@ command -v git >/dev/null 2>&1 || die 'git is required'
 owner=${repo%%/*}
 repository=${repo#*/}
 
+# A client deliverable (rules/client-handoff.md) is decided host-side, by the ONE predicate the
+# commit agent shares: the private registry, never the candidate checkout. On one, harness output
+# must not reach the pull-request page, so the review acknowledgement is read from a local ledger
+# and the title and body are scanned for every harness term, not only for private names.
+client_rc=0
+bash "$script_dir/handoff-scan.sh" --is-client --repo "$repo" >/dev/null 2>&1 || client_rc=$?
+case "$client_rc" in
+  0) client_deliverable=true ;;
+  1) client_deliverable=false ;;
+  *) die 'could not decide whether this repository is a client deliverable (handoff-scan.sh --is-client)' ;;
+esac
+readonly client_deliverable
+ack_ledger="${HANDOFF_LEDGER_DIR:-$HOME/.claude/private/handoff-ledger}/$owner/$repository/pr-$pr_number.ack"
+readonly ack_ledger
+
 metadata_query='query($owner: String!, $repository: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $repository) {
     pullRequest(number: $number) {
@@ -270,6 +285,15 @@ touches_review_trigger() {
 # that genuinely had a GO verdict merged with nothing confirming it.
 review_ack_ok() {  # review_ack_ok <pr-json>
   local body ack
+  if [ "$client_deliverable" = true ]; then
+    # The ledger is host-side and unpublished. Same line format, same trusted checker; the last
+    # unindented line wins, as in a body.
+    [ -f "$ack_ledger" ] || return 1
+    ack=$(sed -nE 's/^REVIEW ACK:[[:space:]]*//p' "$ack_ledger" | tail -1)
+    [ -n "$ack" ] || return 1
+    bash "$script_dir/review-ack-check.sh" "$ack" >/dev/null 2>&1
+    return
+  fi
   body=$(jq -r '.body // ""' <<<"$1") || return 1
   # The acknowledgement is one line of the body, marked so it can be found without parsing prose.
   # Fenced regions are stripped first: a pull request that DOCUMENTS this format — the likeliest
@@ -315,12 +339,26 @@ enforce_name_hygiene() {  # enforce_name_hygiene <pr-json>
   # `set -e` is on: capture the scanner's real status without letting a non-zero one abort here,
   # because a denied name must produce a HOLD with a reason, not a bare exit 1.
   rc=0
-  out=$(bash "$script_dir/name-hygiene.sh" --denylist "$script_dir/testdata/name-hashes.txt" \
-    --text-file "$text_file" --label 'pull-request title and body' 2>&1) || rc=$?
+  if [ "$client_deliverable" = true ]; then
+    # The hand-off scan runs the same name check (minus the client's own name, from the registry)
+    # plus every harness term: a stamp or attribution in a client PR is a leak, not a formality.
+    out=$(bash "$script_dir/handoff-scan.sh" --repo "$repo" --denylist "$script_dir/testdata/name-hashes.txt" \
+      --text-file "$text_file" --label 'pull-request title and body' 2>&1) || rc=$?
+  else
+    out=$(bash "$script_dir/name-hygiene.sh" --denylist "$script_dir/testdata/name-hashes.txt" \
+      --text-file "$text_file" --label 'pull-request title and body' 2>&1) || rc=$?
+  fi
   rm -f "$text_file"
   case "$rc" in
     0) return 0 ;;
     1)
+      if [ "$client_deliverable" = true ]; then
+        report_disposition HUMAN_HOLD harness-text-in-title-or-body
+        printf '%s\n' "$out" >&2
+        printf 'TRUSTED PR MERGE: this is a client deliverable; remove the text from the title and body, and\n' >&2
+        printf 'delete the edited revision from the body history too (rules/client-handoff.md).\n' >&2
+        exit "$HOLD_EXIT"
+      fi
       report_disposition HUMAN_HOLD denied-name-in-title-or-body
       printf '%s\n' "$out" >&2
       printf 'TRUSTED PR MERGE: a squash merge publishes this title verbatim; rewrite it before merging.\n' >&2
@@ -372,6 +410,12 @@ enforce_review_ack() {  # enforce_review_ack <pr-json>
   [ "$touches" = true ] || return 0
   if ! review_ack_ok "$1"; then
     report_disposition HUMAN_HOLD missing-review-ack
+    if [ "$client_deliverable" = true ]; then
+      printf 'TRUSTED PR MERGE: this client-deliverable pull request changes a check or the policy behind it,\n' >&2
+      printf 'so it merges only with a REVIEW ACK line in the local ledger %s,\n' "$ack_ledger" >&2
+      printf 'never in its body. See rules/client-handoff.md.\n' >&2
+      exit "$HOLD_EXIT"
+    fi
     printf 'TRUSTED PR MERGE: this pull request changes a check or the policy behind it, so it merges\n' >&2
     printf 'only with a line in its body of the form:\n' >&2
     printf '  REVIEW ACK: rounds=<n> verdict=<GO|NO-GO> open_blockers=<n> user_decision="<words>" classes=<list>\n' >&2

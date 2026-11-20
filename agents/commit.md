@@ -63,6 +63,39 @@ all key-value pairs. You need these keys:
 | `browser_validation` | Browser validation commands (UI changes) |
 | `coverage_per_module` | Per-module coverage threshold for gate |
 | `co_author` | A **human** co-author trailer, or `(none)`. Never an agent, vendor or model identity — see Attribution below |
+| `deliverable` | **Optional.** `client` marks a repository handed to a client — see **Client deliverables** below |
+
+### Client deliverables
+
+Decide client mode with the one shared predicate, never by reading the key yourself — it also
+consults the private registry, so a client repository whose own CLAUDE.md says nothing is still
+caught:
+
+```bash
+client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --dir "$PWD" || client=$?
+# 0 = client deliverable, 1 = not, anything else = COMMIT RESULT: FAIL (could not decide)
+```
+
+In client mode (`rules/client-handoff.md`) everything this agent publishes is the client's to keep,
+so no harness output may reach it:
+
+- **Commit messages, the PR title and the PR body carry none of:** a `REVIEW ACK:` line or any
+  `key=value` review stamp, `VERIFY RESULT:` / `CODE QUALITY RESULT:` / `COMMIT RESULT:` lines,
+  tree or sha stamps, tracker ids (no bead id in the title, overriding Step 10), harness, agent,
+  rule or model names, personal paths, or vendor attribution of any kind. Describe the change and
+  how it was checked in plain words.
+- **The records go to the local ledger instead:** append each `VERIFY RESULT:` line, and the
+  orchestrator's `REVIEW ACK:` line, to
+  `${HANDOFF_LEDGER_DIR:-$HOME/.claude/private/handoff-ledger}/<owner>/<repo>/pr-<n>.ack` (create
+  the directories). `scripts/trusted-pr-merge.sh` reads the acknowledgement from there on a client
+  repository and holds a body that carries one.
+- **Scan every message, the title and the body** with
+  `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file <file> --label <what>`
+  — see the Step 8 and Step 10 notes. Exit 1 or 2 is `COMMIT RESULT: FAIL`.
+- **Scan the clone before pushing** (Step 9): `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github`.
+  If the clone has no `pre-push` guard yet, say so in the result and recommend
+  `handoff-scan.sh --install-hook "$PWD"`; do not install it yourself.
+- The **Test plan** block in Step 10 is replaced by a plain `## Testing` section with no stamps.
 
 If no Agent Config section exists, output `COMMIT RESULT: FAIL` with
 "No Agent Config section found in CLAUDE.md."
@@ -351,6 +384,10 @@ The pull-request title and body are scanned too, but in Step 10 where they actua
 Run `scripts/name-hygiene.sh --quiet` only as a separate, deliberate full-history audit; outgoing
 commits cannot remediate historical hits.
 
+**Client mode** (Step 0): also scan each outgoing message with the hand-off scan, which adds every
+harness term to the name check. Write `git log --format=%B "$INTEGRATION_REF..HEAD"` to a file and
+run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file <file> --label 'outgoing commit messages'`.
+
 ## Step 9 — Push branch
 
 Push the current HEAD to a remote branch of the same name. Using `HEAD`
@@ -363,6 +400,10 @@ git push -u origin HEAD
 
 Do **not** force-push if rejected. Output `COMMIT RESULT: FAIL` with
 instructions.
+
+**Client mode** (Step 0): before the push, run `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github`
+redirected to a file and read its exit code on its own. Anything but 0 is `COMMIT RESULT: FAIL`
+with the hits listed; nothing is pushed.
 
 ## Step 10 — Open pull request
 
@@ -383,6 +424,9 @@ status=$?
 rm -f "$pr_text"
 [ "$status" -eq 0 ] || printf 'COMMIT RESULT: FAIL — name-hygiene exit %s on the PR title/body\n' "$status"
 ```
+
+**Client mode** (Step 0): run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file "$pr_text" --label 'pull-request title and body'`
+instead of `name-hygiene.sh` on the same file.
 
 Exit 1 is a denied token; exit **2** is a setup error (a missing file, an unreadable denylist) and
 is equally a `COMMIT RESULT: FAIL` — an instrument that could not look must never read as clean.

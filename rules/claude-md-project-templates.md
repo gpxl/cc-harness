@@ -37,6 +37,12 @@ Projects without these keys keep the old behavior — the commit and release age
 Set it whenever `quality_gate_pattern` is `(none)`: that is the configuration where the
 code-quality agent is skipped and `verify_cmd` is the only gate (`agent-enforcement.md`).
 
+## Agent Config — `deliverable`
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `deliverable` | (absent → internal) | `client` marks a repository handed to a client: the commit agent and merge wrapper keep every stamp and harness term out of it (`client-handoff.md`). Also register the repository in the private registry, which works even when the client's own files say nothing |
+
 ## Referencing global rules from a project file
 
 A project `CLAUDE.md` / `CLAUDE.local.md` **references** a global rule by filename and carries

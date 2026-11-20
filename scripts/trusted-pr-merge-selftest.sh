@@ -211,6 +211,18 @@ case "${TEST_SCENARIO:?}" in
   clean_title_and_body)
     association='OWNER'; author_login='owner-user'
     ;;
+  client_rules_clean_body|client_ordinary_clean)
+    association='OWNER'; author_login='owner-user'
+    [ "$TEST_SCENARIO" = client_ordinary_clean ] || path='rules/some-rule.md'
+    ;;
+  client_rules_ack_in_body)
+    association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
+    body="$valid_ack"
+    ;;
+  client_ordinary_stamp_in_body)
+    association='OWNER'; author_login='owner-user'
+    body='Mutation-checked: every guard bites.'
+    ;;
   ack_removed_after_gate)
     association='OWNER'; author_login='owner-user'; path='rules/some-rule.md'
     if [ "$count" -lt 2 ]; then body="$valid_ack"; fi
@@ -250,6 +262,7 @@ run_wrapper() {
   set +e
   TEST_TMP="$tmpdir" TEST_SCENARIO="$scenario" TEST_LOCAL_HEAD="$local_head" \
     TEST_REST_PAGES="${TEST_REST_PAGES:-}" TEST_REST_FAIL="${TEST_REST_FAIL:-0}" PATH="$tmpdir/bin:$PATH" \
+    HANDOFF_REGISTRY="${TEST_HANDOFF_REGISTRY:-$tmpdir/no-registry.conf}" HANDOFF_LEDGER_DIR="$tmpdir/ledger" \
     bash "${WRAPPER_UNDER_TEST:-$wrapper}" --repo octo/example --pr 42 --checkout "$tmpdir/candidate" --gate gate "$@" \
     > "$tmpdir/stdout" 2> "$tmpdir/stderr"
   run_status=$?
@@ -465,7 +478,7 @@ assert_not_contains "$(<"$tmpdir/gh-argv")" '/files' || true
 mutant_dir="$tmpdir/mutant-scripts"
 mkdir -p "$mutant_dir/testdata"
 cp "$wrapper" "$mutant_dir/trusted-pr-merge.sh"
-cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$mutant_dir/"
+cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$script_dir/handoff-scan.sh" "$mutant_dir/"
 cp "$script_dir/testdata/name-hashes.txt" "$mutant_dir/testdata/"
 perl -0pi -e 's/if \[ "\$renames" -gt 0 \]; then/if false; then/' "$mutant_dir/trusted-pr-merge.sh"
 if cmp -s "$mutant_dir/trusted-pr-merge.sh" "$wrapper"; then
@@ -498,7 +511,7 @@ fi
 trusted_dir="$tmpdir/trusted-scripts"
 mkdir -p "$trusted_dir/testdata"
 cp "$wrapper" "$trusted_dir/trusted-pr-merge.sh"
-cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$trusted_dir/"
+cp "$script_dir/review-ack-check.sh" "$script_dir/name-hygiene.sh" "$script_dir/handoff-scan.sh" "$trusted_dir/"
 printf '%s  # ClearName\n' "$(printf 'zzdeniedname' | shasum -a 256 | awk '{print $1}')" \
   > "$trusted_dir/testdata/name-hashes.txt"
 
@@ -530,6 +543,59 @@ else
   assert_contains "$run_stdout" 'DISPOSITION: AGENT_AUTO reason=ordinary-pr' || true
   unset WRAPPER_UNDER_TEST
 fi
+
+# --- client deliverables (rules/client-handoff.md) ---------------------------------------------
+# Decided by the private registry, never the candidate: on a client repository the review
+# acknowledgement lives in a local ledger, and a harness term in the title or body is held.
+printf '%s\n' 'octo/example client=OctoClient' > "$tmpdir/client-registry.conf"
+valid_ack='REVIEW ACK: rounds=2 verdict=GO open_blockers=0 classes=3'  # as in the gh stub
+ledger_file="$tmpdir/ledger/octo/example/pr-42.ack"
+export TEST_HANDOFF_REGISTRY="$tmpdir/client-registry.conf"
+
+rm -rf "$tmpdir/ledger"
+run_wrapper client_rules_clean_body
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+assert_contains "$run_stderr" "$ledger_file" || true
+assert_file_absent "$tmpdir/gate-ran" || true
+
+mkdir -p "$(dirname "$ledger_file")"
+printf '%s\n' "$valid_ack" > "$ledger_file"
+run_wrapper client_rules_clean_body --merge
+assert_eq 0 "$run_status" || true
+assert_contains "$run_stdout" 'TRUSTED PR MERGE: review acknowledgement accepted' || true
+assert_file_present "$tmpdir/merge-called" || true
+
+# A malformed ledger line is no acknowledgement.
+printf '%s\n' 'REVIEW ACK: rounds=2 verdict=GO open_blockers=0' > "$ledger_file"
+run_wrapper client_rules_clean_body
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=missing-review-ack' || true
+rm -rf "$tmpdir/ledger"
+
+# The acknowledgement in the body is itself the leak: held, and never accepted as the ack.
+run_wrapper client_rules_ack_in_body --merge
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=harness-text-in-title-or-body' || true
+assert_file_absent "$tmpdir/merge-called" || true
+
+run_wrapper client_ordinary_stamp_in_body --merge
+assert_eq 20 "$run_status" || true
+assert_contains "$run_stdout" 'DISPOSITION: HUMAN_HOLD reason=harness-text-in-title-or-body' || true
+assert_contains "$run_stderr" '[stamp]' || true
+assert_file_absent "$tmpdir/merge-called" || true
+
+# Positive control: a clean ordinary client pull request merges.
+run_wrapper client_ordinary_clean --merge
+assert_eq 0 "$run_status" || true
+assert_file_present "$tmpdir/merge-called" || true
+
+unset TEST_HANDOFF_REGISTRY
+# Control: the same stamped body in a repository the registry does not list merges, so the holds
+# above come from client mode and not from the body alone.
+run_wrapper client_ordinary_stamp_in_body
+assert_eq 0 "$run_status" || true
+assert_not_contains "$run_stdout" 'harness-text-in-title-or-body' || true
 
 if [ "$failures" -eq 0 ]; then
   printf '%s\n' 'TRUSTED PR MERGE SELFTEST: PASS'
