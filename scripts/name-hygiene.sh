@@ -8,10 +8,16 @@
 #
 # Usage: scripts/name-hygiene.sh [--root <dir>] [--denylist <file>] [--range <git-range>] [--no-history] [--quiet]
 #        scripts/name-hygiene.sh --text-file <path> [--label <what it is>] [--denylist <file>]
+#        scripts/name-hygiene.sh --text-dir <dir> [--denylist <file>]
+#        any form: [--exclude-pseudonym <Pseudonym>]...
 #
 # --text-file scans one arbitrary text input instead of the repository: a pull-request title and
 # body, for example, which are published verbatim by a squash merge but live in no file and no
 # commit message until it is too late to take them back.
+# --text-dir scans every file under one directory as text, labelled by its path relative to it:
+# a corpus another tool extracted (scripts/handoff-scan.sh writes one per client delivery).
+# --exclude-pseudonym drops the denylist entries whose comment starts with that pseudonym, so a
+# client's own deliverable may name that client while every other private name stays denied.
 # Exit: 0 clean · 1 a denied token was found · 2 setup error (no denylist, not a git repo).
 #
 # A missing denylist is exit 2, never 0: an instrument that cannot see must not report "clean"
@@ -26,6 +32,8 @@ history_range=''
 quiet=false
 text_file=''
 text_label='text input'
+text_dir=''
+exclude_pseudonyms=''
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -35,8 +43,12 @@ while [ $# -gt 0 ]; do
     --no-history) scan_history=false; shift ;;
     --text-file) text_file=${2:-}; shift 2 || exit 2 ;;
     --label) text_label=${2:-}; shift 2 || exit 2 ;;
+    --text-dir) text_dir=${2:-}; shift 2 || exit 2 ;;
+    --exclude-pseudonym)
+      [ -n "${2:-}" ] || { printf 'NAME HYGIENE: --exclude-pseudonym needs a value\n' >&2; exit 2; }
+      exclude_pseudonyms="$exclude_pseudonyms$2"$'\n'; shift 2 ;;
     --quiet) quiet=true; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) printf 'NAME HYGIENE: unknown argument %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -51,7 +63,15 @@ if [ -n "$text_file" ] && [ ! -f "$text_file" ]; then
   printf 'NAME HYGIENE: FAIL (text input not found at %s — cannot report clean without it)\n' "$text_file" >&2
   exit 2
 fi
-if [ -z "$text_file" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+if [ -n "$text_dir" ] && [ ! -d "$text_dir" ]; then
+  printf 'NAME HYGIENE: FAIL (text directory not found at %s — cannot report clean without it)\n' "$text_dir" >&2
+  exit 2
+fi
+if [ -n "$text_file" ] && [ -n "$text_dir" ]; then
+  printf 'NAME HYGIENE: --text-file and --text-dir are exclusive\n' >&2
+  exit 2
+fi
+if [ -z "$text_file" ] && [ -z "$text_dir" ] && ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'NAME HYGIENE: FAIL (%s is not a git repository)\n' "$root" >&2
   exit 2
 fi
@@ -65,10 +85,11 @@ fi
 quiet_arg=--loud
 [ "$quiet" = false ] || quiet_arg=--quiet
 
-python3 - "$root" "$denylist" "$history_arg" "$quiet_arg" "$history_range" "$text_file" "$text_label" <<'PY'
+python3 - "$root" "$denylist" "$history_arg" "$quiet_arg" "$history_range" "$text_file" "$text_label" "$text_dir" "$exclude_pseudonyms" <<'PY'
 import hashlib, os, re, subprocess, sys
 
-root, denylist_path, history_arg, quiet_arg, history_range, text_file, text_label = sys.argv[1:8]
+root, denylist_path, history_arg, quiet_arg, history_range, text_file, text_label, text_dir, excluded_raw = sys.argv[1:10]
+excluded = [p for p in excluded_raw.split("\n") if p]
 scan_history = history_arg == "--history"
 scan_range = history_arg == "--range"
 quiet = quiet_arg == "--quiet"
@@ -81,12 +102,19 @@ with open(denylist_path, encoding="utf-8") as fh:
             continue
         digest, _, comment = line.partition("#")
         digest = digest.strip().lower()
+        # The owning client's own name may appear in its own deliverable; nothing else may. Match the
+        # whole first word of the comment, so excluding "Audio" can never drop "AudioWebsite".
+        first_word = (re.split(r"[\s(]", comment.strip(), maxsplit=1) or [""])[0]
+        if first_word in excluded:
+            continue
         if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
             denied[digest] = comment.strip()
 
 if not denied:
     print(f"NAME HYGIENE: FAIL (denylist {denylist_path} holds no hashes)", file=sys.stderr)
     sys.exit(2)
+
+excluded_label = f", excluding {', '.join(excluded)}" if excluded else ""
 
 # Hyphenated compounds are one token AND their parts, because hashing cannot match substrings.
 TOKEN = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*")
@@ -182,7 +210,29 @@ if text_file:
         report(hits)
         sys.exit(1)
     if not quiet:
-        print(f"NAME HYGIENE: PASS ({text_label}, {len(denied)} denied hashes)")
+        print(f"NAME HYGIENE: PASS ({text_label}, {len(denied)} denied hashes{excluded_label})")
+    sys.exit(0)
+
+# A directory of extracted text: every regular file, in a stable order, labelled by its relative
+# path. Zero files is reported as zero, never as clean-by-default.
+if text_dir:
+    files_scanned = 0
+    for dirpath, dirnames, filenames in os.walk(text_dir):
+        dirnames.sort()
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, text_dir)
+            try:
+                scan_file(path, rel, hits)
+            except (UnicodeDecodeError, OSError) as exc:
+                print(f"NAME HYGIENE: FAIL (cannot scan {rel}: {exc})", file=sys.stderr)
+                sys.exit(2)
+            files_scanned += 1
+    if hits:
+        report(hits)
+        sys.exit(1)
+    if not quiet:
+        print(f"NAME HYGIENE: PASS ({files_scanned} files under the text directory, {len(denied)} denied hashes{excluded_label})")
     sys.exit(0)
 
 # Tracked AND untracked-but-not-ignored: a fresh leak lands in a new file, which is untracked

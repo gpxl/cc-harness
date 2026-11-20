@@ -18,3 +18,5 @@
 570fb96e91b7a4255b5b881df7b90b6ccb2622affe138341667506cff3b788b4  # NEGATIVE CONTROL: synthetic canary, never a real name
 9d988d0fabe85d0d7fdf384fe29ed451e46fa96a5dd25180e9b6d7d7e65a84e1  # WEB-<n> (ticket namespace, any number)
 94cc28e152490f7ff38ff062c43b970ff4f2a80356f1a2e9ae8fb94a10fc9af9  # web-<n> (ticket namespace, any number)
+3350dd0b2c565ab492614b206e5d28e544f5a25b1bf0760ca89a31a7b9fae067  # IdentityWebsite (client name)
+0a31947b250fd3ccfc1d3840576a5807a2e3fa9ab8ac63af6cbdc8a6020bae03  # iw-<n> (tracker namespace, any id)
