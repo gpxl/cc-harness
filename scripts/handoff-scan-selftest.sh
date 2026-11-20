@@ -253,6 +253,29 @@ text --dir loads the client terms|1|[client-terms] 'zzinternalterm'|--text-file 
 scan default loads the client terms|1|[client-terms] 'zzinternalterm'|$workdir/forked_terms --no-github
 ROWS
 
+# Round 3: a fork-only clone names the client only as its PR base, so the caller passes --repo and
+# every consumer (text scan, clone scan, installed hook) must honour it over the fork remote.
+plant fork_only
+git -C "$workdir/fork_only" remote set-url origin https://github.com/someone/kit-fork.git
+printf '%s\n' 'Notes on zzinternalterm.' > "$workdir/fork_only/notes.md"
+git -C "$workdir/fork_only" add notes.md >/dev/null && git -C "$workdir/fork_only" commit -qm 'Add notes' >/dev/null
+while IFS='|' read -r name rc needle args; do
+  # shellcheck disable=SC2086 # args is a word list by design
+  HOME="$workdir/home" HANDOFF_REGISTRY="$workdir/private/terms.conf" run "fork only + base: $name" "$rc" "$needle" $args
+done <<ROWS
+the fork alone is not client|1||--is-client --dir $workdir/fork_only
+the base is client|0||--is-client --repo octo/kit
+text --dir --repo loads the client terms|1|[client-terms] 'zzinternalterm'|--text-file $workdir/body-term.md --dir $workdir/fork_only --repo octo/kit
+clone scan --repo loads the client terms|1|[client-terms] 'zzinternalterm'|$workdir/fork_only --no-github --history --repo octo/kit
+ROWS
+HANDOFF_SCAN_HOOK_SCANNER="$tool" bash "$tool" --install-hook "$workdir/fork_only" --repo octo/kit >/dev/null 2>&1
+fork_hook="$(git -C "$workdir/fork_only" rev-parse --path-format=absolute --git-path hooks)/pre-push"
+if grep -Fq -- '--history --repo octo/kit' "$fork_hook" 2>/dev/null; then
+  pass 'fork only + base: the installed hook carries --repo'
+else
+  fail 'fork only + base: the installed hook carries --repo' "$(cat "$fork_hook" 2>/dev/null)"
+fi
+
 # A submodule gitlink is another repository: reported as not scanned, never counted silently.
 plant gitlinked
 git -C "$workdir/gitlinked" update-index --add --cacheinfo 160000,"$(git -C "$workdir/gitlinked" rev-parse HEAD)",vendor/sub >/dev/null

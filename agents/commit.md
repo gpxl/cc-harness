@@ -77,9 +77,13 @@ client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --dir "$PWD" 
 # A fork's clone can name the client only as the PR's base, so ask about the base too, here in
 # Step 0 — before any commit message is written or pushed. Either 0 is client mode.
 base=$(gh repo view --json parent,nameWithOwner -q 'if .parent then .parent.owner.login + "/" + .parent.name else .nameWithOwner end' 2>/dev/null || true)
+client_repo=''   # set only when the base, not the clone's remotes, made this a client deliverable
 if [ "$client" = 1 ] && [ -n "$base" ]; then
   client=0; bash "$HOME/.claude/scripts/handoff-scan.sh" --is-client --repo "$base" || client=$?
+  [ "$client" != 0 ] || client_repo=$base
 fi
+# Every later scan passes ${client_repo:+--repo "$client_repo"}: without it a fork-only clone
+# resolves to the fork, and the client's terms file and allowed domains are never loaded.
 ```
 
 In client mode (`rules/client-handoff.md`) everything this agent publishes is the client's to keep,
@@ -99,11 +103,11 @@ so no harness output may reach it:
   the directories). `scripts/trusted-pr-merge.sh` reads the acknowledgement from there on a client
   repository and holds a body that carries one.
 - **Scan every message, the title and the body** with
-  `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file <file> --label <what>`
+  `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" ${client_repo:+--repo "$client_repo"} --text-file <file> --label <what>`
   — see the Step 8 and Step 10 notes. Exit 1 or 2 is `COMMIT RESULT: FAIL`.
-- **Scan the clone before pushing** (Step 9): `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history`.
+- **Scan the clone before pushing** (Step 9): `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history ${client_repo:+--repo "$client_repo"}`.
   If the clone has no `pre-push` guard yet, say so in the result and recommend
-  `handoff-scan.sh --install-hook "$PWD"`; do not install it yourself.
+  `handoff-scan.sh --install-hook "$PWD" ${client_repo:+--repo "$client_repo"}`; do not install it yourself.
 - The **Test plan** block in Step 10 is replaced by a plain `## Testing` section with no stamps.
 
 If no Agent Config section exists, output `COMMIT RESULT: FAIL` with
@@ -395,7 +399,7 @@ commits cannot remediate historical hits.
 
 **Client mode** (Step 0): also scan each outgoing message with the hand-off scan, which adds every
 harness term to the name check. Write `git log --format=%B "$INTEGRATION_REF..HEAD"` to a file and
-run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file <file> --label 'outgoing commit messages'`.
+run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" ${client_repo:+--repo "$client_repo"} --text-file <file> --label 'outgoing commit messages'`.
 
 ## Step 9 — Push branch
 
@@ -410,7 +414,7 @@ git push -u origin HEAD
 Do **not** force-push if rejected. Output `COMMIT RESULT: FAIL` with
 instructions.
 
-**Client mode** (Step 0): before the push, run `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history`
+**Client mode** (Step 0): before the push, run `bash "$HOME/.claude/scripts/handoff-scan.sh" "$PWD" --no-github --history ${client_repo:+--repo "$client_repo"}`
 redirected to a file and read its exit code on its own. Anything but 0 is `COMMIT RESULT: FAIL`
 with the hits listed; nothing is pushed.
 
@@ -434,7 +438,7 @@ rm -f "$pr_text"
 [ "$status" -eq 0 ] || printf 'COMMIT RESULT: FAIL — name-hygiene exit %s on the PR title/body\n' "$status"
 ```
 
-**Client mode** (Step 0): run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" --text-file "$pr_text" --label 'pull-request title and body'`
+**Client mode** (Step 0): run `bash "$HOME/.claude/scripts/handoff-scan.sh" --dir "$PWD" ${client_repo:+--repo "$client_repo"} --text-file "$pr_text" --label 'pull-request title and body'`
 instead of `name-hygiene.sh` on the same file.
 
 Exit 1 is a denied token; exit **2** is a setup error (a missing file, an unreadable denylist) and

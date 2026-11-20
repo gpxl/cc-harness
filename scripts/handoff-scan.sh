@@ -176,6 +176,10 @@ if [ "$mode" = install-hook ]; then
   scanner="$script_dir/handoff-scan.sh"
   [ -f "$HOME/.claude/scripts/handoff-scan.sh" ] && scanner="$HOME/.claude/scripts/handoff-scan.sh"
   [ -z "${HANDOFF_SCAN_HOOK_SCANNER:-}" ] || scanner=$HANDOFF_SCAN_HOOK_SCANNER
+  # The delivery repository, when the caller knows it (a fork-only clone names the client only as
+  # its PR base), is written into the hook, so the push scan loads the client's terms and domains.
+  hook_repo=''
+  [ -z "$repo" ] || hook_repo=" --repo $repo"
   mkdir -p "$hooks_dir" || die "cannot create $hooks_dir"
   cat > "$hook" <<EOF
 #!/usr/bin/env bash
@@ -183,7 +187,7 @@ $marker (installed by handoff-scan.sh --install-hook; see rules/client-handoff.m
 # Every object about to leave this clone is already in its local history, so the local half of
 # the scan over ALL history (every reachable blob, not only tips: a file added and removed inside
 # one push still ships) covers the push. Exit non-zero blocks the push.
-exec bash "$scanner" "\$(git rev-parse --show-toplevel)" --no-github --history
+exec bash "$scanner" "\$(git rev-parse --show-toplevel)" --no-github --history$hook_repo
 EOF
   chmod +x "$hook" || die "cannot make $hook executable"
   printf 'HANDOFF SCAN: pre-push guard installed at %s\n' "$hook"
